@@ -101,6 +101,19 @@ public class UiPagesController {
         return "admin-identity-providers";
     }
 
+    /**
+     * Ticket 016: same access-control note as {@link #adminIdentityProviders} —
+     * this route only resolves theming. The page reads {@code tenant_id} off
+     * the caller's own JWT to default the "which tenant" field (see {@code
+     * AuthCoreUi.currentTenantId()}), editable so a platform_admin can query
+     * a different tenant; the server enforces who is actually allowed to.
+     */
+    @GetMapping("/admin/metrics")
+    public String adminMetrics(@RequestParam("client_id") String clientId, Model model) {
+        theme(clientId, model);
+        return "admin-metrics";
+    }
+
     private void theme(String clientId, Model model) {
         Tenant tenant = clientContextResolver.resolveTenant(clientId);
         model.addAttribute("clientId", clientId);
