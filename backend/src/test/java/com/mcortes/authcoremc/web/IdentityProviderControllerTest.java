@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
@@ -25,8 +26,15 @@ import org.springframework.test.web.servlet.assertj.MockMvcTester;
 /**
  * These endpoints are deliberately NOT in SecurityConfig's permitAll list —
  * see its Javadoc. @WithMockUser simulates "some authenticated caller" so
- * the business-logic tests aren't blocked on ticket 007's real tenant-admin
- * authentication; the no-annotation test proves the fail-closed default.
+ * the business-logic tests aren't blocked on real Bearer-JWT authentication;
+ * the no-annotation test proves the fail-closed default.
+ *
+ * <p>{@code jwtDecoder} is mocked, never stubbed to return anything (ticket
+ * 012): SecurityConfig's {@code .oauth2ResourceServer(...)} DSL needs a
+ * {@code JwtDecoder} bean to even build the filter chain, but this slice
+ * test doesn't want the full {@code AuthorizationServerConfig} (a separate,
+ * heavier filter chain of its own) — a real end-to-end Bearer-JWT proof
+ * lives in {@code AdminRoleGateIntegrationTest} instead.
  */
 @WebMvcTest(IdentityProviderController.class)
 @Import(SecurityConfig.class)
@@ -40,6 +48,9 @@ class IdentityProviderControllerTest {
 
     @MockitoBean
     private TenantIdentityProviderService providerService;
+
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
 
     private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
 

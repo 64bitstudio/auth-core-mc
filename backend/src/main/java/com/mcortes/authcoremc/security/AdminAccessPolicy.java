@@ -3,6 +3,7 @@ package com.mcortes.authcoremc.security;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.domain.UserRole;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
@@ -21,11 +22,22 @@ import org.springframework.stereotype.Component;
 public class AdminAccessPolicy {
 
     public boolean canAccessTenant(User actor, Tenant target) {
-        if (actor.getRole() == UserRole.PLATFORM_ADMIN) {
+        return canAccessTenant(actor.getRole(), actor.getTenant().getId(), target.getId());
+    }
+
+    /**
+     * Value-based overload (ticket 012) for the HTTP-layer guard, which only
+     * has the role/tenant_id claims off a decoded JWT — no {@link User}/
+     * {@link Tenant} entities, and deliberately no DB lookup per request to
+     * get them. Same decision as {@link #canAccessTenant(User, Tenant)}, so
+     * that method now delegates here instead of duplicating the logic.
+     */
+    public boolean canAccessTenant(UserRole role, UUID actorTenantId, UUID targetTenantId) {
+        if (role == UserRole.PLATFORM_ADMIN) {
             return true;
         }
-        if (actor.getRole() == UserRole.TENANT_ADMIN) {
-            return actor.getTenant().getId().equals(target.getId());
+        if (role == UserRole.TENANT_ADMIN) {
+            return actorTenantId != null && actorTenantId.equals(targetTenantId);
         }
         return false;
     }

@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
@@ -23,6 +24,11 @@ class TokenControllerTest {
 
     @Autowired
     private MockMvcTester mvc;
+
+    // Ticket 012: SecurityConfig's .oauth2ResourceServer(...) needs a JwtDecoder
+    // bean to build the filter chain at all — never stubbed, just satisfies DI.
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
 
     @MockitoBean
     private DirectTokenService directTokenService;
