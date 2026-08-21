@@ -3,7 +3,10 @@
 > Endpoints del backend: rutas, métodos, qué reciben y qué responden. Explicado en simple. Se actualiza cuando cada ticket que añade o cambia endpoints se mueve a `/done`.
 
 ## Estado actual
-`/register`, `/login`, `/verify-email/*`, `/change-email/*`, `/password-reset/*` y `/2fa/*` **implementados y probados** (tickets `002`-`005`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `006` y `007`.
+`/register`, `/login`, `/verify-email/*`, `/change-email/*`, `/password-reset/*`, `/2fa/*` y `/identity-providers/*` **implementados y probados** (tickets `002`-`006`, en `/done`). El flujo real de redirect+callback de login social (Google/Facebook) queda pendiente — ver nota en `ARQUITECTURA.md`. El resto de la superficie se irá confirmando con el ticket `007`.
+
+### ⚠️ `/identity-providers/*` requiere autenticación (a propósito, no es un descuido)
+A diferencia de todos los demás endpoints de este documento, estos **no** están en la lista `permitAll` de `SecurityConfig`. Configurar credenciales OAuth de un tenant es una acción de administración real — dejarla abierta con el mismo modelo de confianza temporal que `/verify-email` o `/2fa` (solo `X-Client-Id`) sería un riesgo real, no uno acotado. Como no existe todavía autenticación de tenant-admin (llega con ticket `007` o uno nuevo), Spring Security la protege con su comportamiento por defecto: **401 para cualquiera**, fail-closed. Es una limitación intencional, no un bug — no la debilites sin agregar autenticación real primero.
 
 ### ⚠️ Límite temporal de confianza (hasta ticket 007)
 `/verify-email/request` y `/change-email/request` reciben el `userId` directamente en el body — no hay todavía un token de acceso real que identifique "al usuario actual" (eso lo trae ticket `007`). Cualquiera que conozca (o adivine) un `userId` puede disparar el envío de un correo de verificación/cambio para ese usuario — molesto (spam, mitigado por el cooldown de 60s), pero no explotable: completar el flujo requiere poseer el token que llega a esa bandeja de entrada. Documentado también en `TenantScopedUserResolver.java`.
@@ -60,6 +63,18 @@ Mismo header `X-Client-Id` + `userId` en el body que el resto de endpoints "temp
 | POST | `/api/v1/2fa/totp/enroll` | `userId` | `200` + `{ "secret": "..." }` — mostrar una sola vez como QR/código manual, nunca se vuelve a exponer en claro |
 | POST | `/api/v1/2fa/totp/verify` | `userId`, `code` | `200` o `400 invalid_token` (incluye el caso "este código ya se usó") |
 | POST | `/api/v1/2fa/method` | `userId`, `method` (`NONE`\|`OTP_EMAIL`\|`OTP_SMS`\|`TOTP`) | `200` o `400 totp_not_enrolled` si se intenta activar `TOTP` sin haber hecho `enroll` antes |
+
+## Configuración de login social por tenant (ticket `006`)
+Requiere autenticación (ver advertencia arriba). Header `X-Client-Id` (no un `tenantId` en la ruta — el tenant siempre es el que resuelve el header, así un cliente nunca puede tocar la configuración de otro).
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| GET | `/api/v1/identity-providers` | — | `200` + lista de proveedores configurados (**sin** `client_secret`, ni siquiera cifrado) |
+| PUT | `/api/v1/identity-providers/{provider}` | `provider` = `GOOGLE`\|`FACEBOOK`\|`APPLE`; body: `clientId`, `clientSecret` | `200` + la vista sin secreto, o `400 unsupported_provider` para `APPLE` (ver nota abajo) |
+| DELETE | `/api/v1/identity-providers/{provider}` | — | `204` (deshabilita; no falla si nunca se configuró) |
+
+### Apple Sign In sigue bloqueado
+`PUT /identity-providers/APPLE` responde `400 unsupported_provider` siempre — Apple no usa un par `client_id`/`client_secret` como Google/Facebook, necesita una clave privada + Team ID + Key ID de una membresía **paga** de Apple Developer Program ($99/año), pendiente de que confirmes si la quieres.
 
 ## Verificación y cambio de correo (ticket `003`)
 | Método | Ruta | Qué hace |

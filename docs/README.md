@@ -3,7 +3,7 @@
 Servicio centralizado de autenticación/autorización (OAuth2/OIDC), multi-tenant y clonable a instancia dedicada. Ver `ARQUITECTURA.md` para el porqué de cada decisión.
 
 ## Estado actual
-Backend: modelo de dominio y migraciones (`001`), registro/login por password (`002`), verificación y cambio de correo (`003`), recuperación de contraseña (`004`), 2FA OTP+TOTP (`005`) — todos en `/done`. Aún no hay UI ni tokens OAuth2 reales (ticket `007`).
+Backend: modelo de dominio y migraciones (`001`), registro/login por password (`002`), verificación y cambio de correo (`003`), recuperación de contraseña (`004`), 2FA OTP+TOTP (`005`), configuración de login social por tenant (`006`) — todos en `/done`. Aún no hay UI, tokens OAuth2 reales, ni el flujo de redirect+callback de Google/Facebook (llegan con ticket `007`, ver `ARQUITECTURA.md`).
 
 ## Requisitos
 - Docker + Docker Compose (ya verificado en tu máquina)
@@ -24,7 +24,7 @@ Este proyecto depende de servicios compartidos definidos en `~/dev-infra/docker-
 5. Para que `/verify-email` y `/change-email` envíen correos de verdad, exporta `RESEND_API_KEY` y `RESEND_FROM_ADDRESS` (cuenta de Resend) antes de `bootRun` — sin esto, el servicio arranca igual, pero cualquier intento de enviar un correo falla explícitamente (a propósito, ver `ARQUITECTURA.md`) en vez de fingir que se envió.
 6. Para que la recuperación de contraseña por SMS (cuentas solo-teléfono) funcione de verdad, exporta `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` y `TWILIO_FROM_NUMBER` (cuenta de Twilio) — mismo contrato "falla explícito sin credenciales" que Resend.
 7. Para producción, genera y exporta tu propia `APP_SECRET_ENCRYPTION_KEY` (`openssl rand -base64 32`) — el default en `application.properties` es **público** (vive en este repo) y solo sirve para desarrollo/tests; cualquier secreto cifrado con el default no ofrece protección real.
-8. (Pendiente, llega con ticket `006`): credenciales de Google/Facebook/Apple OAuth.
+8. Credenciales de Google (`auth-core-mc`, proyecto GCP dedicado) y Facebook (`Auth Core MC`, app dedicada) ya están en `.env` — ambas apps quedaron en modo "prueba/desarrollo" (login solo para el desarrollador y testers agregados manualmente; publicarlas para cualquier usuario real es un paso aparte, ver consola de cada plataforma). El redirect URI configurado es `http://localhost:8080/login/oauth2/code/{google|facebook}`. Apple queda pendiente de que confirmes la membresía paga de Apple Developer Program.
 
 ## Cómo probar `/register` y `/login` manualmente
 
