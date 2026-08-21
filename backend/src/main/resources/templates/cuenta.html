@@ -17,6 +17,20 @@
       vuelve a consultar en vivo. Si verificaste tu correo en otra pestaña, vuelve a iniciar sesión para verlo reflejado aquí.
     </p>
 
+    <!--
+      Ticket 025: HU-1. Shown only for a TENANT_ADMIN/PLATFORM_ADMIN session
+      (client-side, AuthCoreUi.currentRole() — same mechanism/trust-boundary
+      already used for the "Clientes" sidenav link since ticket 020, see
+      fragments/admin-shell.html's comment). Starts hidden in the HTML
+      actually served so there's no visible flash for a non-admin/NONE-role
+      user before the script below runs.
+    -->
+    <section class="card hidden" id="admin-panel-card">
+      <h3>Panel de administración</h3>
+      <p class="field-hint">Tienes acceso al panel de administración con esta sesión.</p>
+      <button type="button" id="admin-panel-btn" class="secondary">Ir al panel de administración</button>
+    </section>
+
     <section class="card">
       <h3>Verificación de correo</h3>
       <p id="verification-status">Correo: <span id="email-value"></span> — <span id="verified-value"></span></p>
@@ -85,6 +99,18 @@
       document.getElementById("email-value").textContent = snapshot.email || "(sin correo registrado)";
       document.getElementById("verified-value").textContent = snapshot.emailVerified ? "verificado" : "sin verificar";
     }
+
+    // Ticket 025: HU-1 — reveal the "Ir al panel de administración" button
+    // only for this session's own role (never assumed across apps/tenants,
+    // per the ticket's explicit "other client_id" acceptance criterion —
+    // AuthCoreUi.currentRole() always decodes THIS session's own JWT).
+    const adminRole = AuthCoreUi.currentRole();
+    if (adminRole === "TENANT_ADMIN" || adminRole === "PLATFORM_ADMIN") {
+      document.getElementById("admin-panel-card").classList.remove("hidden");
+    }
+    document.getElementById("admin-panel-btn").addEventListener("click", () => {
+      window.location.href = "/ui/admin?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+    });
 
     const status = document.getElementById("status");
     const userId = () => AuthCoreUi.currentUserId();

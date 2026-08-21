@@ -30,6 +30,12 @@
 
   <nav th:fragment="sidenav(active)" class="admin-sidenav">
     <a
+      href="#"
+      th:href="@{/ui/admin(client_id=${clientId})}"
+      th:classappend="${active == 'inicio'} ? ' active' : ''"
+      ><span th:replace="~{fragments/icons :: icon-inicio}"></span><span>Inicio</span></a
+    >
+    <a
       id="admin-nav-tenants"
       href="#"
       class="hidden"
