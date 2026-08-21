@@ -105,6 +105,20 @@ class UiPagesControllerTest {
     }
 
     @Test
+    void rendersTheAdminIdentityProvidersPageThemedForTheResolvedTenant() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+
+        mvc.get()
+                .uri("/ui/admin/identity-providers")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("Acme App");
+    }
+
+    @Test
     void confirmationPagesRenderWithoutNeedingAClientId() {
         mvc.get().uri("/ui/verify-email/confirm").exchange().assertThat().hasStatus(200);
         mvc.get().uri("/ui/change-email/confirm").exchange().assertThat().hasStatus(200);

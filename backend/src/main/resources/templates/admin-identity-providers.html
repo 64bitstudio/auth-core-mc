@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org" th:attr="style='--primary-color:' + ${primaryColor} + ';'">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title th:text="${appName} + ' — Proveedores de login'">Proveedores de login</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header"><h1 th:text="${appName}">App</h1></header>
+  <main id="main">
+    <h2>Proveedores de login social</h2>
+    <div id="status" class="hidden" aria-live="polite"></div>
+    <p class="field-hint">
+      Configura las credenciales de Google y Facebook para este cliente. El secreto nunca se
+      vuelve a mostrar una vez guardado — para cambiarlo, ingresa uno nuevo completo. Apple no
+      está disponible todavía.
+    </p>
+
+    <section class="card" data-provider="GOOGLE">
+      <h3>Google</h3>
+      <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
+      <form class="provider-form" novalidate>
+        <div>
+          <label for="google-client-id">Client ID</label>
+          <input type="text" id="google-client-id" name="clientId" aria-label="Client ID de Google" required autocomplete="off" />
+        </div>
+        <div>
+          <label for="google-client-secret">Client secret</label>
+          <input type="password" id="google-client-secret" name="clientSecret" aria-label="Client secret de Google" required autocomplete="off" />
+        </div>
+        <button type="submit">Guardar</button>
+      </form>
+      <button type="button" class="secondary provider-disable-btn hidden">Desactivar Google</button>
+    </section>
+
+    <section class="card" data-provider="FACEBOOK">
+      <h3>Facebook</h3>
+      <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
+      <form class="provider-form" novalidate>
+        <div>
+          <label for="facebook-client-id">Client ID</label>
+          <input type="text" id="facebook-client-id" name="clientId" aria-label="Client ID de Facebook" required autocomplete="off" />
+        </div>
+        <div>
+          <label for="facebook-client-secret">Client secret</label>
+          <input type="password" id="facebook-client-secret" name="clientSecret" aria-label="Client secret de Facebook" required autocomplete="off" />
+        </div>
+        <button type="submit">Guardar</button>
+      </form>
+      <button type="button" class="secondary provider-disable-btn hidden">Desactivar Facebook</button>
+    </section>
+  </main>
+
+  <script th:src="@{/js/api.js}"></script>
+  <script>
+    const status = document.getElementById("status");
+    const PROVIDERS = ["GOOGLE", "FACEBOOK"];
+
+    async function loadProviders() {
+      try {
+        const providers = await AuthCoreUi.callAdmin("GET", "/api/v1/admin/identity-providers");
+        const byName = {};
+        providers.forEach((p) => {
+          byName[p.provider] = p;
+        });
+        PROVIDERS.forEach((name) => {
+          const section = document.querySelector('[data-provider="' + name + '"]');
+          const entry = byName[name];
+          const valueEl = section.querySelector(".provider-status-value");
+          const disableBtn = section.querySelector(".provider-disable-btn");
+          if (entry && entry.enabled) {
+            valueEl.textContent = "activo — client ID " + entry.clientId;
+            disableBtn.classList.remove("hidden");
+          } else {
+            valueEl.textContent = "sin configurar";
+            disableBtn.classList.add("hidden");
+          }
+        });
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    }
+
+    PROVIDERS.forEach((name) => {
+      const section = document.querySelector('[data-provider="' + name + '"]');
+      section.querySelector(".provider-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          await AuthCoreUi.callAdmin("PUT", "/api/v1/admin/identity-providers/" + name, {
+            clientId: e.target.clientId.value,
+            clientSecret: e.target.clientSecret.value,
+          });
+          e.target.reset();
+          AuthCoreUi.showStatus(status, name + " guardado.", false);
+          loadProviders();
+        } catch (err) {
+          AuthCoreUi.showStatus(status, err.message, true);
+        }
+      });
+      section.querySelector(".provider-disable-btn").addEventListener("click", async () => {
+        try {
+          await AuthCoreUi.callAdmin("DELETE", "/api/v1/admin/identity-providers/" + name);
+          AuthCoreUi.showStatus(status, name + " desactivado.", false);
+          loadProviders();
+        } catch (err) {
+          AuthCoreUi.showStatus(status, err.message, true);
+        }
+      });
+    });
+
+    if (AuthCoreUi.requireAdminSession()) {
+      loadProviders();
+    }
+  </script>
+</body>
+</html>
