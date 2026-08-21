@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Confirmar cambio de correo</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+</head>
+<body>
+  <!-- No tenant theming: see password-reset-confirm.html for why. -->
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header"><h1>Confirmar cambio de correo</h1></header>
+  <main id="main">
+    <div id="status" role="status" aria-live="polite">Confirmando…</div>
+  </main>
+
+  <script th:src="@{/js/api.js}"></script>
+  <script>
+    (async () => {
+      const status = document.getElementById("status");
+      const token = AuthCoreUi.tokenFromUrl();
+      if (!token) {
+        AuthCoreUi.showStatus(status, "Falta el token del enlace. Usa el enlace del correo recibido.", true);
+        return;
+      }
+      try {
+        const res = await fetch("/api/v1/change-email/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: token }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error((data && data.message) || `Error ${res.status}`);
+        }
+        AuthCoreUi.showStatus(status, "Tu nuevo correo quedó confirmado.", false);
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    })();
+  </script>
+</body>
+</html>

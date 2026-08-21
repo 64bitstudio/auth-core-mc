@@ -1,0 +1,107 @@
+package com.mcortes.authcoremc.web;
+
+import static org.mockito.Mockito.when;
+
+import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.security.SecurityConfig;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+
+// See RegistrationControllerTest for why SecurityConfig must be imported explicitly here.
+@WebMvcTest(UiPagesController.class)
+@Import(SecurityConfig.class)
+class UiPagesControllerTest {
+
+    @Autowired
+    private MockMvcTester mvc;
+
+    @MockitoBean
+    private ClientContextResolver clientContextResolver;
+
+    private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+
+    @Test
+    void rendersTheRegisterPageThemedForTheResolvedTenant() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+
+        mvc.get()
+                .uri("/ui/register")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("Acme App")
+                .contains("#0057FF");
+    }
+
+    @Test
+    void registerPageWithoutClientIdIsABadRequest() {
+        mvc.get().uri("/ui/register").exchange().assertThat().hasStatus(400);
+    }
+
+    @Test
+    void rendersTheLoginPageThemedForTheResolvedTenant() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+
+        mvc.get()
+                .uri("/ui/login")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("Acme App");
+    }
+
+    @Test
+    void rendersTheCuentaPageThemedForTheResolvedTenant() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+
+        mvc.get()
+                .uri("/ui/cuenta")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("Acme App");
+    }
+
+    @Test
+    void rendersThePasswordResetRequestPageThemedForTheResolvedTenant() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+
+        mvc.get()
+                .uri("/ui/password-reset/request")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("Acme App");
+    }
+
+    @Test
+    void anUnknownClientIdOnAThemedPageIsRejected() {
+        when(clientContextResolver.resolveTenant("no-such-client")).thenThrow(new UnknownClientException("no-such-client"));
+
+        mvc.get()
+                .uri("/ui/register")
+                .param("client_id", "no-such-client")
+                .exchange()
+                .assertThat()
+                .hasStatus(401);
+    }
+
+    @Test
+    void confirmationPagesRenderWithoutNeedingAClientId() {
+        mvc.get().uri("/ui/verify-email/confirm").exchange().assertThat().hasStatus(200);
+        mvc.get().uri("/ui/change-email/confirm").exchange().assertThat().hasStatus(200);
+        mvc.get().uri("/ui/password-reset/confirm").exchange().assertThat().hasStatus(200);
+    }
+}

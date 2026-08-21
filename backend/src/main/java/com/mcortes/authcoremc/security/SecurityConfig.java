@@ -28,7 +28,14 @@ public class SecurityConfig {
                                 "/api/v1/password-reset/**",
                                 "/api/v1/2fa/**",
                                 "/api/v1/token/**",
-                                "/actuator/health")
+                                "/actuator/health",
+                                // Ticket 009: server-rendered pages and their static assets. Public
+                                // by design — /ui/cuenta's own guard is client-side (see its
+                                // Javadoc in UiPagesController), not enforced here, since none of
+                                // these pages are backed by a real Spring Security session yet.
+                                "/ui/**",
+                                "/css/**",
+                                "/js/**")
                         .permitAll()
                         .anyRequest()
                         .authenticated())

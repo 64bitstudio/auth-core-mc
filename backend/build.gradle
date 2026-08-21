@@ -30,6 +30,11 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-restclient'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-authorization-server'
+	// Server-rendered theming (ticket 009): the tenant's app_name/primary_color
+	// have to be resolved and injected server-side before the page reaches the
+	// browser, since a plain page navigation can't carry the X-Client-Id header
+	// the JSON API uses — see docs/ARQUITECTURA.md ticket 009.
+	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
 	// Required at runtime by Argon2PasswordEncoder (ticket 002) — missed
 	// until now because every test mocks PasswordEncoder or never actually
 	// calls encode()/matches() on the real bean; only surfaced by actually

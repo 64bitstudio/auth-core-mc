@@ -10,8 +10,8 @@ class VerificationLinkFactoryTest {
     void buildsALinkWithTheTokenAsAQueryParameter() {
         VerificationLinkFactory factory = new VerificationLinkFactory("https://auth.example.com");
 
-        String link = factory.build("/api/v1/verify-email/confirm", "abc123");
+        String link = factory.build("/ui/verify-email/confirm", "abc123");
 
-        assertThat(link).isEqualTo("https://auth.example.com/api/v1/verify-email/confirm?token=abc123");
+        assertThat(link).isEqualTo("https://auth.example.com/ui/verify-email/confirm?token=abc123");
     }
 }
