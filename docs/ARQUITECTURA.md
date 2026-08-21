@@ -314,5 +314,17 @@ Segundo ticket del rediseño de UI. Formularios reales en `/ui/admin/tenants`, s
 - Sin tests nuevos — sin backend nuevo que probar (los endpoints ya están cubiertos desde el ticket 013); esta es una capa de presentación pura, verificada en vivo.
 - 255/255 tests en verde (sin cambio, ningún test se agregó ni se rompió).
 
+## Ticket 022: reactivar tenant + confirmación antes de desactivar
+
+Tercer ticket del rediseño de UI (HU-6, HU-7). `Tenant.reactivate()` existía desde el ticket 013 pero ningún endpoint lo exponía — este ticket agrega el backend faltante y un diálogo de confirmación real (no `confirm()` nativo), compartido por "desactivar" y "reactivar".
+
+- **`POST /api/v1/admin/tenants/{id}/reactivate` (nuevo)**: mismo patrón exacto que `deactivate` — `AdminTenantService.reactivate(actorRole, targetTenantId)`, `platform_admin`-only, delega en `Tenant.reactivate()` ya existente. Sin migración nueva (`deactivated_at` ya era nullable).
+- **Prueba end-to-end real** (`AdminTenantEndToEndTest`): tenant creado → registro funciona → `platform_admin` lo desactiva vía el endpoint real → registro pasa a 403 (`tenant_deactivated`, mismo choke-point de `ClientContextResolver` del ticket 013) → se reactiva vía el endpoint real → registro vuelve a funcionar de inmediato. Usa un tenant separado del que autentica al actor, para probar el efecto sobre OTRO tenant, no un artefacto del propio login.
+- **Diálogo de confirmación compartido** (`dialog.confirm-dialog`, ya preparado en `admin.css` desde el ticket 020): un solo componente reutilizado por "Desactivar" y "Reactivar", con el mensaje ajustado según la acción pendiente. Cancelar cierra el diálogo sin ninguna llamada al backend (verificado en vivo).
+- **UI en `/ui/admin/tenants`**: la columna "Acciones" ahora también muestra "Desactivar" (solo en tenants activos) o "Reactivar" (solo en desactivados) junto a "Editar" — antes de este ticket no existía ningún control de baja/alta en la UI, solo el `DELETE`/nuevo `POST` a nivel API.
+- **Bug de layout encontrado en vivo, no por ningún test automatizado**: con dos botones en la misma celda, el texto se recortaba a mitad de palabra ("Desa…", "Reac…") dentro del contenedor de scroll horizontal de la tabla — la celda no se ensanchaba, simplemente cortaba el contenido porque no se estaba usando la barra de scroll interna visiblemente en ese viewport. Corregido apilando los botones verticalmente con un wrapper interno (`.actions-cell-inner`, flex-column) en vez de dársele `display:flex` al propio `<td>` (romper la semántica de tabla del `<td>` desalinea la fila con sus hermanas).
+- Probado en vivo: confirmar/cancelar ambas acciones con los mensajes correctos, cambio de estado reflejado sin recargar, botón cambia de "Desactivar" a "Reactivar" tras cada acción.
+- 259/259 tests en verde (4 nuevos: 2 unitarios en `AdminTenantServiceTest` — permiso y efecto de `reactivate` —, 2 end-to-end en `AdminTenantEndToEndTest` — permiso real y el ciclo completo desactivar→reactivar).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `021` (alta y edición de tenant desde la UI)._
+_Última actualización: al cerrar la tarea `022` (reactivar tenant + confirmación antes de desactivar)._

@@ -158,4 +158,27 @@ class AdminTenantServiceTest {
         assertThat(tenant.isActive()).isFalse();
         assertThat(tenant.getDeactivatedAt()).isNotNull();
     }
+
+    @Test
+    void onlyPlatformAdminCanReactivateATenant() {
+        Tenant tenant = tenantWithId();
+        UUID tenantId = tenant.getId();
+        AdminTenantService service = service();
+
+        assertThatThrownBy(() -> service.reactivate(UserRole.TENANT_ADMIN, tenantId))
+                .isInstanceOf(TenantAccessDeniedException.class);
+    }
+
+    @Test
+    void reactivatingClearsDeactivatedAt() {
+        Tenant tenant = tenantWithId();
+        tenant.deactivate();
+        when(tenantRepository.findById(tenant.getId())).thenReturn(Optional.of(tenant));
+        when(tenantRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service().reactivate(UserRole.PLATFORM_ADMIN, tenant.getId());
+
+        assertThat(tenant.isActive()).isTrue();
+        assertThat(tenant.getDeactivatedAt()).isNull();
+    }
 }

@@ -121,13 +121,24 @@
     </form>
   </dialog>
 
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <p id="confirm-dialog-message"></p>
+    <div class="confirm-actions">
+      <button type="button" class="secondary" id="confirm-cancel-btn">Cancelar</button>
+      <button type="button" class="danger" id="confirm-accept-btn">Confirmar</button>
+    </div>
+  </dialog>
+
   <script th:src="@{/js/api.js}"></script>
   <div th:replace="~{fragments/admin-shell :: script}"></div>
   <script>
     const status = document.getElementById("status");
     const clientId = AuthCoreUi.clientIdFromUrl();
     const editDialog = document.getElementById("edit-tenant-dialog");
+    const confirmDialog = document.getElementById("confirm-dialog");
+    const confirmMessage = document.getElementById("confirm-dialog-message");
     let tenantsById = {};
+    let pendingLifecycleAction = null;
 
     function escapeHtml(value) {
       const div = document.createElement("div");
@@ -160,18 +171,27 @@
           const badge = tenant.active
             ? '<span class="badge active">activo</span>'
             : '<span class="badge inactive">desactivado</span>';
+          const lifecycleBtn = tenant.active
+            ? '<button type="button" class="secondary danger lifecycle-btn" data-tenant-id="' +
+              tenant.id + '" data-action="deactivate">Desactivar</button>'
+            : '<button type="button" class="secondary lifecycle-btn" data-tenant-id="' +
+              tenant.id + '" data-action="reactivate">Reactivar</button>';
           row.innerHTML =
             "<td>" + escapeHtml(tenant.name) + "</td>" +
             "<td>" + escapeHtml(tenant.appName) + "</td>" +
             "<td>" + badge + "</td>" +
             "<td>" + escapeHtml(new Date(tenant.createdAt).toLocaleDateString()) + "</td>" +
             '<td><a href="' + metricsUrl + '">Ver métricas</a></td>' +
-            '<td><button type="button" class="secondary edit-btn" data-tenant-id="' + tenant.id + '">Editar</button></td>';
+            '<td><div class="actions-cell-inner"><button type="button" class="secondary edit-btn" data-tenant-id="' + tenant.id + '">Editar</button>' +
+            lifecycleBtn + "</div></td>";
           tbody.appendChild(row);
         });
 
         document.querySelectorAll(".edit-btn").forEach((btn) => {
           btn.addEventListener("click", () => openEditDialog(btn.dataset.tenantId));
+        });
+        document.querySelectorAll(".lifecycle-btn").forEach((btn) => {
+          btn.addEventListener("click", () => openConfirmDialog(btn.dataset.tenantId, btn.dataset.action));
         });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
@@ -238,6 +258,46 @@
         AuthCoreUi.showStatus(status, "Cliente actualizado.", false);
         loadTenants();
       } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    });
+
+    function openConfirmDialog(tenantId, action) {
+      const tenant = tenantsById[tenantId];
+      if (!tenant) {
+        return;
+      }
+      pendingLifecycleAction = { tenantId, action };
+      confirmMessage.textContent =
+        action === "deactivate"
+          ? 'Vas a desactivar "' + tenant.name + '". Sus usuarios no podrán iniciar sesión ni registrarse hasta que lo reactives. ¿Confirmas?'
+          : 'Vas a reactivar "' + tenant.name + '". Sus usuarios podrán volver a iniciar sesión y registrarse de inmediato. ¿Confirmas?';
+      confirmDialog.showModal();
+    }
+
+    document.getElementById("confirm-cancel-btn").addEventListener("click", () => {
+      pendingLifecycleAction = null;
+      confirmDialog.close();
+    });
+
+    document.getElementById("confirm-accept-btn").addEventListener("click", async () => {
+      if (!pendingLifecycleAction) {
+        return;
+      }
+      const { tenantId, action } = pendingLifecycleAction;
+      pendingLifecycleAction = null;
+      try {
+        if (action === "deactivate") {
+          await AuthCoreUi.callAdmin("DELETE", "/api/v1/admin/tenants/" + tenantId);
+          AuthCoreUi.showStatus(status, "Cliente desactivado.", false);
+        } else {
+          await AuthCoreUi.callAdmin("POST", "/api/v1/admin/tenants/" + tenantId + "/reactivate");
+          AuthCoreUi.showStatus(status, "Cliente reactivado.", false);
+        }
+        confirmDialog.close();
+        loadTenants();
+      } catch (err) {
+        confirmDialog.close();
         AuthCoreUi.showStatus(status, err.message, true);
       }
     });

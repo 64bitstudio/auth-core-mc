@@ -386,6 +386,20 @@ td a:hover {
   border: 1px solid var(--admin-border-strong);
 }
 
+/* Ticket 022: found live — two buttons side by side in the Acciones cell
+ * pushed the table wider than the card, so the second button's text got
+ * silently truncated inside the horizontal scroll area instead of
+ * wrapping visibly. Stacking them (via an inner flex wrapper, not the
+ * <td> itself — a flex <td> drops out of the table's own layout
+ * algorithm) keeps the column narrow regardless of how many lifecycle
+ * actions a row ends up with. */
+.actions-cell-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
 /* Ticket 022: confirmation dialog, shared by "deactivate" and
  * "reactivate" — a real HTML <dialog>, never the browser's native
  * confirm() (same rationale as ticket 010's removal of native
