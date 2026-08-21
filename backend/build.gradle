@@ -2,6 +2,10 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '4.1.0'
 	id 'io.spring.dependency-management' version '1.1.7'
+	// Ticket 010: analiza contra la instancia local de SonarQube (~/dev-infra) desde
+	// el pipeline de CI (self-hosted runner, ver .github/workflows/ci.yml — un
+	// runner en la nube no podría alcanzar ese localhost).
+	id 'org.sonarqube' version '7.4.0.8496'
 }
 
 group = 'com.mcortes'
@@ -61,4 +65,14 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+sonar {
+	properties {
+		property "sonar.projectKey", "auth-core-mc"
+		property "sonar.projectName", "auth-core-mc"
+		// SONAR_HOST_URL/SONAR_TOKEN vienen del entorno (secretos de GitHub
+		// Actions) — el plugin los reconoce automáticamente, no hace falta
+		// declararlos aquí ni hardcodear nada.
+	}
 }
