@@ -39,10 +39,12 @@
       const form = e.target;
       const body = { identifier: form.identifier.value, password: form.password.value };
       try {
-        const result = await AuthCoreUi.call("/api/v1/login", body);
-        AuthCoreUi.saveSession(result.user, result.tokens);
-        AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
-        window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          const result = await AuthCoreUi.call("/api/v1/login", body);
+          AuthCoreUi.saveSession(result.user, result.tokens);
+          AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
+          window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }

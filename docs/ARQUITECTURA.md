@@ -326,5 +326,19 @@ Tercer ticket del rediseño de UI (HU-6, HU-7). `Tenant.reactivate()` existía d
 - Probado en vivo: confirmar/cancelar ambas acciones con los mensajes correctos, cambio de estado reflejado sin recargar, botón cambia de "Desactivar" a "Reactivar" tras cada acción.
 - 259/259 tests en verde (4 nuevos: 2 unitarios en `AdminTenantServiceTest` — permiso y efecto de `reactivate` —, 2 end-to-end en `AdminTenantEndToEndTest` — permiso real y el ciclo completo desactivar→reactivar).
 
+## Ticket 023: rediseño de las páginas de usuario final
+
+Cuarto y último ticket del rediseño de UI (HU-3). El theming `--primary-color` por tenant y la base visual de `app.css` ya estaban sólidos (rediseñados por feedback del Product Owner antes de este ticket) — la brecha real encontrada al revisar las 7 páginas era otra: **ningún formulario mostraba ningún estado mientras esperaba al backend**, y una tarjeta con más de un `<form>` no tenía ningún espacio visual entre ellos.
+
+- **`AuthCoreUi.withBusy(button, task)` (nuevo, aditivo en `api.js`)**: deshabilita el botón y le agrega `.is-loading` (spinner CSS, texto oculto sin cambiar el ancho del botón) mientras `task` corre, restaurando siempre en un `finally` — se recupera incluso si `task` lanza. `showStatus()` también limpia `is-loading` ahora, para que las dos páginas de confirmación por token (que muestran el spinner apenas cargan, antes de que exista ningún botón) lo limpien gratis en su único llamado a `showStatus()`.
+- Aplicado a los 11 puntos de envío async de las 5 páginas con formularios (`register`, `login`, `password-reset/request`, `password-reset/confirm`, y las 7 acciones de `cuenta` — reenviar verificación + 6 formularios de 2FA).
+- Las 2 páginas de confirmación por token (`verify-email/confirm`, `change-email/confirm`) llevan la clase `is-loading` ya en el HTML servido (`"Verificando…"`/`"Confirmando…"`) — mismo spinner, sin JS adicional en esas páginas.
+- **Bug real de espaciado encontrado en vivo**: `section.card` no tenía `gap`, así que dos `<form>` hermanos dentro de la misma tarjeta (la sección 2FA de `cuenta.html`, con 4 sub-flujos) quedaban pegados sin ningún espacio — el botón de un formulario tocaba la etiqueta del siguiente. Corregido con `display:flex; flex-direction:column; gap` en `section.card`.
+- **Jerarquía real, no solo espaciado**: los `<hr/>` que separaban los 3 sub-flujos de 2FA (código por correo/SMS, TOTP, método preferido) se reemplazaron por encabezados `<h4>` reales dentro de un wrapper `.subsection` — nombran cada sub-flujo en vez de solo separarlo visualmente.
+- **Estados vacíos**: revisados los 7 templates explícitamente (no asumido) — ninguno tiene contenido tipo lista/colección (a diferencia de la tabla de tenants del panel admin), así que no aplica un estado vacío nuevo; el único caso análogo ya existía antes de este ticket (`cuenta.html` ya mostraba `"(sin correo registrado)"` como fallback).
+- **Cero cambios al contrato de `api.js` con el backend** — `withBusy` es una envoltura puramente de UI alrededor de las llamadas ya existentes, ningún endpoint ni payload cambió.
+- Probado en vivo: spinner de botón (forzado con una promesa retrasada para verificar el CSS, ya que las respuestas locales son demasiado rápidas para capturarlo con una petición real), spinner de las páginas de confirmación por token, layout de 2FA con los nuevos encabezados, y un error 500 real (falta `RESEND_API_KEY` en este entorno — limitación preexistente, no relacionada) confirmando que el estado de carga también se limpia correctamente en el camino de error.
+- 259/259 tests en verde (sin tests nuevos — presentación pura; `UiPagesControllerTest` ya cubre que las 7 páginas siguen respondiendo 200 con el theming correcto).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `022` (reactivar tenant + confirmación antes de desactivar)._
+_Última actualización: al cerrar la tarea `023` (rediseño de las páginas de usuario final) — cierra el epic de rediseño de UI completo (tickets 020-023)._
