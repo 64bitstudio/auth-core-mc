@@ -56,5 +56,11 @@ Un servicio centralizado de autenticación y autorización (identidad) que cualq
 
 La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API — no tiene lógica de negocio propia, solo presenta formularios y llama a los mismos endpoints que cualquier integración externa usaría.
 
+## Lecciones del ticket 001 (por qué los tests están configurados así)
+
+- **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
+- **La traducción de excepciones de Spring solo aplica a llamadas a través del proxy `@Repository`**: si el test llama `entityManager.flush()` directamente (para forzar el INSERT diferido de Hibernate), la excepción que sale es la nativa de Hibernate (`org.hibernate.exception.ConstraintViolationException`), no la traducida de Spring (`org.springframework.dao.DataIntegrityViolationException`). Ambas ocurren en este proyecto según de dónde se dispare el flush — ver los tests de `UserRepositoryTest` para el patrón exacto.
+- **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `000` (directiva de documentación). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `001` (modelo de dominio y migraciones). Se actualizará con cada ticket movido a `/done`._

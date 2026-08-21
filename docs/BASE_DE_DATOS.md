@@ -3,14 +3,16 @@
 > Esquema de tablas, relaciones y para qué sirve cada campo. Se actualiza cuando se completa el ticket `001-modelo-dominio-y-migraciones` y cualquier ticket posterior que cambie el esquema.
 
 ## Estado actual
-**Pendiente de implementación** (ticket `001` en `/pending`). Este documento describe el diseño planeado; se irá marcando como implementado conforme se completen las migraciones reales (Flyway) y se reemplazará cada sección "planeado" por el esquema verificado.
+**Implementado y verificado** (ticket `001`, en `/done`). Migración real: `backend/src/main/resources/db/migration/V1__init.sql`. Los tests de repositorio (`backend/src/test/.../repository/`) corren contra esta migración exacta — `spring.jpa.hibernate.ddl-auto=validate` en los tests evita que Hibernate genere un esquema paralelo desde las entidades, así que lo que ves aquí es literalmente lo que existe en la base de datos.
 
-## Diagrama de entidades (planeado)
+**Nota de nombres:** la tabla de usuarios se llama `app_user`, no `user` — `USER` es palabra reservada en PostgreSQL/ANSI SQL. La tabla de clientes OAuth2 se llama `identity_client`, no `oauth2_client` — para no chocar con el esquema propio que trae Spring Authorization Server (`oauth2_registered_client`, etc.), que el ticket `007` decidirá cómo reconciliar.
+
+## Diagrama de entidades
 
 ```
-tenant ──┬──< user
+tenant ──┬──< app_user
          ├──< tenant_identity_provider
-         └──< oauth2_client ──< refresh_token >── user
+         └──< identity_client ──< refresh_token >── app_user
 ```
 
 ## `tenant`
@@ -29,7 +31,7 @@ Representa un proyecto/cliente que usa este servicio de identidad.
 | `otp_ttl_seconds` | int | Vigencia de un código OTP (SMS/correo) |
 | `created_at` | timestamp | Auditoría |
 
-## `user`
+## `app_user`
 Un usuario final, siempre asociado a un `tenant`.
 
 | Campo | Tipo | Para qué sirve |
@@ -46,7 +48,7 @@ Un usuario final, siempre asociado a un `tenant`.
 | `totp_secret_encrypted` | text, nullable | Secreto TOTP cifrado, si activó 2FA por app autenticadora |
 | `created_at` | timestamp | Auditoría |
 
-_Constraint: `email IS NOT NULL OR phone IS NOT NULL`._
+_Constraint `app_user_email_or_phone_required`: `email IS NOT NULL OR phone IS NOT NULL`. También hay UNIQUE por tenant en `email` y en `phone` (`app_user_tenant_email_unique`, `app_user_tenant_phone_unique`) — Postgres trata cada `NULL` como distinto, así que cualquier cantidad de usuarios "solo teléfono" o "solo correo" puede coexistir sin chocar entre sí._
 
 ## `tenant_identity_provider`
 Configuración de login social, por tenant.
@@ -60,8 +62,8 @@ Configuración de login social, por tenant.
 | `client_id` | text | Client ID entregado por el proveedor (Google/Facebook/Apple) |
 | `client_secret_encrypted` | text | Client secret, cifrado a nivel de aplicación (ver `ARQUITECTURA.md` sección 6) |
 
-## `oauth2_client`
-Una aplicación registrada que puede pedir tokens a este servicio.
+## `identity_client`
+Una aplicación registrada que puede pedir tokens a este servicio (ver nota de nombres arriba: no se llama `oauth2_client` a propósito).
 
 | Campo | Tipo | Para qué sirve |
 |---|---|---|
