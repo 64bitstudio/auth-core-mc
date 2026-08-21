@@ -125,4 +125,27 @@ class AuthControllerTest {
                 .assertThat()
                 .hasStatus(429);
     }
+
+    /**
+     * Regression test: a missing X-Client-Id used to be masked as a 401 with
+     * a WWW-Authenticate challenge (making a real browser pop up its own
+     * login dialog) instead of the real 400 — the servlet container's
+     * internal forward to /error, triggered by this exact exception, wasn't
+     * in SecurityConfig's permitAll list. See SecurityConfig's Javadoc.
+     */
+    @Test
+    void aMissingClientIdHeaderIsAPlain400NotA401() {
+        mvc.post()
+                .uri("/api/v1/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"identifier":"ada@example.com","password":"abcd1234"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(400)
+                .doesNotContainHeader("WWW-Authenticate")
+                .bodyText()
+                .contains("validation_error");
+    }
 }

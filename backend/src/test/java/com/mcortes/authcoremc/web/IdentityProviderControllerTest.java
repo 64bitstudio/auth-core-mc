@@ -49,6 +49,27 @@ class IdentityProviderControllerTest {
                 401);
     }
 
+    /**
+     * Regression test: SecurityConfig used to enable {@code httpBasic()},
+     * whose 401s always carried a {@code WWW-Authenticate: Basic} header —
+     * harmless for an API client, but it makes a real browser pop up its own
+     * native username/password dialog on any request that isn't in
+     * permitAll. This app has no HTTP Basic auth flow anywhere, so that
+     * header should never be sent. See SecurityConfig's Javadoc.
+     */
+    @Test
+    void aFailClosed401NeverCarriesAWwwAuthenticateChallengeHeader() {
+        mvc.get()
+                .uri("/api/v1/identity-providers")
+                .header("X-Client-Id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(401)
+                .doesNotContainHeader("WWW-Authenticate")
+                .bodyText()
+                .contains("unauthorized");
+    }
+
     @Test
     @WithMockUser
     void listReturnsTheConfiguredProvidersWithoutTheSecret() {
