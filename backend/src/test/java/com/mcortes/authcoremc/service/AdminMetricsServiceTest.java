@@ -123,8 +123,9 @@ class AdminMetricsServiceTest {
         Instant to = Instant.now();
         when(tenantRepository.findById(tenant.getId())).thenReturn(Optional.of(tenant));
         AdminMetricsService service = service();
+        UUID otherActorTenantId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.metrics(UserRole.TENANT_ADMIN, UUID.randomUUID(), tenant.getId(), from, to))
+        assertThatThrownBy(() -> service.metrics(UserRole.TENANT_ADMIN, otherActorTenantId, tenant.getId(), from, to))
                 .isInstanceOf(TenantAccessDeniedException.class);
     }
 
@@ -135,8 +136,9 @@ class AdminMetricsServiceTest {
         Instant to = Instant.now();
         when(tenantRepository.findById(unknownId)).thenReturn(Optional.empty());
         AdminMetricsService service = service();
+        UUID actorTenantId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.metrics(UserRole.PLATFORM_ADMIN, UUID.randomUUID(), unknownId, from, to))
+        assertThatThrownBy(() -> service.metrics(UserRole.PLATFORM_ADMIN, actorTenantId, unknownId, from, to))
                 .isInstanceOf(TenantNotFoundException.class);
     }
 
@@ -146,8 +148,9 @@ class AdminMetricsServiceTest {
         Instant to = from.minus(1, ChronoUnit.DAYS);
         AdminMetricsService service = service();
         UUID someTenantId = UUID.randomUUID();
+        UUID actorTenantId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.metrics(UserRole.PLATFORM_ADMIN, UUID.randomUUID(), someTenantId, from, to))
+        assertThatThrownBy(() -> service.metrics(UserRole.PLATFORM_ADMIN, actorTenantId, someTenantId, from, to))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }
