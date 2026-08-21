@@ -553,6 +553,19 @@ dialog.form-dialog .dialog-actions {
   grid-column: 1 / -1;
 }
 
+/* Ticket 028: found live — the empty-state illustration + message rendered
+ * as plain stacked block content (left-aligned, no gap) instead of reading
+ * as a deliberate, friendly empty state. Centering it is what the ticket
+ * 024 animation below was actually designed to accompany. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  padding: 1rem 0;
+}
+
 /* Ticket 024: entrance animation for the empty-state illustration
  * (fragments/icons.html :: illus-vacio). Respects prefers-reduced-motion
  * per the ux-ui-designer's brief — no motion at all for users who ask
