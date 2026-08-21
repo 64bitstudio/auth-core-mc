@@ -49,7 +49,8 @@ public class VaultTransitEncryptor {
                 .body(Map.of("plaintext", Base64.getEncoder().encodeToString(plaintext)))
                 .retrieve()
                 .body(Map.class);
-        return (String) ((Map<String, Object>) response.get("data")).get("ciphertext");
+        Map<String, Object> data = requireResponseData(response, "wrap");
+        return (String) data.get("ciphertext");
     }
 
     /** Unwraps a previously-wrapped data-key back to its raw bytes. */
@@ -62,8 +63,21 @@ public class VaultTransitEncryptor {
                 .body(Map.of("ciphertext", wrapped))
                 .retrieve()
                 .body(Map.class);
-        String base64Plaintext = (String) ((Map<String, Object>) response.get("data")).get("plaintext");
+        Map<String, Object> data = requireResponseData(response, "unwrap");
+        String base64Plaintext = (String) data.get("plaintext");
         return Base64.getDecoder().decode(base64Plaintext);
+    }
+
+    /** Fails loudly (not a silent NPE) when Vault's response is missing or malformed — e.g. an unexpected empty body that {@code retrieve()} didn't already turn into an HTTP error. */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> requireResponseData(Map<String, Object> response, String operation) {
+        Object data = response == null ? null : response.get("data");
+        if (!(data instanceof Map)) {
+            throw new IllegalStateException(
+                    "Vault transit " + operation + " returned no usable 'data' in its response — check Vault is "
+                            + "unsealed and the transit key '" + keyName + "' exists.");
+        }
+        return (Map<String, Object>) data;
     }
 
     private void requireConfigured() {
