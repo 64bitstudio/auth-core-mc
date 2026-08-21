@@ -22,8 +22,23 @@
         </p>
 
         <section class="card" data-provider="GOOGLE">
-          <h3>Google</h3>
+          <div class="card-title">
+            <span th:replace="~{fragments/icons :: logo-google}"></span>
+            <h3>Google</h3>
+          </div>
           <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
+          <!-- Ticket 029: evaluated the .form-grid/.span-2 two-column layout
+               already used by the tenant edit modal (admin-tenants.html) and
+               decided against it here. That modal's 2 columns pay off
+               because it groups 7 fields where several are short, related
+               values (e.g. the TTL pair) that read naturally side by side.
+               Each provider card only has 2 fields, and both hold long
+               opaque OAuth credential strings (client IDs/secrets routinely
+               run 40-100+ characters) — halving their width would force
+               wrapping/scrolling inside the input with no vertical space
+               saved in return (the card already fits on screen in one
+               column). Single column keeps the full input width available
+               for reading and pasting these values accurately. -->
           <form class="provider-form" id="google-provider-form" novalidate>
             <div>
               <label for="google-client-id">Client ID</label>
@@ -45,7 +60,10 @@
         </section>
 
         <section class="card" data-provider="FACEBOOK">
-          <h3>Facebook</h3>
+          <div class="card-title">
+            <span th:replace="~{fragments/icons :: logo-facebook}"></span>
+            <h3>Facebook</h3>
+          </div>
           <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
           <form class="provider-form" id="facebook-provider-form" novalidate>
             <div>

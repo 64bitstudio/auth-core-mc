@@ -386,5 +386,16 @@ Cuarto ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-f
 - **Verificación en vivo**: el agente topó el mismo límite de permisos que el ticket 026 (no pudo fabricar una sesión de `platform_admin`) y correctamente no lo rodeó — verificó por código + HTTP directo + tests. El orquestador completó la verificación con una sesión real: abrir modal, cancelar (sin llamada al backend, tabla sin cambios), crear un tenant real (mensaje "Cliente creado.", modal cerrado solo, tabla actualizada sin recargar la página).
 - 260/260 tests en verde (sin tests nuevos — ningún endpoint cambió, `UiPagesControllerTest` solo verifica status/theming, no el detalle del formulario).
 
+## Ticket 029: rediseño de proveedores de login social
+
+Sexto ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`, HU-7). Ejecutado con delegación real al rol `frontend-dev`, en un worktree Git propio corriendo en paralelo con el ticket 028 (sin dependencia entre ellos — ambos solo dependen de tickets ya cerrados).
+
+- **Logos de marca**: `logo-google`/`logo-facebook` (ya diseñados en el ticket 024) agregados junto al `<h3>` de cada tarjeta, en un nuevo wrapper `.card-title` (flex) que toma el `margin-bottom` que antes cargaba el `<h3>` solo — páginas que sigan usando un `<h3>` a secas no cambian.
+- **Convención `.button-group` del ticket 026**: confirmada intacta, sin necesitar cambios — Guardar/Desactivar ya quedaban del mismo ancho desde ese ticket.
+- **Layout de 2 columnas evaluado y descartado explícitamente**: el patrón `.form-grid`/`.span-2` del modal de edición de tenant funciona ahí porque agrupa 7 campos con pares cortos relacionados (ej. los TTLs). Cada tarjeta de proveedor solo tiene 2 campos, y ambos son credenciales OAuth opacas y largas (40-100+ caracteres) — partirlas a la mitad no ahorra espacio vertical y solo fuerza wrap/scroll dentro del input, dificultando leer/pegar el valor completo. Decisión de diseño documentada explícitamente en el HTML, no una omisión.
+- Apple sigue sin card propia, backend sin cambios.
+- **Verificación en vivo**: el agente topó el mismo límite de permisos ya documentado (no pudo fabricar sesión de admin) — probó además rutas no destructivas (`file://`, servidor HTTP local, `data:` URL) para al menos inspeccionar visualmente el render, todas bloqueadas por el sandbox del entorno, y correctamente no insistió rodeándolas. Verificó por MockMvc (render server-side 200) + inspección directa del SVG de los logos. El orquestador reconstruyó el diff limpio (la rama se había creado antes de que el ticket 027 mergeara, así que se rebaseó sobre `main` actualizado) y confirmó 260/260 tests en verde de nuevo tras el rebase.
+- 260/260 tests en verde (sin tests nuevos — ninguna aserción existente chocó con el wrapper agregado).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `027` (alta de tenant vía botón + modal) — cuarto ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._
+_Última actualización: al cerrar la tarea `029` (rediseño de proveedores de login social) — sexto ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._

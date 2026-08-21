@@ -226,6 +226,21 @@ h3 {
   margin: 0 0 1rem;
 }
 
+/* Ticket 029: pairs a card's h3 with a brand logo (fragments/icons.html ::
+ * logo-google / logo-facebook) without duplicating h3's own spacing — the
+ * wrapper takes over the margin-bottom h3 normally carries alone, so cards
+ * that don't use it (still just an <h3>) keep the exact same layout. */
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.card-title h3 {
+  margin: 0;
+}
+
 form {
   display: flex;
   flex-direction: column;
