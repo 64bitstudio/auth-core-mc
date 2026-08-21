@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org" th:attr="style='--primary-color:' + ${primaryColor} + ';'">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title th:text="${appName} + ' — Iniciar sesión'">Iniciar sesión</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header"><h1 th:text="${appName}">App</h1></header>
+  <main id="main">
+    <h2>Iniciar sesión</h2>
+    <div id="status" class="hidden" aria-live="polite"></div>
+
+    <form id="login-form" novalidate>
+      <div>
+        <label for="identifier">Correo o teléfono</label>
+        <input type="text" id="identifier" name="identifier" aria-label="Correo o teléfono" required autocomplete="username" />
+      </div>
+      <div>
+        <label for="password">Contraseña</label>
+        <input type="password" id="password" name="password" aria-label="Contraseña" required autocomplete="current-password" />
+      </div>
+      <button type="submit">Entrar</button>
+    </form>
+
+    <nav class="links">
+      <a th:href="@{/ui/password-reset/request(client_id=${clientId})}">¿Olvidaste tu contraseña?</a><br />
+      <a th:href="@{/ui/register(client_id=${clientId})}">¿No tienes cuenta? Regístrate</a>
+    </nav>
+  </main>
+
+  <script th:src="@{/js/api.js}"></script>
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = document.getElementById("status");
+      const form = e.target;
+      const body = { identifier: form.identifier.value, password: form.password.value };
+      try {
+        const result = await AuthCoreUi.call("/api/v1/login", body);
+        AuthCoreUi.saveSession(result.user);
+        AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
+        window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -51,7 +51,7 @@ public class EmailChangeService {
         Duration ttl = Duration.ofSeconds(user.getTenant().getEmailVerificationTtlSeconds());
         String token = tokenStore.issue(PURPOSE, user.getId() + SEPARATOR + newEmail, ttl);
 
-        String link = linkFactory.build("/api/v1/change-email/confirm", token);
+        String link = linkFactory.build("/ui/change-email/confirm", token);
         emailSender.send(newEmail, "Confirm your new email", "<p>Click to confirm your new email: " + link + "</p>");
     }
 

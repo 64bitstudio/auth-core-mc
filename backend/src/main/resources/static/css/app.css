@@ -1,0 +1,166 @@
+/* auth-core-mc — shared styles for the server-rendered UI (ticket 009).
+ * --primary-color is overridden per-page from the tenant's own value
+ * (see UiPagesController); everything else is a fixed, accessible
+ * default: WCAG AA contrast, visible focus rings, no color-only signal. */
+
+:root {
+  --primary-color: #0057ff;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #555555;
+  --border: #cccccc;
+  --error-bg: #fdecea;
+  --error-fg: #7a1518;
+  --success-bg: #e6f4ea;
+  --success-fg: #0a5c26;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  top: auto;
+}
+
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  background: #fff;
+  color: var(--fg);
+  padding: 0.5rem 1rem;
+  z-index: 100;
+  border: 2px solid var(--primary-color);
+  border-radius: 4px;
+}
+
+header.app-header {
+  background: var(--primary-color);
+  color: #fff;
+  padding: 1rem 1.5rem;
+}
+
+header.app-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+main {
+  max-width: 440px;
+  margin: 2rem auto;
+  padding: 0 1rem 2rem;
+}
+
+h2 {
+  font-size: 1.4rem;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+label {
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  display: block;
+}
+
+input {
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 1rem;
+  width: 100%;
+}
+
+input:focus,
+button:focus,
+a:focus {
+  outline: 3px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+button {
+  background: var(--primary-color);
+  color: #fff;
+  border: none;
+  padding: 0.8rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(0.9);
+}
+
+button.secondary {
+  background: #fff;
+  color: var(--primary-color);
+  border: 1px solid var(--primary-color);
+}
+
+[role="status"],
+[role="alert"] {
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+[role="alert"] {
+  background: var(--error-bg);
+  color: var(--error-fg);
+  border: 1px solid var(--error-fg);
+}
+
+[role="status"].success {
+  background: var(--success-bg);
+  color: var(--success-fg);
+  border: 1px solid var(--success-fg);
+}
+
+.hidden {
+  display: none;
+}
+
+.field-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 0.3rem;
+}
+
+nav.links {
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+}
+
+nav.links a {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
+section.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+section.card h3 {
+  margin-top: 0;
+}

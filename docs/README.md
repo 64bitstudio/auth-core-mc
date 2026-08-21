@@ -3,7 +3,7 @@
 Servicio centralizado de autenticación/autorización (OAuth2/OIDC), multi-tenant y clonable a instancia dedicada. Ver `ARQUITECTURA.md` para el porqué de cada decisión.
 
 ## Estado actual
-Backend: modelo de dominio y migraciones (`001`), registro/login por password (`002`), verificación y cambio de correo (`003`), recuperación de contraseña (`004`), 2FA OTP+TOTP (`005`), configuración de login social por tenant (`006`), servidor de autorización OAuth2 con tokens reales (`007`), multi-tenencia probada + clonado a instancia dedicada (`008`) — todos en `/done`. `/login` ya emite JWT + refresh token de verdad para clientes first-party; `/oauth2/authorize`+`/oauth2/token` (Authorization Code + PKCE) también funcionan para clientes third-party. Aún no hay UI ni el flujo de redirect+callback de Google/Facebook (ver `ARQUITECTURA.md`, ticket `009`).
+Backend: modelo de dominio y migraciones (`001`), registro/login por password (`002`), verificación y cambio de correo (`003`), recuperación de contraseña (`004`), 2FA OTP+TOTP (`005`), configuración de login social por tenant (`006`), servidor de autorización OAuth2 con tokens reales (`007`), multi-tenencia probada + clonado a instancia dedicada (`008`), UI web server-rendered con theming (`009`) — todos en `/done`. `/login` ya emite JWT + refresh token de verdad para clientes first-party; `/oauth2/authorize`+`/oauth2/token` (Authorization Code + PKCE) también funcionan para clientes third-party. Ya existe una UI real para registro/login/verificación/2FA/reset/cambio de correo (`/ui/**`) — lo que aún falta es integrarla con el flujo `/oauth2/authorize` de Spring Authorization Server y con el login social de Google/Facebook (ver `ARQUITECTURA.md`, ticket `009`).
 
 ## Requisitos
 - Docker + Docker Compose (ya verificado en tu máquina)
@@ -68,6 +68,13 @@ También puedes consultar la metadata OIDC estándar sin necesidad de `X-Client-
 curl http://localhost:8080/.well-known/openid-configuration
 curl http://localhost:8080/oauth2/jwks
 ```
+
+## Probar la UI web manualmente (ticket `009`)
+Con el tenant/cliente `acme-local-dev` ya sembrado (ver arriba) y la app corriendo, abre en el navegador:
+```
+http://localhost:8080/ui/register?client_id=acme-local-dev
+```
+Regístrate, y quedarás en `/ui/cuenta` — desde ahí puedes reenviar el correo de verificación, cambiar tu correo, y probar 2FA (OTP o TOTP). `/ui/login?client_id=acme-local-dev` inicia sesión con una cuenta ya creada. Ver `docs/COMPONENTES.md` para el detalle de cada pantalla y por qué la "sesión" de `/ui/cuenta` vive en `sessionStorage`, no en el servidor.
 
 ## Clonar un tenant a su propia instancia dedicada (ticket `008`)
 Si un tenant necesita aislamiento total (su propia base de datos, su propio contenedor — ver `ARQUITECTURA.md` decisión 1), el proceso es:

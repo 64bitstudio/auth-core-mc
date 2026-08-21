@@ -75,7 +75,7 @@ public class PasswordResetService {
 
         Duration ttl = Duration.ofSeconds(tenant.getPasswordResetTtlSeconds());
         String token = tokenStore.issue(PURPOSE, user.getId().toString(), ttl);
-        String link = linkFactory.build("/api/v1/password-reset/confirm", token);
+        String link = linkFactory.build("/ui/password-reset/confirm", token);
 
         // Prefer email when available; SMS only for phone-only accounts.
         if (user.getEmail() != null) {

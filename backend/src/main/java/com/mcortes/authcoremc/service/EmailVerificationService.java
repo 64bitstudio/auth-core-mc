@@ -56,7 +56,7 @@ public class EmailVerificationService {
         String token = tokenStore.issue(PURPOSE, user.getId().toString(), ttl);
         cooldown.start(cooldownKey, RESEND_COOLDOWN);
 
-        String link = linkFactory.build("/api/v1/verify-email/confirm", token);
+        String link = linkFactory.build("/ui/verify-email/confirm", token);
         emailSender.send(user.getEmail(), "Verify your account", "<p>Click to verify your account: " + link + "</p>");
     }
 
