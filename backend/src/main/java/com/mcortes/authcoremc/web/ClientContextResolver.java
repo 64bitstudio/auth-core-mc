@@ -24,9 +24,11 @@ public class ClientContextResolver {
     }
 
     public Tenant resolveTenant(String clientId) {
-        return identityClientRepository
-                .findByClientId(clientId)
-                .map(IdentityClient::getTenant)
-                .orElseThrow(() -> new UnknownClientException(clientId));
+        return resolveClient(clientId).getTenant();
+    }
+
+    /** Like {@link #resolveTenant}, but for callers (ticket 007) that also need the client's firstParty flag. */
+    public IdentityClient resolveClient(String clientId) {
+        return identityClientRepository.findByClientId(clientId).orElseThrow(() -> new UnknownClientException(clientId));
     }
 }

@@ -1,3 +1,12 @@
+# Explicit project name — without it, Docker Compose defaults to the
+# containing directory's basename ("backend"), which collides with any
+# other project on this machine that also keeps its backend in a folder
+# named "backend" (discovered 2026-08-20: Spring Boot's docker-compose
+# support saw an unrelated project's "backend"-named containers already
+# running, concluded ours were already up, and skipped starting them —
+# the app then connected to the other project's Postgres by accident).
+name: auth-core-mc
+
 services:
   postgres:
     image: 'postgres:16-alpine'

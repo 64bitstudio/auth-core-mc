@@ -30,6 +30,11 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-restclient'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-authorization-server'
+	// Required at runtime by Argon2PasswordEncoder (ticket 002) — missed
+	// until now because every test mocks PasswordEncoder or never actually
+	// calls encode()/matches() on the real bean; only surfaced by actually
+	// running the app (NoClassDefFoundError: Argon2Parameters$Builder).
+	runtimeOnly 'org.bouncycastle:bcprov-jdk18on:1.85.2'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.flywaydb:flyway-database-postgresql'

@@ -66,6 +66,8 @@ Configuración de login social, por tenant.
 ## `identity_client`
 Una aplicación registrada que puede pedir tokens a este servicio (ver nota de nombres arriba: no se llama `oauth2_client` a propósito).
 
+**Ticket `007`**: no agregó columnas — `TenantAwareRegisteredClientRepository` adapta cada fila de esta tabla a un `RegisteredClient` de Spring Authorization Server en el momento de la consulta (no hay tabla espejo `oauth2_registered_client`). El scope (`openid profile`) y los grants (`authorization_code`, `refresh_token`) salen hardcodeados en el adaptador, no de columnas nuevas — parametrizarlos por cliente es una extensión futura, no necesaria para este ticket.
+
 | Campo | Tipo | Para qué sirve |
 |---|---|---|
 | `id` | UUID | Identificador único |
