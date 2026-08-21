@@ -3,7 +3,7 @@
 Servicio centralizado de autenticación/autorización (OAuth2/OIDC), multi-tenant y clonable a instancia dedicada. Ver `ARQUITECTURA.md` para el porqué de cada decisión.
 
 ## Estado actual
-Backend: modelo de dominio y migraciones (`001`), registro/login por password (`002`), verificación y cambio de correo (`003`), recuperación de contraseña (`004`), 2FA OTP+TOTP (`005`), configuración de login social por tenant (`006`), servidor de autorización OAuth2 con tokens reales (`007`) — todos en `/done`. `/login` ya emite JWT + refresh token de verdad para clientes first-party; `/oauth2/authorize`+`/oauth2/token` (Authorization Code + PKCE) también funcionan para clientes third-party. Aún no hay UI ni el flujo de redirect+callback de Google/Facebook (ver `ARQUITECTURA.md`, ticket `009`).
+Backend: modelo de dominio y migraciones (`001`), registro/login por password (`002`), verificación y cambio de correo (`003`), recuperación de contraseña (`004`), 2FA OTP+TOTP (`005`), configuración de login social por tenant (`006`), servidor de autorización OAuth2 con tokens reales (`007`), multi-tenencia probada + clonado a instancia dedicada (`008`) — todos en `/done`. `/login` ya emite JWT + refresh token de verdad para clientes first-party; `/oauth2/authorize`+`/oauth2/token` (Authorization Code + PKCE) también funcionan para clientes third-party. Aún no hay UI ni el flujo de redirect+callback de Google/Facebook (ver `ARQUITECTURA.md`, ticket `009`).
 
 ## Requisitos
 - Docker + Docker Compose (ya verificado en tu máquina)
@@ -68,6 +68,25 @@ También puedes consultar la metadata OIDC estándar sin necesidad de `X-Client-
 curl http://localhost:8080/.well-known/openid-configuration
 curl http://localhost:8080/oauth2/jwks
 ```
+
+## Clonar un tenant a su propia instancia dedicada (ticket `008`)
+Si un tenant necesita aislamiento total (su propia base de datos, su propio contenedor — ver `ARQUITECTURA.md` decisión 1), el proceso es:
+
+1. **Levanta la nueva instancia dedicada** (un `compose.yaml`/Postgres nuevo, vacío) y arranca la app una vez contra ella (`./gradlew bootRun` con las variables de conexión apuntando a esa base) para que Flyway cree el esquema (`V1__init.sql` + `V2__two_factor_method.sql`). Detén la app después — no hace falta que quede corriendo para este proceso.
+2. **Exporta el tenant desde la instancia de origen** (compartida o donde sea que viva hoy):
+   ```bash
+   PGHOST=<host-origen> PGPORT=<puerto> PGUSER=auth_core_mc PGPASSWORD=... PGDATABASE=auth_core_mc \
+     backend/scripts/export-tenant.sh <tenant_id> tenant-export.sql
+   ```
+3. **Impórtalo en la instancia dedicada** (la del paso 1, con el esquema ya creado y sin datos de ningún tenant todavía):
+   ```bash
+   PGHOST=<host-dedicado> PGPORT=<puerto> PGUSER=auth_core_mc PGPASSWORD=... PGDATABASE=auth_core_mc \
+     backend/scripts/import-tenant.sh tenant-export.sql
+   ```
+4. Verifica (`psql` o un `SELECT` rápido) que el tenant, sus usuarios, `identity_client`(s) y `refresh_token`(s) llegaron — el import falla ruidosamente (violación de PK/UNIQUE) si la instancia destino no estaba realmente vacía, en vez de sobreescribir nada en silencio.
+5. Apunta el DNS/config del cliente a la nueva instancia dedicada y, si el tenant deja de usarse en la instancia compartida, bórralo de ahí (`DELETE FROM tenant WHERE id = ...`, en cascada manual o vía las FKs — no hay todavía un endpoint de borrado, es una operación manual).
+
+`export-tenant.sh`/`import-tenant.sh` solo necesitan `psql` en el PATH y las variables de conexión de libpq (`PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`) — funcionan igual contra un Postgres local en Docker, uno remoto ya tunelizado, o cualquier proveedor cloud futuro. Ver `docs/ARQUITECTURA.md` (ticket `008`) para el porqué de este diseño (incluyendo un bug real de sustitución de variables de `psql` encontrado solo al probarlo en vivo).
 
 ## Dónde modificar la personalización de un tenant (`primary_color`, `app_name`, etc.)
 _Pendiente — se documentará con detalle exacto (endpoint y/o panel de administración) al completar el ticket `009-ui-web-login-y-theming`._ Por ahora, el diseño planeado es: estos valores viven en la tabla `tenant` (ver `BASE_DE_DATOS.md`) y se editan vía el endpoint de administración del tenant, no editando código.
