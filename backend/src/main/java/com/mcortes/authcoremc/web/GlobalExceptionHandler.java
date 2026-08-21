@@ -79,6 +79,11 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.FORBIDDEN, "unauthorized_client", e.getMessage());
     }
 
+    @ExceptionHandler(BreakGlassAuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleBreakGlassAuthentication(BreakGlassAuthenticationException e) {
+        return error(HttpStatus.UNAUTHORIZED, "unauthorized", e.getMessage());
+    }
+
     @ExceptionHandler(TenantDeactivatedException.class)
     public ResponseEntity<ErrorResponse> handleTenantDeactivated(TenantDeactivatedException e) {
         return error(HttpStatus.FORBIDDEN, "tenant_deactivated", e.getMessage());

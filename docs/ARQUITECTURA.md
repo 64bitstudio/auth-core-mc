@@ -247,6 +247,23 @@ Séptimo ticket de la épica del panel de administración. Depende del ticket 01
 - Prueba real de punta a punta (`AdminMetricsEndToEndTest`, sin mocks): logins reales producen filas reales de `login_event`, la consulta HTTP real devuelve los conteos correctos; 403 real para `tenant_admin` sobre un tenant ajeno; 200 con ceros para un tenant sin actividad; 400 para un rango invertido.
 - 238/238 tests en verde (227 previos + 11 nuevos: 6 de `AdminMetricsServiceTest`, 4 de `AdminMetricsEndToEndTest`, 1 de `UiPagesControllerTest`).
 
+## Ticket 018: mecanismo de break-glass para acceso de emergencia
+
+Octavo y último ticket de la épica del panel de administración. Independiente de los demás — nace de un riesgo explícito ("dependencia circular") anotado en la fase de definición: si el panel de administración depende del mismo OAuth2/JWT que puede estar fallando durante un incidente, el equipo no tiene forma de intervenir.
+
+- **Preguntas de diseño abiertas del ticket, resueltas con el Product Owner antes de implementar** (no asumidas): segundo factor = allowlist de IP **y** TOTP **y** secreto compartido (los tres, no una alternativa) — defensa en profundidad para una puerta de alto privilegio. Alcance v1 = diagnóstico + capacidad de desactivar un tenant (no una intervención más amplia, que queda para un ticket futuro con su propio VoBo).
+- **Independencia real de `AuthController`/OAuth2**: `BreakGlassController` vive bajo `/api/v1/breakglass/**`, agregado a la lista `permitAll()` de `SecurityConfig` — deliberadamente NO pasa por `.oauth2ResourceServer(...)` ni por ningún filtro de rol. La autorización entera vive dentro de `BreakGlassService` (secreto + TOTP + IP), nunca toca `AuthenticationService`/`DirectTokenService`/`JwtDecoder`. Probado literalmente: `BreakGlassEndToEndTest` nunca envía un header `Authorization` en ningún test.
+- **Nunca falla abierto**: si cualquiera de los tres factores no está configurado (variables de entorno vacías), todo intento se rechaza — nunca se asume "sin configurar = permitir".
+- **Comparación de secreto en tiempo constante** (`MessageDigest.isEqual`, endurecido así desde Java 6u17) — evita un side-channel de timing sobre el secreto compartido.
+- **TOTP propio, deliberadamente sin protección de replay vía Redis** (a diferencia de `TotpService`, ticket 005): depender de Redis aquí reintroduciría exactamente el tipo de dependencia circular que este ticket existe para evitar. Riesgo residual (un código capturado es reutilizable el resto de su ventana de ~90s) aceptado explícitamente, no en silencio.
+- **Respuesta HTTP deliberadamente genérica** (`BreakGlassAuthenticationException`, siempre 401 sin decir qué factor falló) — para no darle a un atacante con factores parciales un oráculo de qué le falta. La razón específica (`not configured` / `IP not allowed` / `invalid secret` / `invalid TOTP code`) solo se guarda en la auditoría, para el equipo que opera esta puerta.
+- **Auditoría fuerte de cada llamada, éxito o fallo** (`break_glass_audit_event`, migración V7): guardada en BD (best-effort, sin romper el flujo si falla — mismo patrón que `LoginEventRecorder`, ticket 015) **y** logueada siempre vía SLF4J como respaldo — la escritura a BD nunca es el único rastro. `target_tenant_id` deliberadamente sin FK a `tenant` para que el registro sobreviva a una purga futura de ese tenant (ticket 013).
+- **Diagnóstico resiliente a un fallo de BD**: si la propia consulta de conteos falla, el endpoint responde 200 con `databaseHealthy: false` en vez de un 500 — el punto entero de este endpoint es funcionar cuando algo más está roto.
+- Tests: `BreakGlassServiceTest` (unitario, cada factor rechazado por separado, fallo de BD tolerado, desactivación real) + `BreakGlassEndToEndTest` (HTTP real, Postgres real, **cero uso de JWT/login en todo el archivo**).
+- 250/250 tests en verde (238 previos + 12 nuevos: 8 de `BreakGlassServiceTest`, 4 de `BreakGlassEndToEndTest`).
+
+Con este ticket se completa la épica "panel de administración de clientes" (011–018).
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -254,4 +271,4 @@ Séptimo ticket de la épica del panel de administración. Depende del ticket 01
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `016` (endpoints y UI de métricas de uso por cliente). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `018` (mecanismo de break-glass), última de la épica del panel de administración (011–018)._

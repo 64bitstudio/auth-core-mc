@@ -55,6 +55,11 @@ public class SecurityConfig {
                                     "/api/v1/password-reset/**",
                                     "/api/v1/2fa/**",
                                     "/api/v1/token/**",
+                                    // Ticket 018: break-glass — deliberately NOT gated by the JWT/role
+                                    // rule below, on purpose: it exists specifically for when that
+                                    // machinery is what's broken. Its own three-factor check
+                                    // (BreakGlassService) is the real gate, not Spring Security.
+                                    "/api/v1/breakglass/**",
                                     "/actuator/health",
                                     // Ticket 009: server-rendered pages and their static assets. Public
                                     // by design — /ui/cuenta's own guard is client-side (see its

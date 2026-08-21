@@ -21,4 +21,7 @@ public interface LoginEventRepository extends JpaRepository<LoginEvent, UUID> {
      * {@code TenantPurgeService}), not a new pattern introduced here.
      */
     List<LoginEvent> findByTenantAndOccurredAtBetween(Tenant tenant, Instant from, Instant to);
+
+    /** Ticket 018: break-glass diagnostics — a global (not per-tenant) recent-activity snapshot. */
+    List<LoginEvent> findTop10ByOrderByOccurredAtDesc();
 }
