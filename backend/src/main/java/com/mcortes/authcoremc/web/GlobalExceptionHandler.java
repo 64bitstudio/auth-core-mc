@@ -5,6 +5,7 @@ import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
 import com.mcortes.authcoremc.service.InvalidTokenException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
+import com.mcortes.authcoremc.service.UnsupportedProviderException;
 import com.mcortes.authcoremc.service.UserNotFoundException;
 import com.mcortes.authcoremc.service.WeakPasswordException;
 import org.springframework.http.HttpStatus;
@@ -64,6 +65,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(TotpNotEnrolledException.class)
     public ResponseEntity<ErrorResponse> handleTotpNotEnrolled(TotpNotEnrolledException e) {
         return error(HttpStatus.BAD_REQUEST, "totp_not_enrolled", e.getMessage());
+    }
+
+    @ExceptionHandler(UnsupportedProviderException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupportedProvider(UnsupportedProviderException e) {
+        return error(HttpStatus.BAD_REQUEST, "unsupported_provider", e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

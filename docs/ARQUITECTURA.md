@@ -86,6 +86,14 @@ La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API �
 - **Protección anti-reuso de TOTP vía Redis, separada de la tolerancia a desfase de reloj**: `Totp.verify` acepta ±1 ventana de 30s (desfase de reloj normal entre servidor y app autenticadora), pero una vez que un código de una ventana específica se usó, `TotpService` lo bloquea para esa misma ventana en Redis — así que la tolerancia de desfase no se convierte en una ventana de reuso.
 - **`/2fa/**` hereda el mismo límite de confianza temporal que ticket 003** (`userId` del llamador, sin bearer token real todavía) — ver la advertencia ya documentada en `docs/API.md`.
 
+## Ticket 006: login social — qué se construyó y qué se pospuso a propósito
+
+- **Se construyó**: la API de configuración por tenant (`/identity-providers/*`) — habilitar/deshabilitar Google o Facebook, guardar `client_id` + `client_secret` (cifrado con `SecretEncryptor`, la pieza que nace en el ticket 005), y nunca exponer el secreto de vuelta. Cubre 2 de los 3 criterios de aceptación del ticket.
+- **Se pospuso, con razón documentada**: el flujo real de redirect+callback de OAuth2 (que el usuario haga clic en "Entrar con Google" y termine autenticado). Al construir las credenciales reales de Google/Facebook para probar esto, quedó claro un acoplamiento que no era obvio al escribir el backlog: ese flujo termina en "el usuario ya está autenticado, ¿ahora qué le devuelvo?" — y la respuesta es o bien un token real (ticket `007`, no existe todavía) o una sesión que la UI web consume (ticket `009`, tampoco existe). Construir el redirect+callback ahora habría significado escribir código que se descarta o se reescribe en cuanto exista uno de los dos. Se documenta como hallazgo de secuenciación, no como trabajo saltado.
+- **Apple explícitamente rechazado, no solo "no implementado"**: `TenantIdentityProviderService.configure` lanza `UnsupportedProviderException` para `APPLE` en vez de aceptarlo silenciosamente y fallar después — Apple Sign In no usa `client_id`/`client_secret`, necesita una clave privada de una membresía paga de Apple Developer Program.
+- **`/identity-providers/*` es el primer endpoint de este proyecto que NO está en `permitAll`**: es una acción de administración real (configurar secretos OAuth), a diferencia de los endpoints con "límite de confianza temporal" de tickets `003`/`005` (cuyo peor caso es spam de correo/SMS). Sin autenticación de tenant-admin todavía, se deja en el comportamiento por defecto de Spring Security (401 para todos) — fail-closed a propósito.
+- **Credenciales reales de Google y Facebook ya existen** (proyecto/app dedicados `auth-core-mc`, creados junto al Product Owner vía navegador, con su confirmación explícita para aceptar los términos de cada plataforma) y viven en `backend/.env` (gitignored) — ver `docs/README.md` para cómo usarlas cuando se retome el flujo de redirect+callback.
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -93,4 +101,4 @@ La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API �
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `005` (2FA: OTP + TOTP). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `006` (login social — configuración por tenant; redirect+callback pospuesto). Se actualizará con cada ticket movido a `/done`._
