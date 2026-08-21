@@ -6,6 +6,13 @@ plugins {
 	// el pipeline de CI (self-hosted runner, ver .github/workflows/ci.yml — un
 	// runner en la nube no podría alcanzar ese localhost).
 	id 'org.sonarqube' version '7.4.0.8496'
+	// Ticket 011: el Quality Gate de SonarQube exige ≥80% de cobertura en
+	// código nuevo (new_coverage), pero ningún reporte de cobertura se
+	// generaba ni se enviaba — el gate fallaba en 0% para cualquier PR con
+	// código nuevo, sin importar qué tan bien probado estuviera. Bug de
+	// infra preexistente de ticket 010, encontrado al intentar mergear este
+	// ticket. Ver docs/ARQUITECTURA.md.
+	id 'jacoco'
 }
 
 group = 'com.mcortes'
@@ -65,6 +72,18 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	finalizedBy tasks.named('jacocoTestReport')
+}
+
+tasks.named('jacocoTestReport') {
+	dependsOn tasks.named('test')
+	reports {
+		xml.required = true
+	}
+}
+
+tasks.named('sonar') {
+	dependsOn tasks.named('jacocoTestReport')
 }
 
 sonar {
@@ -74,5 +93,6 @@ sonar {
 		// SONAR_HOST_URL/SONAR_TOKEN vienen del entorno (secretos de GitHub
 		// Actions) — el plugin los reconoce automáticamente, no hace falta
 		// declararlos aquí ni hardcodear nada.
+		property "sonar.coverage.jacoco.xmlReportPaths", "${layout.buildDirectory.get()}/reports/jacoco/test/jacocoTestReport.xml"
 	}
 }

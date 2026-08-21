@@ -157,6 +157,17 @@ Reportado por el Product Owner probando la UI del ticket 009 en un navegador rea
 - **Descubrimiento de estilo (Spring Boot 4.1 / Jackson 3)**: `ObjectMapper` ya no vive en `com.fasterxml.jackson.databind` — Jackson 3 lo movió a `tools.jackson.databind`. Encontrado por el compilador, no asumido.
 - **Rediseño visual** (`static/css/app.css`): el Product Owner pidió una estética más moderna y minimalista. Se rehizo la hoja de estilos completa — tarjeta central con sombra suave sobre fondo neutro, header sin barra de color sólida (un punto de acento + el nombre del tenant), inputs con anillo de foco suave (`box-shadow` + `outline`, no solo uno u otro, para no perder accesibilidad), botones con estados hover/active vía `color-mix()` sobre `--primary-color` — así el hover se deriva automáticamente del color de cada tenant, sin necesitar una segunda variable configurable. **Sin fuente web externa (Google Fonts, etc.) a propósito**: depender de un CDN de terceros solo para renderizar texto es un trade-off real de privacidad/disponibilidad que la mayoría de proveedores de identidad evitan; la pila de fuentes del sistema ya se ve nativa y moderna en cada plataforma. Cero cambios de HTML/JS — todo el rediseño es CSS puro, así que ningún test de `UiPagesControllerTest` necesitó cambios.
 
+## Ticket 011: RBAC — roles de plataforma y de cliente para el panel de administración
+
+Primer ticket de la épica "panel de administración de clientes" (documento de definición en `docs/definiciones/panel-administracion-clientes.md`, fase de discovery corrida con el Product Owner el 2026-08-21).
+
+- **Columna `role`** en `app_user` (`NONE` | `TENANT_ADMIN` | `PLATFORM_ADMIN`, `TEXT` + `CHECK`, default `NONE`) — mismo patrón que `two_factor_method` (ticket 005), no un tipo `ENUM` nativo de Postgres. Todo usuario existente (todos regulares, ninguno admin del panel) queda sin cambios de comportamiento.
+- **`AdminAccessPolicy`** (paquete `security`): lógica de decisión pura, deliberadamente separada de la capa HTTP — responde "¿puede este usuario administrar este tenant?" sin depender de un contexto de servlet. El guard real que la conecta al pipeline de requests es el ticket 012, no este.
+- Compara tenants por `id`, no por igualdad de objeto — `Tenant` no sobreescribe `equals`, y dos referencias pueden representar la misma fila persistida.
+- Tests con filas reales persistidas (mismo patrón que `TenantIsolationTest`, ticket 008) en vez de objetos armados a mano — así el round-trip de la columna nueva por Flyway/JPA también queda probado, no solo la lógica en memoria.
+- 187/187 tests en verde (183 previos + 4 nuevos de `AdminAccessPolicyTest`).
+- **Bug de infra preexistente encontrado al intentar mergear este ticket, no algo que este ticket haya causado**: el Quality Gate de SonarQube exige ≥80% de cobertura en código nuevo (`new_coverage`), pero desde el ticket 010 nunca se generaba ni enviaba ningún reporte de cobertura — el plugin `jacoco` nunca se aplicó en `backend/build.gradle`. El gate fallaba en 0% para cualquier PR con código nuevo, sin importar qué tan bien probado estuviera. Arreglado aquí (plugin `jacoco` + `jacocoTestReport` finalizando `test` + `sonar.coverage.jacoco.xmlReportPaths` apuntando al XML) — verificado localmente que el reporte se genera y `AdminAccessPolicy` queda con 100% de cobertura de líneas y ramas.
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -164,4 +175,4 @@ Reportado por el Product Owner probando la UI del ticket 009 en un navegador rea
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `010` (CI/CD: GitHub Actions con self-hosted runner, análisis SonarQube con Quality Gate real, notificación a Telegram). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `011` (RBAC: roles de plataforma y de cliente). Se actualizará con cada ticket movido a `/done`._

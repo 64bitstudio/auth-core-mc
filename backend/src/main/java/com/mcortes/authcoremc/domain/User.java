@@ -61,6 +61,10 @@ public class User {
     @Column(name = "two_factor_method", nullable = false)
     private TwoFactorMethod twoFactorMethod = TwoFactorMethod.NONE;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false)
+    private UserRole role = UserRole.NONE;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -127,6 +131,10 @@ public class User {
         return twoFactorMethod;
     }
 
+    public UserRole getRole() {
+        return role;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -165,6 +173,14 @@ public class User {
 
     public void markPhoneVerified() {
         this.phoneVerified = true;
+    }
+
+    /** Grants (or revokes, via {@link UserRole#NONE}) this user's admin-panel role (ticket 011). */
+    public void grantRole(UserRole role) {
+        if (role == null) {
+            throw new IllegalArgumentException("role must not be null");
+        }
+        this.role = role;
     }
 
     /**
