@@ -39,6 +39,18 @@ import org.springframework.transaction.annotation.Transactional;
  * reason is only ever in the audit trail and the server log, for the
  * team operating this door.
  *
+ * <p><b>Known limitation, not yet relevant but must be revisited before any
+ * reverse proxy/load balancer sits in front of this app</b>: the IP
+ * allowlist is checked against {@code HttpServletRequest.getRemoteAddr()}
+ * (see {@code BreakGlassController}), which is the DIRECT TCP peer — behind
+ * a reverse proxy that would be the proxy's address, not the real caller's,
+ * making the allowlist either always match (if the proxy's IP happens to be
+ * allowed) or always reject (otherwise), regardless of who's actually
+ * calling. This deployment has no reverse proxy today (dev-infra is a
+ * direct connection), so it's correct as written; whoever adds one later
+ * MUST also add trusted {@code X-Forwarded-For} handling here, not just
+ * assume this still works.
+ *
  * <p><b>Deliberately stateless TOTP</b> (no replay-window tracking like
  * {@code TotpService} has via Redis): depending on Redis here would put
  * this emergency door behind the very kind of shared-infra dependency the
