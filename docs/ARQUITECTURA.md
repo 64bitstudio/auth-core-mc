@@ -166,6 +166,7 @@ Primer ticket de la épica "panel de administración de clientes" (documento de 
 - Compara tenants por `id`, no por igualdad de objeto — `Tenant` no sobreescribe `equals`, y dos referencias pueden representar la misma fila persistida.
 - Tests con filas reales persistidas (mismo patrón que `TenantIsolationTest`, ticket 008) en vez de objetos armados a mano — así el round-trip de la columna nueva por Flyway/JPA también queda probado, no solo la lógica en memoria.
 - 187/187 tests en verde (183 previos + 4 nuevos de `AdminAccessPolicyTest`).
+- **Bug de infra preexistente encontrado al intentar mergear este ticket, no algo que este ticket haya causado**: el Quality Gate de SonarQube exige ≥80% de cobertura en código nuevo (`new_coverage`), pero desde el ticket 010 nunca se generaba ni enviaba ningún reporte de cobertura — el plugin `jacoco` nunca se aplicó en `backend/build.gradle`. El gate fallaba en 0% para cualquier PR con código nuevo, sin importar qué tan bien probado estuviera. Arreglado aquí (plugin `jacoco` + `jacocoTestReport` finalizando `test` + `sonar.coverage.jacoco.xmlReportPaths` apuntando al XML) — verificado localmente que el reporte se genera y `AdminAccessPolicy` queda con 100% de cobertura de líneas y ramas.
 
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
