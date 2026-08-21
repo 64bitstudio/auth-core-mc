@@ -35,19 +35,19 @@
       class="hidden"
       th:href="@{/ui/admin/tenants(client_id=${clientId})}"
       th:classappend="${active == 'tenants'} ? ' active' : ''"
-      >Clientes</a
+      ><span th:replace="~{fragments/icons :: icon-clientes}"></span><span>Clientes</span></a
     >
     <a
       href="#"
       th:href="@{/ui/admin/metrics(client_id=${clientId})}"
       th:classappend="${active == 'metrics'} ? ' active' : ''"
-      >Métricas</a
+      ><span th:replace="~{fragments/icons :: icon-metricas}"></span><span>Métricas</span></a
     >
     <a
       href="#"
       th:href="@{/ui/admin/identity-providers(client_id=${clientId})}"
       th:classappend="${active == 'providers'} ? ' active' : ''"
-      >Proveedores de login</a
+      ><span th:replace="~{fragments/icons :: icon-proveedores}"></span><span>Proveedores de login</span></a
     >
   </nav>
 

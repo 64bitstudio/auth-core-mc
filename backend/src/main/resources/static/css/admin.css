@@ -127,12 +127,26 @@ body.admin-body {
 }
 
 .admin-sidenav a {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   padding: 0.55rem 0.75rem;
   border-radius: var(--admin-radius-md);
   color: var(--admin-muted);
   font-weight: 500;
   font-size: 0.9rem;
   text-decoration: none;
+}
+
+/* Ticket 024: nav icons are 24x24 in fragments/icons.html (shared
+   viewBox across the whole line-icon family) but sized down to 20x20
+   here for the sidenav specifically — stroke="currentColor" on the SVG
+   means it already inherits this link's color, so hover/active above
+   recolor the icon for free with no extra rule needed. */
+.admin-sidenav a svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .admin-sidenav a:hover {
@@ -460,4 +474,29 @@ dialog.form-dialog .dialog-actions {
 
 .form-grid .span-2 {
   grid-column: 1 / -1;
+}
+
+/* Ticket 024: entrance animation for the empty-state illustration
+ * (fragments/icons.html :: illus-vacio). Respects prefers-reduced-motion
+ * per the ux-ui-designer's brief — no motion at all for users who ask
+ * for less of it, not just a shorter/faster version. */
+.empty-state svg {
+  animation: empty-illus-in 0.4s ease-out;
+}
+
+@keyframes empty-illus-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-state svg {
+    animation: none;
+  }
 }
