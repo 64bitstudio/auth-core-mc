@@ -364,5 +364,16 @@ Segundo ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-
 - Verificado en vivo con los 3 roles reales (`platform_admin`, `tenant_admin`, sin rol) — cada uno viendo exactamente lo que le corresponde, incluyendo el mensaje de "sin acceso".
 - 260/260 tests en verde (1 nuevo: `rendersTheAdminHomePageWithTheAdminShellNotTenantTheming`).
 
+## Ticket 026: layout centrado y convención de botones sin desborde
+
+Tercer ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`, HU-3). Ejecutado con delegación real al rol `frontend-dev` (workaround `general-purpose` + persona inyectada, ver ticket 024).
+
+- **Centrado**: `.admin-content` gana `margin: 0 auto` junto a su `max-width: 900px` ya existente — una vez que el item flex se "congela" en su `max-width`, flexbox reparte el espacio libre restante en la línea entre los márgenes automáticos (CSS Flexbox §8.1), quedando izquierda/derecha iguales sin tocar el resto del layout flex (`.admin-shell`/`.admin-body-row`) ni el breakpoint responsive de 720px.
+- **Convención de botones**: nueva clase `.button-group` (`display:flex; gap` + `flex:1` en cada `<button>` hijo) — un botón que es la única acción de un formulario sigue ocupando el ancho completo (comportamiento ya existente, sin tocar); un GRUPO de botones (ej. Guardar + Desactivar en proveedores) ahora quedan del mismo ancho entre sí, nunca uno full-width mezclado con uno auto-width. Deliberadamente NO aplicada a `.confirm-actions`/`.dialog-actions` — esos ya son pares de botones auto-width del mismo estilo, alineados a la derecha por diseño, no el problema que este ticket resuelve.
+- **`admin-identity-providers.html`**: el botón "Guardar" de cada tarjeta (Google, Facebook) se movió fuera de su `<form>` a un `.button-group` junto a "Desactivar", ligado funcionalmente al formulario vía el atributo HTML5 `form="..."` — el navegador dispara el evento `submit` en el formulario referenciado sin importar dónde viva físicamente el botón en el DOM, así que el JS existente (`.addEventListener("submit", ...)`) no necesitó ningún cambio.
+- **Revisión de las 4 páginas del panel**: `admin-tenants.html`, `admin-metrics.html` y `admin-home.html` no necesitaron cambios — revisadas explícitamente, sin otro desborde/inconsistencia de botones encontrado.
+- **Verificación en vivo con sesión real de admin** (el agente encontró un límite real de permisos al intentar fabricar una sesión de `platform_admin` — sessionStorage/rol en base de datos — y correctamente se detuvo en vez de rodearlo; verificó con previews estáticas en su lugar. El orquestador repitió la verificación con una sesión autenticada real): centrado confirmado computacionalmente (`getComputedStyle` en `.admin-content` real, `margin-left`/`margin-right` = 185.5px exactos en un viewport de 1471px), botones Guardar/Desactivar de Proveedores de login confirmados del mismo ancho, tabla de Clientes sin ningún botón cortado.
+- 260/260 tests en verde (sin tests nuevos — cambio puramente CSS/HTML, ninguna página cambia de status/contenido textual verificable).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `025` (navegación admin↔consumidor) — segundo ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._
+_Última actualización: al cerrar la tarea `026` (layout centrado y convención de botones sin desborde) — tercer ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._
