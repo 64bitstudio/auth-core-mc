@@ -375,5 +375,16 @@ Tercer ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-f
 - **Verificación en vivo con sesión real de admin** (el agente encontró un límite real de permisos al intentar fabricar una sesión de `platform_admin` — sessionStorage/rol en base de datos — y correctamente se detuvo en vez de rodearlo; verificó con previews estáticas en su lugar. El orquestador repitió la verificación con una sesión autenticada real): centrado confirmado computacionalmente (`getComputedStyle` en `.admin-content` real, `margin-left`/`margin-right` = 185.5px exactos en un viewport de 1471px), botones Guardar/Desactivar de Proveedores de login confirmados del mismo ancho, tabla de Clientes sin ningún botón cortado.
 - 260/260 tests en verde (sin tests nuevos — cambio puramente CSS/HTML, ninguna página cambia de status/contenido textual verificable).
 
+## Ticket 027: alta de tenant vía botón + modal
+
+Cuarto ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`, HU-5). Ejecutado con delegación real al rol `frontend-dev`.
+
+- Botón "+ Añadir cliente" agregado junto al `<h2>` (nuevo wrapper `.section-header`, flex con `justify-content: space-between` — un botón desnudo fuera de un `<form>` no hereda el stretch full-width que da `form { display:flex; flex-direction:column }`, así que necesitaba su propio contenedor).
+- El formulario de alta embebido al fondo de la página se eliminó por completo, reemplazado por `<dialog id="create-tenant-dialog" class="form-dialog">` — mismo patrón exacto que `edit-tenant-dialog` (ticket 021): mismos campos, mismos defaults de TTL.
+- El formulario se resetea al ABRIR el modal (no solo al enviar) — evita que reabrir el modal tras cancelar muestre datos de un intento anterior; decisión no pedida explícitamente en el AC pero necesaria para un flujo de "alta nueva" consistente.
+- Al crear con éxito: el modal se cierra, la tabla se recarga sin recargar la página, el mensaje de éxito vive en el `#status` de la página (no dentro del modal, ya que este se cierra).
+- **Verificación en vivo**: el agente topó el mismo límite de permisos que el ticket 026 (no pudo fabricar una sesión de `platform_admin`) y correctamente no lo rodeó — verificó por código + HTTP directo + tests. El orquestador completó la verificación con una sesión real: abrir modal, cancelar (sin llamada al backend, tabla sin cambios), crear un tenant real (mensaje "Cliente creado.", modal cerrado solo, tabla actualizada sin recargar la página).
+- 260/260 tests en verde (sin tests nuevos — ningún endpoint cambió, `UiPagesControllerTest` solo verifica status/theming, no el detalle del formulario).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `026` (layout centrado y convención de botones sin desborde) — tercer ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._
+_Última actualización: al cerrar la tarea `027` (alta de tenant vía botón + modal) — cuarto ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._
