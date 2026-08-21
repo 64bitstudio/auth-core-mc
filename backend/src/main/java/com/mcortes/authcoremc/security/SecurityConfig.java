@@ -43,40 +43,51 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
-        http.csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth.requestMatchers(
-                                "/api/v1/register",
-                                "/api/v1/login",
-                                "/api/v1/verify-email/**",
-                                "/api/v1/change-email/**",
-                                "/api/v1/password-reset/**",
-                                "/api/v1/2fa/**",
-                                "/api/v1/token/**",
-                                "/actuator/health",
-                                // Ticket 009: server-rendered pages and their static assets. Public
-                                // by design — /ui/cuenta's own guard is client-side (see its
-                                // Javadoc in UiPagesController), not enforced here, since none of
-                                // these pages are backed by a real Spring Security session yet.
-                                "/ui/**",
-                                "/css/**",
-                                "/js/**",
-                                // Requested by every browser on every page load — never something
-                                // to gate behind authentication.
-                                "/favicon.ico",
-                                // The servlet container's internal forward target for any
-                                // unhandled exception (see class Javadoc) — must stay open or it
-                                // masks the real error behind a 401 challenge.
-                                "/error")
-                        .permitAll()
-                        .anyRequest()
-                        .authenticated())
-                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, authException) -> {
-                    response.setStatus(401);
-                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    writeJson(response, objectMapper, new ErrorResponse("unauthorized", "Authentication required"));
-                }));
-        return http.build();
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) {
+        try {
+            http.csrf(csrf -> csrf.disable())
+                    .authorizeHttpRequests(auth -> auth.requestMatchers(
+                                    "/api/v1/register",
+                                    "/api/v1/login",
+                                    "/api/v1/verify-email/**",
+                                    "/api/v1/change-email/**",
+                                    "/api/v1/password-reset/**",
+                                    "/api/v1/2fa/**",
+                                    "/api/v1/token/**",
+                                    "/actuator/health",
+                                    // Ticket 009: server-rendered pages and their static assets. Public
+                                    // by design — /ui/cuenta's own guard is client-side (see its
+                                    // Javadoc in UiPagesController), not enforced here, since none of
+                                    // these pages are backed by a real Spring Security session yet.
+                                    "/ui/**",
+                                    "/css/**",
+                                    "/js/**",
+                                    // Requested by every browser on every page load — never something
+                                    // to gate behind authentication.
+                                    "/favicon.ico",
+                                    // The servlet container's internal forward target for any
+                                    // unhandled exception (see class Javadoc) — must stay open or it
+                                    // masks the real error behind a 401 challenge.
+                                    "/error")
+                            .permitAll()
+                            .anyRequest()
+                            .authenticated())
+                    .exceptionHandling(exceptions ->
+                            exceptions.authenticationEntryPoint((request, response, authException) -> {
+                                response.setStatus(401);
+                                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                                writeJson(response, objectMapper, new ErrorResponse("unauthorized", "Authentication required"));
+                            }));
+            return http.build();
+        } catch (Exception e) {
+            // HttpSecurity.build() (and several DSL methods above it) declare a
+            // broad `throws Exception` in Spring Security's own API — not
+            // something this method can narrow. Catching it here and
+            // rethrowing unchecked keeps this bean's own signature honest
+            // (nothing it actually does throws a checked exception) instead
+            // of just propagating the framework's broad type.
+            throw new IllegalStateException("Failed to build the security filter chain", e);
+        }
     }
 
     private static void writeJson(
