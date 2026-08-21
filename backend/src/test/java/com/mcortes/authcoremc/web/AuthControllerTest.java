@@ -13,6 +13,7 @@ import com.mcortes.authcoremc.security.SecurityConfig;
 import com.mcortes.authcoremc.service.AuthenticationService;
 import com.mcortes.authcoremc.service.DirectTokenService;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
+import com.mcortes.authcoremc.service.LoginEventRecorder;
 import com.mcortes.authcoremc.service.TokenPair;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
 import java.util.List;
@@ -46,6 +47,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private DirectTokenService directTokenService;
+
+    @MockitoBean
+    private LoginEventRecorder loginEventRecorder;
 
     private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
     private final IdentityClient firstPartyClient =

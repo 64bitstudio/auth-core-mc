@@ -195,6 +195,17 @@ Tercer ticket de la épica del panel de administración. Independiente de 011/01
 - 201/201 tests en verde (196 previos + 5 nuevos: 3 de `TenantSecretEncryptorTest`, 2 de `TenantIdentityProviderServiceTest`).
 - Proveedor de KMS confirmado con el Product Owner: HashiCorp Vault self-hosted (pregunta abierta heredada de la definición, ya resuelta).
 
+## Ticket 015: registro de eventos de login
+
+Cuarto ticket de la épica del panel de administración. Independiente de los demás — instrumenta `AuthController.login()` directamente.
+
+- **`LoginEvent`** (tabla nueva, migración V5, con índice `(tenant_id, occurred_at)` pensando en las consultas por rango de fechas del ticket 016) — `user` nullable a propósito: un login fallido con identificador desconocido nunca resuelve a un `User` real, y sigue siendo un evento real que contar.
+- **`LoginEventRecorder`**: deliberadamente no-bloqueante — un fallo al guardar el evento nunca debe romper un login real. **Primer uso de un logger en este codebase** (todo lo demás falla explícito a propósito, ver `ResendEmailSender`, pero esa filosofía no aplica a un rastro de auditoría cuyo punto es no estar en el camino crítico).
+- Instrumentado en `AuthController.login()` (no dentro de `AuthenticationService`, para no acoplar la lógica de auth con el registro de auditoría) — mide latencia real con `System.currentTimeMillis()` alrededor de la llamada de autenticación.
+- Proveedor siempre `"PASSWORD"` por ahora — el flujo real de login social (redirect/callback) sigue pospuesto desde el ticket 006, así que no hay otro proveedor que instrumentar todavía. `TooManyAttemptsException` (rate limiting) deliberadamente no se registra aparte — ya queda reflejado indirectamente en los `FAILURE` que dispararon el límite.
+- Prueba de integración real (`LoginEventRecordingIntegrationTest`, `@SpringBootTest` con Testcontainers): un login real exitoso y uno fallido de verdad insertan una fila real en `login_event` — no un mock verificando que el controller llamó al recorder.
+- 206/206 tests en verde (201 previos + 5 nuevos).
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -202,4 +213,4 @@ Tercer ticket de la épica del panel de administración. Independiente de 011/01
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `017` (cifrado por sobres, Vault Transit). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `015` (registro de eventos de login). Se actualizará con cada ticket movido a `/done`._
