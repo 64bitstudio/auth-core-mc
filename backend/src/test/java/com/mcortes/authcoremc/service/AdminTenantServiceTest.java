@@ -14,6 +14,7 @@ import com.mcortes.authcoremc.web.DuplicateTenantNameException;
 import com.mcortes.authcoremc.web.TenantAccessDeniedException;
 import com.mcortes.authcoremc.web.TenantNotFoundException;
 import com.mcortes.authcoremc.web.UpdateTenantRequest;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,22 @@ class AdminTenantServiceTest {
         Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
         ReflectionTestUtils.setField(tenant, "id", UUID.randomUUID());
         return tenant;
+    }
+
+    @Test
+    void platformAdminCanListAllTenants() {
+        when(tenantRepository.findAll()).thenReturn(List.of(tenantWithId(), tenantWithId()));
+
+        List<Tenant> result = service().list(UserRole.PLATFORM_ADMIN);
+
+        assertThat(result).hasSize(2);
+    }
+
+    @Test
+    void aTenantAdminCannotListAllTenants() {
+        AdminTenantService service = service();
+
+        assertThatThrownBy(() -> service.list(UserRole.TENANT_ADMIN)).isInstanceOf(TenantAccessDeniedException.class);
     }
 
     @Test

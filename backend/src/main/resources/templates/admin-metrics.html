@@ -108,10 +108,15 @@
     });
 
     if (AuthCoreUi.requireAdminSession()) {
-      const ownTenantId = AuthCoreUi.currentTenantId();
-      if (ownTenantId) {
-        document.getElementById("tenant-id").value = ownTenantId;
-        loadMetrics(ownTenantId, null, null);
+      // Ticket 019: a ?tenant= query param (from the "Ver métricas" link on
+      // /ui/admin/tenants, platform_admin only) takes priority over the
+      // caller's own tenant_id — that's the whole point of following that
+      // link. Falls back to the caller's own tenant, same as before.
+      const requestedTenantId = new URLSearchParams(window.location.search).get("tenant");
+      const initialTenantId = requestedTenantId || AuthCoreUi.currentTenantId();
+      if (initialTenantId) {
+        document.getElementById("tenant-id").value = initialTenantId;
+        loadMetrics(initialTenantId, null, null);
       }
     }
   </script>

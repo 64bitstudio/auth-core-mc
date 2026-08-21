@@ -114,6 +114,17 @@ public class UiPagesController {
         return "admin-metrics";
     }
 
+    /**
+     * Ticket 019: list of every tenant — same access-control note as the
+     * other admin pages (theming only here; the real gate is the 403 a
+     * non-platform_admin gets from {@code GET /api/v1/admin/tenants}).
+     */
+    @GetMapping("/admin/tenants")
+    public String adminTenants(@RequestParam("client_id") String clientId, Model model) {
+        theme(clientId, model);
+        return "admin-tenants";
+    }
+
     private void theme(String clientId, Model model) {
         Tenant tenant = clientContextResolver.resolveTenant(clientId);
         model.addAttribute("clientId", clientId);
