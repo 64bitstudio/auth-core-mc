@@ -1,5 +1,6 @@
 package com.mcortes.authcoremc.web;
 
+import com.mcortes.authcoremc.domain.TotpNotEnrolledException;
 import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
 import com.mcortes.authcoremc.service.InvalidTokenException;
@@ -58,6 +59,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException e) {
         return error(HttpStatus.NOT_FOUND, "user_not_found", e.getMessage());
+    }
+
+    @ExceptionHandler(TotpNotEnrolledException.class)
+    public ResponseEntity<ErrorResponse> handleTotpNotEnrolled(TotpNotEnrolledException e) {
+        return error(HttpStatus.BAD_REQUEST, "totp_not_enrolled", e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

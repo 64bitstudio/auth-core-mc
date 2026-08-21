@@ -2,6 +2,8 @@ package com.mcortes.authcoremc.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -54,6 +56,10 @@ public class User {
 
     @Column(name = "totp_secret_encrypted")
     private String totpSecretEncrypted;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "two_factor_method", nullable = false)
+    private TwoFactorMethod twoFactorMethod = TwoFactorMethod.NONE;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -117,6 +123,10 @@ public class User {
         return totpSecretEncrypted;
     }
 
+    public TwoFactorMethod getTwoFactorMethod() {
+        return twoFactorMethod;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -131,6 +141,26 @@ public class User {
             throw new IllegalArgumentException("newPasswordHash must not be blank");
         }
         this.passwordHash = newPasswordHash;
+    }
+
+    /** Stores the (already-encrypted) TOTP secret from enrollment — does NOT activate it, see {@link #activateTwoFactorMethod}. */
+    public void enrollTotpSecret(String encryptedSecret) {
+        if (encryptedSecret == null || encryptedSecret.isBlank()) {
+            throw new IllegalArgumentException("encryptedSecret must not be blank");
+        }
+        this.totpSecretEncrypted = encryptedSecret;
+    }
+
+    /**
+     * Activates a 2FA method as this user's preferred one. TOTP requires an
+     * enrolled secret first (fail fast rather than silently accepting a
+     * method that can never actually be verified).
+     */
+    public void activateTwoFactorMethod(TwoFactorMethod method) {
+        if (method == TwoFactorMethod.TOTP && totpSecretEncrypted == null) {
+            throw new TotpNotEnrolledException();
+        }
+        this.twoFactorMethod = method;
     }
 
     public void markPhoneVerified() {

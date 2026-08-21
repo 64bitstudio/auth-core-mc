@@ -3,7 +3,7 @@
 > Esquema de tablas, relaciones y para qué sirve cada campo. Se actualiza cuando se completa el ticket `001-modelo-dominio-y-migraciones` y cualquier ticket posterior que cambie el esquema.
 
 ## Estado actual
-**Implementado y verificado** (ticket `001`, en `/done`). Migración real: `backend/src/main/resources/db/migration/V1__init.sql`. Los tests de repositorio (`backend/src/test/.../repository/`) corren contra esta migración exacta — `spring.jpa.hibernate.ddl-auto=validate` en los tests evita que Hibernate genere un esquema paralelo desde las entidades, así que lo que ves aquí es literalmente lo que existe en la base de datos.
+**Implementado y verificado** (tickets `001` y `005`, en `/done`). Migraciones reales: `V1__init.sql` + `V2__two_factor_method.sql` en `backend/src/main/resources/db/migration/`. Los tests de repositorio (`backend/src/test/.../repository/`) corren contra estas migraciones exactas — `spring.jpa.hibernate.ddl-auto=validate` en los tests evita que Hibernate genere un esquema paralelo desde las entidades, así que lo que ves aquí es literalmente lo que existe en la base de datos.
 
 **Nota de nombres:** la tabla de usuarios se llama `app_user`, no `user` — `USER` es palabra reservada en PostgreSQL/ANSI SQL. La tabla de clientes OAuth2 se llama `identity_client`, no `oauth2_client` — para no chocar con el esquema propio que trae Spring Authorization Server (`oauth2_registered_client`, etc.), que el ticket `007` decidirá cómo reconciliar.
 
@@ -45,7 +45,8 @@ Un usuario final, siempre asociado a un `tenant`.
 | `password_hash` | text, nullable | Hash Argon2id (nulo si el usuario solo usa login social) |
 | `email_verified` | boolean | Si confirmó su correo |
 | `phone_verified` | boolean | Si confirmó su teléfono |
-| `totp_secret_encrypted` | text, nullable | Secreto TOTP cifrado, si activó 2FA por app autenticadora |
+| `totp_secret_encrypted` | text, nullable | Secreto TOTP cifrado (AES-256-GCM vía `SecretEncryptor`, no hash — necesita leerse en claro para calcular códigos), si activó 2FA por app autenticadora |
+| `two_factor_method` | enum (`NONE`,`OTP_EMAIL`,`OTP_SMS`,`TOTP`) | Qué segundo factor eligió el usuario, si alguno (ticket `005`, migración `V2`) |
 | `created_at` | timestamp | Auditoría |
 
 _Constraint `app_user_email_or_phone_required`: `email IS NOT NULL OR phone IS NOT NULL`. También hay UNIQUE por tenant en `email` y en `phone` (`app_user_tenant_email_unique`, `app_user_tenant_phone_unique`) — Postgres trata cada `NULL` como distinto, así que cualquier cantidad de usuarios "solo teléfono" o "solo correo" puede coexistir sin chocar entre sí._

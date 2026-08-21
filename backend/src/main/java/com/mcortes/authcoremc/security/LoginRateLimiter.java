@@ -15,8 +15,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class LoginRateLimiter {
 
-    static final int MAX_ATTEMPTS = 5;
-    static final long WINDOW_MINUTES = 15;
+    // package-private originally; now public because OtpService (ticket 005)
+    // reuses this class across a package boundary and callers reasoning
+    // about its behavior legitimately need these values.
+    public static final int MAX_ATTEMPTS = 5;
+    public static final long WINDOW_MINUTES = 15;
 
     private final StringRedisTemplate redis;
 
