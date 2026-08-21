@@ -3,7 +3,10 @@
 > Endpoints del backend: rutas, métodos, qué reciben y qué responden. Explicado en simple. Se actualiza cuando cada ticket que añade o cambia endpoints se mueve a `/done`.
 
 ## Estado actual
-`/register` y `/login` **implementados y probados** (ticket `002`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `003` a `007`.
+`/register`, `/login`, `/verify-email/*` y `/change-email/*` **implementados y probados** (tickets `002` y `003`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `004` a `007`.
+
+### ⚠️ Límite temporal de confianza (hasta ticket 007)
+`/verify-email/request` y `/change-email/request` reciben el `userId` directamente en el body — no hay todavía un token de acceso real que identifique "al usuario actual" (eso lo trae ticket `007`). Cualquiera que conozca (o adivine) un `userId` puede disparar el envío de un correo de verificación/cambio para ese usuario — molesto (spam, mitigado por el cooldown de 60s), pero no explotable: completar el flujo requiere poseer el token que llega a esa bandeja de entrada. Documentado también en `TenantScopedUserResolver.java`.
 
 ## Convenciones
 - **Cómo se identifica el tenant en cada request**: header `X-Client-Id` con el `client_id` de un `IdentityClient` registrado (ver `BASE_DE_DATOS.md`). Si el header no corresponde a ningún cliente registrado, la respuesta es `401 unknown_client`. Esta fue la decisión pendiente que ticket `001` dejó abierta; ticket `002` la resolvió así — el flujo `/oauth2/authorize` de ticket `007` usará en cambio el parámetro estándar `client_id` de OAuth2, no este header (son superficies distintas: esta es la API "directa", esa es el flujo redirect).
@@ -25,6 +28,18 @@
 | 401 | `invalid_credentials` | Login: identificador o password incorrectos (mensaje genérico a propósito, para no revelar cuál de los dos falló) |
 | 409 | `duplicate_identifier` | Registro: el email o teléfono ya existe para ese tenant |
 | 429 | `too_many_attempts` | Más de 5 intentos de login fallidos en 15 minutos para ese tenant+identificador (Redis) |
+
+## Verificación de correo (ticket `003`)
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| POST | `/api/v1/verify-email/request` | Header `X-Client-Id`; body: `userId` | `202` (correo enviado) o `429 too_many_attempts` si se pidió hace menos de 60s |
+| POST | `/api/v1/verify-email/confirm` | body: `token` (de la URL del correo) | `200` o `400 invalid_token` si expiró/no existe/ya se usó |
+
+## Cambio de correo (ticket `003`)
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| POST | `/api/v1/change-email/request` | Header `X-Client-Id`; body: `userId`, `newEmail` | `202` (correo de confirmación enviado **al correo nuevo**, el actual sigue activo) o `409 duplicate_identifier` si `newEmail` ya existe en el tenant |
+| POST | `/api/v1/change-email/confirm` | body: `token` | `200` (aplica el cambio y marca el correo nuevo como verificado) o `400 invalid_token` / `409 duplicate_identifier` (si alguien más tomó ese correo mientras el link estaba pendiente) |
 
 ## Verificación y cambio de correo (ticket `003`)
 | Método | Ruta | Qué hace |

@@ -2,7 +2,9 @@ package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
+import com.mcortes.authcoremc.service.InvalidTokenException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
+import com.mcortes.authcoremc.service.UserNotFoundException;
 import com.mcortes.authcoremc.service.WeakPasswordException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -46,6 +48,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(TooManyAttemptsException.class)
     public ResponseEntity<ErrorResponse> handleTooManyAttempts(TooManyAttemptsException e) {
         return error(HttpStatus.TOO_MANY_REQUESTS, "too_many_attempts", e.getMessage());
+    }
+
+    @ExceptionHandler(InvalidTokenException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidToken(InvalidTokenException e) {
+        return error(HttpStatus.BAD_REQUEST, "invalid_token", e.getMessage());
+    }
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException e) {
+        return error(HttpStatus.NOT_FOUND, "user_not_found", e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
