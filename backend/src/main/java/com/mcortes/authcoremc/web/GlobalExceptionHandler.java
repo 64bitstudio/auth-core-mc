@@ -12,6 +12,7 @@ import com.mcortes.authcoremc.service.WeakPasswordException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -76,6 +77,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotFirstPartyClientException.class)
     public ResponseEntity<ErrorResponse> handleNotFirstPartyClient(NotFirstPartyClientException e) {
         return error(HttpStatus.FORBIDDEN, "unauthorized_client", e.getMessage());
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
+        return error(HttpStatus.BAD_REQUEST, "validation_error", "Missing required header: " + e.getHeaderName());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
