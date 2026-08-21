@@ -65,10 +65,32 @@ const AuthCoreUi = (() => {
 
   function showStatus(el, message, isError) {
     el.textContent = message;
-    el.classList.remove("hidden", "success");
+    // "is-loading" is cleared here too (not just by withBusy below) so the
+    // two token-confirmation pages (verify-email, change-email) — which
+    // show a spinner on page load, before any button/form exists to attach
+    // withBusy to — clear it for free the moment their one showStatus()
+    // call lands, success or error.
+    el.classList.remove("hidden", "success", "is-loading");
     el.setAttribute("role", isError ? "alert" : "status");
     if (!isError) {
       el.classList.add("success");
+    }
+  }
+
+  // Ticket 023: shared "this trigger is mid-request" state — disables the
+  // button and shows an inline spinner (see app.css's .is-loading) while
+  // `task` runs, restoring it in a finally block so it recovers even if
+  // `task` throws. Purely a UI affordance, same additive pattern as
+  // currentRole()/logout() above — it doesn't change what any endpoint call
+  // does or its contract.
+  async function withBusy(button, task) {
+    button.disabled = true;
+    button.classList.add("is-loading");
+    try {
+      return await task();
+    } finally {
+      button.disabled = false;
+      button.classList.remove("is-loading");
     }
   }
 
@@ -183,6 +205,7 @@ const AuthCoreUi = (() => {
     call,
     callAdmin,
     showStatus,
+    withBusy,
     saveSession,
     accessToken,
     currentTenantId,

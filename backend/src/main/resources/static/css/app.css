@@ -262,6 +262,9 @@ nav.links a:hover {
 }
 
 section.card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 1.5rem;
@@ -273,11 +276,33 @@ section.card:last-child {
   margin-bottom: 0;
 }
 
+/* Ticket 023: found live — a card with more than one <form> in it (e.g.
+ * cuenta.html's 2FA section) had zero visual gap between them; a form's
+ * submit button sat flush against the next form's label. `gap` on the
+ * card fixes every child uniformly instead of a one-off margin per form. */
 section.card h3 {
-  margin: 0 0 1rem;
+  margin: 0;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.01em;
+}
+
+/* Ticket 023: groups a card's distinct sub-flows (e.g. the three 2FA
+ * enrollment paths) — replaces bare <hr> dividers, which separated
+ * content visually but didn't say what each part *was*. */
+.subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.subsection h4 {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
 }
 
 hr {
@@ -323,4 +348,64 @@ td a {
 
 td a:hover {
   text-decoration: underline;
+}
+
+/* Ticket 023: shared loading state — a button mid-request (via
+ * AuthCoreUi.withBusy) or a status line showing progress on page load
+ * (verify-email/change-email confirm, which run immediately, no form to
+ * disable). Text stays in place (color: transparent, not display: none)
+ * so the button doesn't reflow when the spinner appears. */
+@keyframes authcore-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+button.is-loading {
+  color: transparent;
+  pointer-events: none;
+  position: relative;
+}
+
+button.is-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1rem;
+  height: 1rem;
+  margin: -0.5rem 0 0 -0.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: authcore-spin 0.6s linear infinite;
+}
+
+button.secondary.is-loading::after {
+  border-color: color-mix(in srgb, var(--primary-color) 25%, transparent);
+  border-top-color: var(--primary-color);
+}
+
+[role="status"].is-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+[role="status"].is-loading::before {
+  content: "";
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: authcore-spin 0.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.is-loading::after,
+  [role="status"].is-loading::before {
+    animation: none;
+  }
 }

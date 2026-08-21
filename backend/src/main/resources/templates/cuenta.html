@@ -36,35 +36,45 @@
 
     <section class="card">
       <h3>Verificación en dos pasos (2FA)</h3>
-      <form id="otp-request-form" novalidate>
-        <button type="submit">Enviar código OTP (correo/SMS)</button>
-      </form>
-      <form id="otp-verify-form" novalidate>
-        <label for="otp-code">Código recibido</label>
-        <input type="text" id="otp-code" name="code" aria-label="Código OTP recibido" inputmode="numeric" autocomplete="one-time-code" />
-        <button type="submit">Verificar código OTP</button>
-      </form>
-      <hr />
-      <form id="totp-enroll-form" novalidate>
-        <button type="submit">Generar secreto TOTP (app autenticadora)</button>
-      </form>
-      <p id="totp-secret" class="field-hint hidden" role="status"></p>
-      <form id="totp-verify-form" novalidate>
-        <label for="totp-code">Código de la app autenticadora</label>
-        <input type="text" id="totp-code" name="code" aria-label="Código TOTP" inputmode="numeric" autocomplete="one-time-code" />
-        <button type="submit">Verificar código TOTP</button>
-      </form>
-      <hr />
-      <form id="method-form" novalidate>
-        <label for="method-select">Método de 2FA preferido</label>
-        <select id="method-select" name="method" aria-label="Método de 2FA preferido">
-          <option value="NONE">Ninguno</option>
-          <option value="OTP_EMAIL">Código por correo</option>
-          <option value="OTP_SMS">Código por SMS</option>
-          <option value="TOTP">App autenticadora (TOTP)</option>
-        </select>
-        <button type="submit">Guardar método</button>
-      </form>
+
+      <div class="subsection">
+        <h4>Código por correo o SMS</h4>
+        <form id="otp-request-form" novalidate>
+          <button type="submit">Enviar código OTP (correo/SMS)</button>
+        </form>
+        <form id="otp-verify-form" novalidate>
+          <label for="otp-code">Código recibido</label>
+          <input type="text" id="otp-code" name="code" aria-label="Código OTP recibido" inputmode="numeric" autocomplete="one-time-code" />
+          <button type="submit">Verificar código OTP</button>
+        </form>
+      </div>
+
+      <div class="subsection">
+        <h4>App autenticadora (TOTP)</h4>
+        <form id="totp-enroll-form" novalidate>
+          <button type="submit">Generar secreto TOTP (app autenticadora)</button>
+        </form>
+        <p id="totp-secret" class="field-hint hidden" role="status"></p>
+        <form id="totp-verify-form" novalidate>
+          <label for="totp-code">Código de la app autenticadora</label>
+          <input type="text" id="totp-code" name="code" aria-label="Código TOTP" inputmode="numeric" autocomplete="one-time-code" />
+          <button type="submit">Verificar código TOTP</button>
+        </form>
+      </div>
+
+      <div class="subsection">
+        <h4>Método preferido</h4>
+        <form id="method-form" novalidate>
+          <label for="method-select">Método de 2FA preferido</label>
+          <select id="method-select" name="method" aria-label="Método de 2FA preferido">
+            <option value="NONE">Ninguno</option>
+            <option value="OTP_EMAIL">Código por correo</option>
+            <option value="OTP_SMS">Código por SMS</option>
+            <option value="TOTP">App autenticadora (TOTP)</option>
+          </select>
+          <button type="submit">Guardar método</button>
+        </form>
+      </div>
     </section>
   </main>
 
@@ -79,10 +89,13 @@
     const status = document.getElementById("status");
     const userId = () => AuthCoreUi.currentUserId();
 
-    document.getElementById("resend-verification-btn").addEventListener("click", async () => {
+    const resendBtn = document.getElementById("resend-verification-btn");
+    resendBtn.addEventListener("click", async () => {
       try {
-        await AuthCoreUi.call("/api/v1/verify-email/request", { userId: userId() });
-        AuthCoreUi.showStatus(status, "Correo de verificación enviado.", false);
+        await AuthCoreUi.withBusy(resendBtn, async () => {
+          await AuthCoreUi.call("/api/v1/verify-email/request", { userId: userId() });
+          AuthCoreUi.showStatus(status, "Correo de verificación enviado.", false);
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
@@ -91,11 +104,13 @@
     document.getElementById("change-email-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        await AuthCoreUi.call("/api/v1/change-email/request", {
-          userId: userId(),
-          newEmail: e.target.newEmail.value,
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          await AuthCoreUi.call("/api/v1/change-email/request", {
+            userId: userId(),
+            newEmail: e.target.newEmail.value,
+          });
+          AuthCoreUi.showStatus(status, "Confirmación enviada al nuevo correo.", false);
         });
-        AuthCoreUi.showStatus(status, "Confirmación enviada al nuevo correo.", false);
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
@@ -104,8 +119,10 @@
     document.getElementById("otp-request-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        await AuthCoreUi.call("/api/v1/2fa/otp/request", { userId: userId() });
-        AuthCoreUi.showStatus(status, "Código OTP enviado.", false);
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          await AuthCoreUi.call("/api/v1/2fa/otp/request", { userId: userId() });
+          AuthCoreUi.showStatus(status, "Código OTP enviado.", false);
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
@@ -114,8 +131,10 @@
     document.getElementById("otp-verify-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        await AuthCoreUi.call("/api/v1/2fa/otp/verify", { userId: userId(), code: e.target.code.value });
-        AuthCoreUi.showStatus(status, "Código OTP verificado.", false);
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          await AuthCoreUi.call("/api/v1/2fa/otp/verify", { userId: userId(), code: e.target.code.value });
+          AuthCoreUi.showStatus(status, "Código OTP verificado.", false);
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
@@ -124,12 +143,14 @@
     document.getElementById("totp-enroll-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        const result = await AuthCoreUi.call("/api/v1/2fa/totp/enroll", { userId: userId() });
-        const secretEl = document.getElementById("totp-secret");
-        secretEl.textContent =
-          "Secreto (guárdalo/escanéalo ahora, no se vuelve a mostrar): " + result.secret;
-        secretEl.classList.remove("hidden");
-        AuthCoreUi.showStatus(status, "Secreto TOTP generado.", false);
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          const result = await AuthCoreUi.call("/api/v1/2fa/totp/enroll", { userId: userId() });
+          const secretEl = document.getElementById("totp-secret");
+          secretEl.textContent =
+            "Secreto (guárdalo/escanéalo ahora, no se vuelve a mostrar): " + result.secret;
+          secretEl.classList.remove("hidden");
+          AuthCoreUi.showStatus(status, "Secreto TOTP generado.", false);
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
@@ -138,8 +159,10 @@
     document.getElementById("totp-verify-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        await AuthCoreUi.call("/api/v1/2fa/totp/verify", { userId: userId(), code: e.target.code.value });
-        AuthCoreUi.showStatus(status, "Código TOTP verificado.", false);
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          await AuthCoreUi.call("/api/v1/2fa/totp/verify", { userId: userId(), code: e.target.code.value });
+          AuthCoreUi.showStatus(status, "Código TOTP verificado.", false);
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
@@ -148,8 +171,10 @@
     document.getElementById("method-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       try {
-        await AuthCoreUi.call("/api/v1/2fa/method", { userId: userId(), method: e.target.method.value });
-        AuthCoreUi.showStatus(status, "Método de 2FA actualizado.", false);
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          await AuthCoreUi.call("/api/v1/2fa/method", { userId: userId(), method: e.target.method.value });
+          AuthCoreUi.showStatus(status, "Método de 2FA actualizado.", false);
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }

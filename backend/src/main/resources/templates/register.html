@@ -58,10 +58,12 @@
         password: form.password.value,
       };
       try {
-        const user = await AuthCoreUi.call("/api/v1/register", body);
-        AuthCoreUi.saveSession(user);
-        AuthCoreUi.showStatus(status, "Cuenta creada. Redirigiendo…", false);
-        window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          const user = await AuthCoreUi.call("/api/v1/register", body);
+          AuthCoreUi.saveSession(user);
+          AuthCoreUi.showStatus(status, "Cuenta creada. Redirigiendo…", false);
+          window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+        });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
