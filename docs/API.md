@@ -3,7 +3,7 @@
 > Endpoints del backend: rutas, métodos, qué reciben y qué responden. Explicado en simple. Se actualiza cuando cada ticket que añade o cambia endpoints se mueve a `/done`.
 
 ## Estado actual
-`/register`, `/login`, `/verify-email/*` y `/change-email/*` **implementados y probados** (tickets `002` y `003`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `004` a `007`.
+`/register`, `/login`, `/verify-email/*`, `/change-email/*` y `/password-reset/*` **implementados y probados** (tickets `002`-`004`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `005` a `007`.
 
 ### ⚠️ Límite temporal de confianza (hasta ticket 007)
 `/verify-email/request` y `/change-email/request` reciben el `userId` directamente en el body — no hay todavía un token de acceso real que identifique "al usuario actual" (eso lo trae ticket `007`). Cualquiera que conozca (o adivine) un `userId` puede disparar el envío de un correo de verificación/cambio para ese usuario — molesto (spam, mitigado por el cooldown de 60s), pero no explotable: completar el flujo requiere poseer el token que llega a esa bandeja de entrada. Documentado también en `TenantScopedUserResolver.java`.
@@ -40,6 +40,15 @@
 |---|---|---|---|
 | POST | `/api/v1/change-email/request` | Header `X-Client-Id`; body: `userId`, `newEmail` | `202` (correo de confirmación enviado **al correo nuevo**, el actual sigue activo) o `409 duplicate_identifier` si `newEmail` ya existe en el tenant |
 | POST | `/api/v1/change-email/confirm` | body: `token` | `200` (aplica el cambio y marca el correo nuevo como verificado) o `400 invalid_token` / `409 duplicate_identifier` (si alguien más tomó ese correo mientras el link estaba pendiente) |
+
+## Recuperación de contraseña (ticket `004`)
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| POST | `/api/v1/password-reset/request` | Header `X-Client-Id`; body: `identifier` (email o teléfono) | **Siempre `202`**, exista o no ese identificador — ver advertencia abajo |
+| POST | `/api/v1/password-reset/confirm` | body: `token`, `newPassword` | `200` o `400 invalid_token` / `400 weak_password` |
+
+### ⚠️ `/password-reset/request` nunca revela si la cuenta existe
+A diferencia de `/verify-email/request` (que sí puede responder `429` porque el llamador ya "posee" el `userId`), aquí el llamador solo aporta una adivinanza de email/teléfono — así que ni el código HTTP, ni el tiempo de respuesta ni el comportamiento pueden diferir entre "existe" y "no existe". El servicio nunca lanza una excepción distinguible para este caso; ver `PasswordResetService` en `docs/ARQUITECTURA.md`.
 
 ## Verificación y cambio de correo (ticket `003`)
 | Método | Ruta | Qué hace |

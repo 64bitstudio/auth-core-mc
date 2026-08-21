@@ -72,6 +72,12 @@ La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API �
 - **Confianza temporal en `/verify-email/request` y `/change-email/request`**: como ticket `007` (tokens OAuth2 reales) todavía no existe, estos dos endpoints reciben el `userId` directamente del llamador en vez de leerlo de un token de acceso autenticado. Es una decisión consciente y acotada — ver la advertencia en `docs/API.md` y el Javadoc de `TenantScopedUserResolver` — no un descuido.
 - **Spring Boot 4.1 separó `RestClient.Builder` de `webmvc`**: en Boot 3.x venía "gratis" con el starter web; en 4.1 hace falta el starter `spring-boot-starter-restclient` explícito o Spring no encuentra el bean al construir cualquier cliente HTTP (como `ResendEmailSender`).
 
+## Ticket 004: recuperación de contraseña
+
+- **`requestReset` nunca lanza excepción, nunca se comporta distinto entre "existe" y "no existe"**: es el único endpoint del proyecto donde el llamador solo aporta una *adivinanza* (un email/teléfono), a diferencia de `/verify-email/request` donde ya aporta un `userId` que se asume conocido. Por eso aquí ni siquiera el rate-limit puede ser visible — el cooldown se activa igual exista o no la cuenta, y la respuesta HTTP es siempre `202`.
+- **`SmsSender`/`TwilioSmsSender` nacen en este ticket, no en el `005`**: un usuario que se registró solo con teléfono necesita recuperar su contraseña por SMS, y ese caso ya existía antes de que 2FA (que también usará Twilio) llegara. El ticket `005` reutiliza esta misma interfaz para OTP.
+- **Preferencia email > SMS cuando el usuario tiene ambos**: decisión simple y documentada aquí — el email es gratis de enviar (Resend) y no depende de saldo/costo por mensaje (Twilio), así que se usa primero si está disponible.
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -79,4 +85,4 @@ La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API �
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `003` (verificación y cambio de correo). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `004` (recuperación de contraseña). Se actualizará con cada ticket movido a `/done`._

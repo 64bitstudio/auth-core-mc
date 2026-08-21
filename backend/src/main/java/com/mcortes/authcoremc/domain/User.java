@@ -125,6 +125,14 @@ public class User {
         this.emailVerified = true;
     }
 
+    /** Sets a new password hash — the caller (PasswordResetService) owns hashing and strength policy. */
+    public void changePasswordHash(String newPasswordHash) {
+        if (newPasswordHash == null || newPasswordHash.isBlank()) {
+            throw new IllegalArgumentException("newPasswordHash must not be blank");
+        }
+        this.passwordHash = newPasswordHash;
+    }
+
     public void markPhoneVerified() {
         this.phoneVerified = true;
     }
