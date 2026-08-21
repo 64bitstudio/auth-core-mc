@@ -160,10 +160,21 @@ body.admin-body {
   font-weight: 700;
 }
 
+/* Ticket 026: `max-width` alone left the content pinned to the sidenav's
+ * edge on wide viewports — the leftover space (container width minus
+ * sidenav minus 900px) just sat unused to the right instead of framing the
+ * content. `margin: 0 auto` on this flex item is enough on its own: once
+ * the item is frozen at its max-width, flexbox distributes any positive
+ * free space remaining on the line to auto margins (CSS Flexbox §8.1) —
+ * left/right end up equal, no change to `.admin-shell`/`.admin-body-row`'s
+ * own flex setup or to the 720px breakpoint below (there the item already
+ * fills the narrow viewport, so the auto margins resolve to zero and do
+ * nothing). */
 .admin-content {
   flex: 1;
   padding: 2rem 2.5rem 3rem;
   max-width: 900px;
+  margin: 0 auto;
 }
 
 @media (max-width: 720px) {
@@ -296,6 +307,28 @@ button.danger {
 button.danger:hover {
   background: var(--admin-error-bg);
   border-color: var(--admin-error-fg);
+}
+
+/* Ticket 026: shared button-sizing convention for the whole panel.
+ * - A button that is the only action of a form already stretches to the
+ *   container's width (existing behaviour: `form` is a flex column with
+ *   default `align-items: stretch`) — untouched by this rule.
+ * - A *group* of buttons sitting next to each other (e.g. Guardar +
+ *   Desactivar on each identity-provider card) must never mix a
+ *   full-width button with an auto-width one — wrap the group in
+ *   `.button-group` and every direct `<button>` child grows to the same
+ *   width instead. Not used for dialog action rows (`.confirm-actions`,
+ *   `.dialog-actions`): those are two same-style auto-width buttons
+ *   right-aligned by design, not the full-width/auto-width mismatch this
+ *   ticket fixes. */
+.button-group {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+
+.button-group > button {
+  flex: 1;
 }
 
 [role="status"],

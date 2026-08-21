@@ -24,7 +24,7 @@
         <section class="card" data-provider="GOOGLE">
           <h3>Google</h3>
           <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
-          <form class="provider-form" novalidate>
+          <form class="provider-form" id="google-provider-form" novalidate>
             <div>
               <label for="google-client-id">Client ID</label>
               <input type="text" id="google-client-id" name="clientId" aria-label="Client ID de Google" required autocomplete="off" />
@@ -33,15 +33,21 @@
               <label for="google-client-secret">Client secret</label>
               <input type="password" id="google-client-secret" name="clientSecret" aria-label="Client secret de Google" required autocomplete="off" />
             </div>
-            <button type="submit">Guardar</button>
           </form>
-          <button type="button" class="secondary provider-disable-btn hidden">Desactivar Google</button>
+          <!-- Ticket 026: Guardar and Desactivar form one button-group so
+               neither ends up full-width next to an auto-width sibling.
+               Guardar stays functionally tied to the form above via the
+               HTML5 `form` attribute even though it now lives outside it. -->
+          <div class="button-group">
+            <button type="submit" form="google-provider-form">Guardar</button>
+            <button type="button" class="secondary provider-disable-btn hidden">Desactivar Google</button>
+          </div>
         </section>
 
         <section class="card" data-provider="FACEBOOK">
           <h3>Facebook</h3>
           <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
-          <form class="provider-form" novalidate>
+          <form class="provider-form" id="facebook-provider-form" novalidate>
             <div>
               <label for="facebook-client-id">Client ID</label>
               <input type="text" id="facebook-client-id" name="clientId" aria-label="Client ID de Facebook" required autocomplete="off" />
@@ -50,9 +56,11 @@
               <label for="facebook-client-secret">Client secret</label>
               <input type="password" id="facebook-client-secret" name="clientSecret" aria-label="Client secret de Facebook" required autocomplete="off" />
             </div>
-            <button type="submit">Guardar</button>
           </form>
-          <button type="button" class="secondary provider-disable-btn hidden">Desactivar Facebook</button>
+          <div class="button-group">
+            <button type="submit" form="facebook-provider-form">Guardar</button>
+            <button type="button" class="secondary provider-disable-btn hidden">Desactivar Facebook</button>
+          </div>
         </section>
       </main>
     </div>
