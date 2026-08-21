@@ -67,6 +67,10 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	// Ticket 017: hermetic Vault Transit tests, same "own container per run"
+	// philosophy as testcontainers-postgresql above — not pointed at the
+	// shared local dev-infra Vault, which could be sealed/unavailable.
+	testImplementation 'org.testcontainers:testcontainers-vault'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
