@@ -1,6 +1,7 @@
 package com.mcortes.authcoremc.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -114,6 +115,65 @@ class AdminTenantEndToEndTest {
 
         mvc.perform(get("/api/v1/admin/tenants/" + otherTenant.getId()).header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void aTenantAdminCannotReactivateATenant() throws Exception {
+        String token = loginAs("tenant-admin-reactivate@example.com", UserRole.TENANT_ADMIN);
+
+        mvc.perform(post("/api/v1/admin/tenants/" + loginTenant.getId() + "/reactivate")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * Ticket 022, real end to end: {@code targetTenant} is deliberately
+     * separate from {@code loginTenant} (used only to authenticate the
+     * platform_admin actor) — this proves that deactivating/reactivating
+     * ANOTHER tenant's registration/login through the real endpoints has a
+     * real, immediate effect at {@code ClientContextResolver} (ticket 013's
+     * choke point), not just on a mocked/unit-tested domain object.
+     */
+    @Test
+    void deactivatingThenReactivatingATenantThroughTheRealEndpointsBlocksThenRestoresLoginAndRegister() throws Exception {
+        Tenant targetTenant = tenantRepository.save(new Tenant(
+                "TargetTenant-" + UUID.randomUUID(), "App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+        String targetClientId = "target-client-" + UUID.randomUUID();
+        identityClientRepository.save(new IdentityClient(
+                targetTenant, targetClientId, null, true, List.of("https://acme.example.com/callback")));
+        String adminToken = loginAs("platform-admin-reactivate@example.com", UserRole.PLATFORM_ADMIN);
+        ObjectMapper mapper = new ObjectMapper();
+
+        mvc.perform(post("/api/v1/register")
+                        .header("X-Client-Id", targetClientId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "email", "before-deactivate@example.com", "nombre", "Test", "apellidos", "User", "password",
+                                "abcd1234"))))
+                .andExpect(status().isCreated());
+
+        mvc.perform(delete("/api/v1/admin/tenants/" + targetTenant.getId()).header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(post("/api/v1/register")
+                        .header("X-Client-Id", targetClientId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "email", "while-deactivated@example.com", "nombre", "Test", "apellidos", "User", "password",
+                                "abcd1234"))))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(post("/api/v1/admin/tenants/" + targetTenant.getId() + "/reactivate")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(post("/api/v1/register")
+                        .header("X-Client-Id", targetClientId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "email", "after-reactivate@example.com", "nombre", "Test", "apellidos", "User", "password",
+                                "abcd1234"))))
+                .andExpect(status().isCreated());
     }
 
     private String loginAs(String email, UserRole role) throws Exception {

@@ -97,6 +97,15 @@ public class AdminTenantService {
         tenantRepository.save(tenant);
     }
 
+    /** Ticket 022: same permission level as {@link #deactivate} — reversing the action doesn't loosen who can do it. */
+    @Transactional
+    public void reactivate(UserRole actorRole, UUID targetTenantId) {
+        requirePlatformAdmin(actorRole);
+        Tenant tenant = findOrThrow(targetTenantId);
+        tenant.reactivate();
+        tenantRepository.save(tenant);
+    }
+
     private Tenant findOrThrow(UUID tenantId) {
         return tenantRepository.findById(tenantId).orElseThrow(() -> new TenantNotFoundException(tenantId));
     }

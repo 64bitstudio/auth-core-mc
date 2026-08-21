@@ -83,6 +83,13 @@ public class AdminTenantController {
         return ResponseEntity.noContent().build();
     }
 
+    /** Ticket 022: {@code Tenant.reactivate()} has existed since ticket 013 — this is the first endpoint to expose it. */
+    @PostMapping("/{id}/reactivate")
+    public ResponseEntity<Void> reactivate(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        service.reactivate(role(jwt), id);
+        return ResponseEntity.noContent().build();
+    }
+
     /**
      * Ticket 016: {@code from}/{@code to} default to the last 30 days when
      * omitted — a first visit to the metrics page shouldn't require typing
