@@ -81,6 +81,7 @@ Criterios de aceptación:
 **Dos sistemas de diseño, no uno.** Confirmado explícitamente por el Product Owner: el panel admin es una herramienta operativa interna (la usan platform_admin/tenant_admin), las páginas de usuario final son la cara de cada tenant hacia SUS clientes. Forzarlos al mismo sistema (como hoy) es lo que produce la sensación de "todo es una página de login". Separar los dos sistemas es la decisión de mayor apalancamiento de este cambio — mismo patrón que productos reales de identidad (p. ej. panel de operación vs. pantalla de login universal).
 
 - **`static/css/admin.css` (nuevo, separado de `app.css`)**: tokens propios (paleta neutra con un acento fijo, tipografía, espaciado) para las 4 páginas del panel (`admin-tenants`, `admin-metrics`, `admin-identity-providers` + el nuevo layout compartido). Nunca lee `--primary-color`. `app.css` se mantiene intacto y sigue siendo exclusivo de las páginas de usuario final — cero riesgo de regresión ahí por este cambio.
+  - **Paleta confirmada — "Slate + Índigo"** (Opción A de las 3 propuestas revisadas con el Product Owner): fondo `#f8f9fb`, superficie `#ffffff`, borde `#e4e7ec`, texto `#101322`, texto secundario `#667085`, acento `#4f46e5` (hover `#4338ca`), acento suave `#eeedfd` (fondos de nav activo/badges). Tipografía: misma pila del sistema ya usada en `app.css` (sin fuente web externa, mismo criterio de privacidad/disponibilidad ya establecido en el ticket 010) — el acento y los neutros son lo que distingue al panel, no la tipografía.
 - **Fragmento Thymeleaf compartido** (`templates/fragments/admin-shell.html`, usando `th:fragment`) con el header/nav del panel — cada página admin lo incluye vía `th:replace`/`th:insert` en vez de repetir el `<header>` a mano en cada archivo (hoy cada página admin ya duplica el mismo `<header class="app-header">`).
 - **`api.js` gana dos funciones nuevas, aditivas**: `logout()` (limpia `sessionStorage`, redirige a `/ui/login`) y `currentRole()` (decodifica `role` del JWT, mismo patrón ya usado por `currentTenantId()`) — el shell del panel las usa para saber qué mostrar en la navegación (ocultar "Clientes" si no es platform_admin) sin round-trip al backend.
 - **Backend nuevo, mínimo**: `POST /api/v1/admin/tenants/{id}/reactivate` en el ya-existente `AdminTenantController`, delegando a `AdminTenantService.reactivate(actorRole, targetTenantId)` — mismo patrón exacto que `deactivate` (platform_admin-only, usa `Tenant.reactivate()` ya existente en el dominio desde el ticket 013). Sin migración: `deactivated_at` ya es nullable.
@@ -120,15 +121,15 @@ sequenceDiagram
 ```
 Único flujo con backend genuinamente nuevo de este cambio — mismo patrón que `deactivate` (ticket 013), reutilizando el método de dominio ya existente.
 
-## Riesgos y preguntas abiertas
-- **¿El diálogo de confirmación (HU-6) debe reutilizarse también para "reactivar" (HU-7)?** Propuesta: sí, mismo componente de confirmación genérico para ambas acciones — evita construir dos patrones distintos para el mismo tipo de decisión. Si el Product Owner prefiere confirmación solo en desactivar (no en reactivar, por ser una acción "reversible hacia el estado normal"), se ajusta antes de crear los tickets.
-- **Orden de implementación**: dado que son 2 sistemas de diseño independientes, ¿el panel admin primero (donde están las 4 capacidades funcionales nuevas) o las páginas de usuario final primero? Propuesta: panel admin primero — es donde vive la funcionalidad nueva, y las páginas de usuario final no tienen ninguna dependencia técnica del panel.
-- **Paleta/tipografía exactas del panel**: este documento fija el tono ("utilitario tipo dashboard", confirmado por el Product Owner) pero no los valores hex/tipografía exactos — eso se resuelve durante la implementación del primer ticket de UI (`ux-ui-designer`/diseño real de la paleta), no aquí. Si el Product Owner quiere revisar la paleta antes de que se construya, avisarlo explícitamente al iniciar ese ticket.
+## Decisiones resueltas con el Product Owner
+Las 3 preguntas abiertas de la primera versión de este documento ya se resolvieron explícitamente antes del VoBo final:
+- **Confirmación al reactivar**: sí, mismo componente de diálogo que desactivar (no dos patrones distintos para el mismo tipo de decisión).
+- **Orden de implementación**: panel admin primero (ahí vive toda la funcionalidad nueva); páginas de usuario final al final, sin dependencia técnica del panel.
+- **Paleta del panel**: "Slate + Índigo" (ver valores exactos en Diseño técnico) — elegida entre 3 propuestas mostradas en contexto real (nav + tabla + botón), no solo como swatches.
 
 ## Impacto estimado
-Lista tentativa de tickets (se refina al usar `nuevo-ticket` tras el VoBo):
-1. **Sistema visual + layout compartido del panel admin** (`admin.css`, `admin-shell.html`, `api.js` con `logout()`/`currentRole()`, migrar las 3 páginas admin existentes al nuevo shell/estilos).
+Lista tentativa de tickets (se refina al usar `nuevo-ticket` tras el VoBo), en el orden de implementación acordado:
+1. **Sistema visual + layout compartido del panel admin** (`admin.css` con la paleta Slate+Índigo, `admin-shell.html`, `api.js` con `logout()`/`currentRole()`, migrar las 3 páginas admin existentes al nuevo shell/estilos).
 2. **Alta y edición de tenant desde la UI** (formularios reales en `/ui/admin/tenants`, sin backend nuevo).
-3. **Reactivar tenant** (backend nuevo `POST .../reactivate` + UI, con el diálogo de confirmación compartido con desactivar).
-4. **Confirmación antes de desactivar** (puede ir junto al ticket 3 si comparten el mismo componente de diálogo — a decidir al craer los tickets).
-5. **Rediseño de las 7 páginas de usuario final** (mejora de `app.css`, manteniendo el theming por tenant intacto).
+3. **Reactivar tenant + confirmación antes de desactivar** (backend nuevo `POST .../reactivate`, más el diálogo de confirmación compartido por ambas acciones — van juntos por compartir el mismo componente).
+4. **Rediseño de las 7 páginas de usuario final** (mejora de `app.css`, manteniendo el theming por tenant intacto).
