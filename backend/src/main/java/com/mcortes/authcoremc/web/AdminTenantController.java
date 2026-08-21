@@ -2,9 +2,13 @@ package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.UserRole;
+import com.mcortes.authcoremc.service.AdminMetricsService;
 import com.mcortes.authcoremc.service.AdminTenantService;
 import jakarta.validation.Valid;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -16,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -25,15 +30,23 @@ import org.springframework.web.bind.annotation.RestController;
  * tenant" check lives in {@code AdminTenantService}, reading role/tenant_id
  * straight off the JWT claims (see {@code AdminClaimsCustomizer}) — no DB
  * lookup of the caller needed for authorization.
+ *
+ * <p>Ticket 016's {@code /metrics} endpoint lives here too (not a separate
+ * controller) — it shares the exact same {@code /api/v1/admin/tenants/{id}}
+ * URL space and role/tenant-claim extraction helpers.
  */
 @RestController
 @RequestMapping("/api/v1/admin/tenants")
 public class AdminTenantController {
 
-    private final AdminTenantService service;
+    private static final int DEFAULT_RANGE_DAYS = 30;
 
-    public AdminTenantController(AdminTenantService service) {
+    private final AdminTenantService service;
+    private final AdminMetricsService metricsService;
+
+    public AdminTenantController(AdminTenantService service, AdminMetricsService metricsService) {
         this.service = service;
+        this.metricsService = metricsService;
     }
 
     @PostMapping
@@ -59,6 +72,26 @@ public class AdminTenantController {
     public ResponseEntity<Void> deactivate(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         service.deactivate(role(jwt), id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Ticket 016: {@code from}/{@code to} default to the last 30 days when
+     * omitted — a first visit to the metrics page shouldn't require typing
+     * a date range just to see something. A tenant with no activity in the
+     * range is a normal 200 with all-zero fields, not an error (see {@code
+     * AdminMetricsService}).
+     */
+    @GetMapping("/{id}/metrics")
+    public ResponseEntity<TenantMetricsResponse> metrics(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID id,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+        Instant effectiveTo = to != null ? to : Instant.now();
+        Instant effectiveFrom = from != null ? from : effectiveTo.minus(DEFAULT_RANGE_DAYS, ChronoUnit.DAYS);
+        TenantMetricsResponse response =
+                metricsService.metrics(role(jwt), tenantId(jwt), id, effectiveFrom, effectiveTo);
+        return ResponseEntity.ok(response);
     }
 
     private UserRole role(Jwt jwt) {

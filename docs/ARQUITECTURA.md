@@ -234,6 +234,19 @@ Sexto ticket de la épica del panel de administración. Depende de 011/012 (RBAC
 - Siguiendo el mismo patrón que el ticket 013 estableció para controllers admin delgados: sin `@WebMvcTest` dedicado para el controller (la lógica de negocio ya está probada a fondo en `TenantIdentityProviderServiceTest`), la prueba end-to-end es la que prueba el wiring real.
 - 227/227 tests en verde (223 previos + 4 nuevos: 3 de `AdminIdentityProviderEndToEndTest`, 1 de `UiPagesControllerTest`).
 
+## Ticket 016: endpoints y UI de métricas de uso por cliente
+
+Séptimo ticket de la épica del panel de administración. Depende del ticket 015 (`login_event`) y de 011/012 (RBAC + guard).
+
+- **`GET /api/v1/admin/tenants/{id}/metrics?from=&to=`** vive en el mismo `AdminTenantController` del ticket 013 (misma URL base, mismos helpers de extracción de rol/tenant del JWT) — no un controller nuevo. Mismo patrón de autorización de grano fino que `get()`/`update()`: `platform_admin` cualquier tenant, `tenant_admin` solo el suyo (`AdminAccessPolicy`, sin consulta a BD para autorizar).
+- **Agregación en Java, no SQL**: `AdminMetricsService` trae los `login_event` del rango con una única consulta derivada (`findByTenantAndOccurredAtBetween`) y agrega en memoria (conteos por resultado/proveedor, usuarios activos únicos, latencia promedio) — consistente con que ningún repositorio de este codebase usa `@Query` todavía, y con la decisión de "volumen bajo" ya tomada en la fase de definición (misma filosofía que `TenantPurgeService`, ticket 013).
+- **Usuarios "registrados" vs "activos"**: registrados = todos los `User` del tenant (`UserRepository.findByTenant`, ya existente del ticket 013), sin acotar por rango de fechas (el registro no se modela en `login_event`). Activos = usuarios distintos con al menos un login `SUCCESS` dentro del rango.
+- **Rango por defecto de 30 días** si no se pasan `from`/`to` — para que la primera visita a la página muestre algo sin obligar a elegir fechas. `from > to` responde 400 (reutiliza el `@ExceptionHandler(IllegalArgumentException.class)` genérico ya existente, sin exception nueva).
+- **Tenant sin actividad = 200 con todo en cero, nunca un error** — probado explícitamente, tanto a nivel de servicio como end-to-end.
+- **Primer uso de `AuthCoreUi.currentTenantId()`**: decodifica el `tenant_id` del propio JWT guardado en `sessionStorage` (base64url, sin verificar firma — es solo una conveniencia de UI para precargar el campo de tenant, nunca decide autorización) para que un `tenant_admin` vea sus propias métricas sin escribir nada; un `platform_admin` puede editar el campo para consultar cualquier tenant. Sin selector de lista (no existe todavía un endpoint "listar todos los tenants") — se escribe el ID directamente.
+- Prueba real de punta a punta (`AdminMetricsEndToEndTest`, sin mocks): logins reales producen filas reales de `login_event`, la consulta HTTP real devuelve los conteos correctos; 403 real para `tenant_admin` sobre un tenant ajeno; 200 con ceros para un tenant sin actividad; 400 para un rango invertido.
+- 238/238 tests en verde (227 previos + 11 nuevos: 6 de `AdminMetricsServiceTest`, 4 de `AdminMetricsEndToEndTest`, 1 de `UiPagesControllerTest`).
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -241,4 +254,4 @@ Sexto ticket de la épica del panel de administración. Depende de 011/012 (RBAC
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `014` (UI de configuración de proveedores de login por cliente). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `016` (endpoints y UI de métricas de uso por cliente). Se actualizará con cada ticket movido a `/done`._

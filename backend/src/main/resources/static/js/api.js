@@ -92,6 +92,27 @@ const AuthCoreUi = (() => {
     return sessionStorage.getItem("authcore.accessToken");
   }
 
+  // Ticket 016: reads the tenant_id claim straight out of the stored JWT
+  // payload — no signature verification, just a UI convenience to prefill
+  // "which tenant" on admin pages (e.g. the metrics page defaults to the
+  // caller's own tenant). The real access decision is still the server's
+  // role/tenant check on the admin API; this can never grant anything by
+  // itself. Returns null on any decode failure instead of throwing, so a
+  // malformed/missing token just leaves the field blank.
+  function currentTenantId() {
+    try {
+      const token = accessToken();
+      // JWTs are base64url, not plain base64 (- and _ instead of + and /,
+      // and padding stripped) — atob() alone would silently mis-decode or
+      // throw on real tokens.
+      const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const payload = JSON.parse(atob(base64));
+      return payload.tenant_id || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function currentUserId() {
     return sessionStorage.getItem("authcore.userId");
   }
@@ -138,6 +159,7 @@ const AuthCoreUi = (() => {
     showStatus,
     saveSession,
     accessToken,
+    currentTenantId,
     currentUserId,
     currentSnapshot,
     requireSession,

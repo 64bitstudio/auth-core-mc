@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org" th:attr="style='--primary-color:' + ${primaryColor} + ';'">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title th:text="${appName} + ' — Métricas de uso'">Métricas de uso</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header"><h1 th:text="${appName}">App</h1></header>
+  <main id="main">
+    <h2>Métricas de uso</h2>
+    <div id="status" class="hidden" aria-live="polite"></div>
+
+    <section class="card">
+      <form id="filters-form" novalidate>
+        <div>
+          <label for="tenant-id">Tenant</label>
+          <input type="text" id="tenant-id" name="tenantId" aria-label="ID del tenant a consultar" required />
+        </div>
+        <div>
+          <label for="from-date">Desde</label>
+          <input type="date" id="from-date" name="from" aria-label="Fecha inicial" />
+        </div>
+        <div>
+          <label for="to-date">Hasta</label>
+          <input type="date" id="to-date" name="to" aria-label="Fecha final" />
+        </div>
+        <button type="submit">Consultar</button>
+      </form>
+      <p class="field-hint">Si no eliges fechas, se muestran los últimos 30 días.</p>
+    </section>
+
+    <section class="card" id="results" aria-live="polite">
+      <p id="empty-state" class="hidden">Sin actividad de login en el rango seleccionado.</p>
+      <div id="metrics-values" class="hidden">
+        <p>Logins totales: <span id="total-logins"></span></p>
+        <p>Éxitos: <span id="success-count"></span> — Fallos: <span id="failure-count"></span></p>
+        <p>Tasa de error: <span id="error-rate"></span></p>
+        <p>Latencia promedio: <span id="avg-latency"></span> ms</p>
+        <p>Usuarios activos: <span id="active-users"></span> — Usuarios registrados: <span id="registered-users"></span></p>
+        <p>Por proveedor: <span id="by-provider"></span></p>
+      </div>
+    </section>
+  </main>
+
+  <script th:src="@{/js/api.js}"></script>
+  <script>
+    const status = document.getElementById("status");
+
+    function dateInputToInstant(value, endOfDay) {
+      if (!value) {
+        return null;
+      }
+      return value + (endOfDay ? "T23:59:59Z" : "T00:00:00Z");
+    }
+
+    async function loadMetrics(tenantId, from, to) {
+      let path = "/api/v1/admin/tenants/" + encodeURIComponent(tenantId) + "/metrics";
+      const params = new URLSearchParams();
+      if (from) {
+        params.set("from", from);
+      }
+      if (to) {
+        params.set("to", to);
+      }
+      if ([...params].length > 0) {
+        path += "?" + params.toString();
+      }
+
+      try {
+        const metrics = await AuthCoreUi.callAdmin("GET", path);
+        renderMetrics(metrics);
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    }
+
+    function renderMetrics(metrics) {
+      const emptyState = document.getElementById("empty-state");
+      const values = document.getElementById("metrics-values");
+      if (metrics.totalLogins === 0) {
+        emptyState.classList.remove("hidden");
+        values.classList.add("hidden");
+        return;
+      }
+      emptyState.classList.add("hidden");
+      values.classList.remove("hidden");
+      document.getElementById("total-logins").textContent = metrics.totalLogins;
+      document.getElementById("success-count").textContent = metrics.successCount;
+      document.getElementById("failure-count").textContent = metrics.failureCount;
+      document.getElementById("error-rate").textContent = (metrics.errorRate * 100).toFixed(1) + "%";
+      document.getElementById("avg-latency").textContent = metrics.avgLatencyMs.toFixed(0);
+      document.getElementById("active-users").textContent = metrics.activeUsers;
+      document.getElementById("registered-users").textContent = metrics.registeredUsers;
+      document.getElementById("by-provider").textContent = Object.entries(metrics.byProvider)
+        .map(([provider, count]) => provider + ": " + count)
+        .join(", ");
+    }
+
+    document.getElementById("filters-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const tenantId = e.target.tenantId.value.trim();
+      const from = dateInputToInstant(e.target.from.value, false);
+      const to = dateInputToInstant(e.target.to.value, true);
+      loadMetrics(tenantId, from, to);
+    });
+
+    if (AuthCoreUi.requireAdminSession()) {
+      const ownTenantId = AuthCoreUi.currentTenantId();
+      if (ownTenantId) {
+        document.getElementById("tenant-id").value = ownTenantId;
+        loadMetrics(ownTenantId, null, null);
+      }
+    }
+  </script>
+</body>
+</html>
