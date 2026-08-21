@@ -215,6 +215,15 @@ select:hover {
   border-color: var(--admin-muted);
 }
 
+/* Ticket 021: a color swatch needs a fixed, small size — the generic
+ * text-input padding above stretched it into a flat bar instead of a
+ * recognizable color picker. */
+input[type="color"] {
+  padding: 0.25rem;
+  height: 2.5rem;
+  width: 5rem;
+}
+
 input:focus-visible,
 select:focus-visible,
 button:focus-visible,
@@ -404,4 +413,37 @@ dialog.confirm-dialog .confirm-actions {
   display: flex;
   gap: 0.6rem;
   justify-content: flex-end;
+}
+
+/* Ticket 021: same real <dialog> element, wider variant for a full edit
+ * form instead of a one-line confirmation. */
+dialog.form-dialog {
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-lg);
+  box-shadow: var(--admin-shadow);
+  padding: 1.5rem 1.75rem;
+  width: min(480px, 92vw);
+  color: var(--admin-fg);
+  font-family: inherit;
+}
+
+dialog.form-dialog::backdrop {
+  background: rgba(16, 19, 34, 0.35);
+}
+
+dialog.form-dialog .dialog-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem 1rem;
+}
+
+.form-grid .span-2 {
+  grid-column: 1 / -1;
 }

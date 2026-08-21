@@ -28,21 +28,106 @@
                   <th scope="col">Estado</th>
                   <th scope="col">Creado</th>
                   <th scope="col">Métricas</th>
+                  <th scope="col">Acciones</th>
                 </tr>
               </thead>
               <tbody id="tenants-tbody"></tbody>
             </table>
           </div>
         </section>
+
+        <section class="card">
+          <h3>Dar de alta un cliente nuevo</h3>
+          <form id="create-tenant-form" novalidate>
+            <div class="form-grid">
+              <div class="span-2">
+                <label for="create-name">Nombre</label>
+                <input type="text" id="create-name" name="name" aria-label="Nombre del cliente" required />
+              </div>
+              <div class="span-2">
+                <label for="create-app-name">Nombre de la app</label>
+                <input type="text" id="create-app-name" name="appName" aria-label="Nombre de la app" required />
+              </div>
+              <div class="span-2">
+                <label for="create-color">Color primario</label>
+                <input type="color" id="create-color" name="primaryColor" aria-label="Color primario" value="#0057ff" required />
+              </div>
+              <div>
+                <label for="create-access-ttl">TTL access token (s)</label>
+                <input type="number" id="create-access-ttl" name="accessTokenTtlSeconds" aria-label="TTL del access token en segundos" value="900" min="1" required />
+              </div>
+              <div>
+                <label for="create-refresh-ttl">TTL refresh token (s)</label>
+                <input type="number" id="create-refresh-ttl" name="refreshTokenTtlSeconds" aria-label="TTL del refresh token en segundos" value="2592000" min="1" required />
+              </div>
+              <div>
+                <label for="create-verify-ttl">TTL verif. correo (s)</label>
+                <input type="number" id="create-verify-ttl" name="emailVerificationTtlSeconds" aria-label="TTL de verificación de correo en segundos" value="86400" min="1" required />
+              </div>
+              <div>
+                <label for="create-reset-ttl">TTL reseteo contraseña (s)</label>
+                <input type="number" id="create-reset-ttl" name="passwordResetTtlSeconds" aria-label="TTL de reseteo de contraseña en segundos" value="3600" min="1" required />
+              </div>
+              <div>
+                <label for="create-otp-ttl">TTL OTP (s)</label>
+                <input type="number" id="create-otp-ttl" name="otpTtlSeconds" aria-label="TTL de OTP en segundos" value="300" min="1" required />
+              </div>
+            </div>
+            <button type="submit">Crear cliente</button>
+          </form>
+        </section>
       </main>
     </div>
   </div>
+
+  <dialog id="edit-tenant-dialog" class="form-dialog">
+    <h3>Editar cliente</h3>
+    <form id="edit-tenant-form" novalidate>
+      <input type="hidden" id="edit-id" name="id" />
+      <div class="form-grid">
+        <div class="span-2">
+          <label for="edit-app-name">Nombre de la app</label>
+          <input type="text" id="edit-app-name" name="appName" aria-label="Nombre de la app" required />
+        </div>
+        <div class="span-2">
+          <label for="edit-color">Color primario</label>
+          <input type="color" id="edit-color" name="primaryColor" aria-label="Color primario" required />
+        </div>
+        <div>
+          <label for="edit-access-ttl">TTL access token (s)</label>
+          <input type="number" id="edit-access-ttl" name="accessTokenTtlSeconds" aria-label="TTL del access token en segundos" min="1" required />
+        </div>
+        <div>
+          <label for="edit-refresh-ttl">TTL refresh token (s)</label>
+          <input type="number" id="edit-refresh-ttl" name="refreshTokenTtlSeconds" aria-label="TTL del refresh token en segundos" min="1" required />
+        </div>
+        <div>
+          <label for="edit-verify-ttl">TTL verif. correo (s)</label>
+          <input type="number" id="edit-verify-ttl" name="emailVerificationTtlSeconds" aria-label="TTL de verificación de correo en segundos" min="1" required />
+        </div>
+        <div>
+          <label for="edit-reset-ttl">TTL reseteo contraseña (s)</label>
+          <input type="number" id="edit-reset-ttl" name="passwordResetTtlSeconds" aria-label="TTL de reseteo de contraseña en segundos" min="1" required />
+        </div>
+        <div>
+          <label for="edit-otp-ttl">TTL OTP (s)</label>
+          <input type="number" id="edit-otp-ttl" name="otpTtlSeconds" aria-label="TTL de OTP en segundos" min="1" required />
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="secondary" id="edit-cancel-btn">Cancelar</button>
+        <button type="submit">Guardar cambios</button>
+      </div>
+    </form>
+  </dialog>
 
   <script th:src="@{/js/api.js}"></script>
   <div th:replace="~{fragments/admin-shell :: script}"></div>
   <script>
     const status = document.getElementById("status");
     const clientId = AuthCoreUi.clientIdFromUrl();
+    const editDialog = document.getElementById("edit-tenant-dialog");
+    let tenantsById = {};
 
     function escapeHtml(value) {
       const div = document.createElement("div");
@@ -53,6 +138,7 @@
     async function loadTenants() {
       try {
         const tenants = await AuthCoreUi.callAdmin("GET", "/api/v1/admin/tenants");
+        tenantsById = {};
         const table = document.getElementById("tenants-table");
         const emptyState = document.getElementById("empty-state");
         const tbody = document.getElementById("tenants-tbody");
@@ -67,6 +153,7 @@
         table.classList.remove("hidden");
 
         tenants.forEach((tenant) => {
+          tenantsById[tenant.id] = tenant;
           const row = document.createElement("tr");
           const metricsUrl =
             "/ui/admin/metrics?client_id=" + encodeURIComponent(clientId) + "&tenant=" + encodeURIComponent(tenant.id);
@@ -78,13 +165,82 @@
             "<td>" + escapeHtml(tenant.appName) + "</td>" +
             "<td>" + badge + "</td>" +
             "<td>" + escapeHtml(new Date(tenant.createdAt).toLocaleDateString()) + "</td>" +
-            '<td><a href="' + metricsUrl + '">Ver métricas</a></td>';
+            '<td><a href="' + metricsUrl + '">Ver métricas</a></td>' +
+            '<td><button type="button" class="secondary edit-btn" data-tenant-id="' + tenant.id + '">Editar</button></td>';
           tbody.appendChild(row);
+        });
+
+        document.querySelectorAll(".edit-btn").forEach((btn) => {
+          btn.addEventListener("click", () => openEditDialog(btn.dataset.tenantId));
         });
       } catch (err) {
         AuthCoreUi.showStatus(status, err.message, true);
       }
     }
+
+    document.getElementById("create-tenant-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      try {
+        await AuthCoreUi.callAdmin("POST", "/api/v1/admin/tenants", {
+          name: f.name.value,
+          appName: f.appName.value,
+          primaryColor: f.primaryColor.value,
+          accessTokenTtlSeconds: Number(f.accessTokenTtlSeconds.value),
+          refreshTokenTtlSeconds: Number(f.refreshTokenTtlSeconds.value),
+          emailVerificationTtlSeconds: Number(f.emailVerificationTtlSeconds.value),
+          passwordResetTtlSeconds: Number(f.passwordResetTtlSeconds.value),
+          otpTtlSeconds: Number(f.otpTtlSeconds.value),
+        });
+        f.reset();
+        AuthCoreUi.showStatus(status, "Cliente creado.", false);
+        loadTenants();
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    });
+
+    function openEditDialog(tenantId) {
+      const tenant = tenantsById[tenantId];
+      if (!tenant) {
+        return;
+      }
+      const f = document.getElementById("edit-tenant-form");
+      f.id.value = tenant.id;
+      f.appName.value = tenant.appName;
+      f.primaryColor.value = tenant.primaryColor;
+      f.accessTokenTtlSeconds.value = tenant.accessTokenTtlSeconds;
+      f.refreshTokenTtlSeconds.value = tenant.refreshTokenTtlSeconds;
+      f.emailVerificationTtlSeconds.value = tenant.emailVerificationTtlSeconds;
+      f.passwordResetTtlSeconds.value = tenant.passwordResetTtlSeconds;
+      f.otpTtlSeconds.value = tenant.otpTtlSeconds;
+      editDialog.showModal();
+    }
+
+    document.getElementById("edit-cancel-btn").addEventListener("click", () => {
+      editDialog.close();
+    });
+
+    document.getElementById("edit-tenant-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      try {
+        await AuthCoreUi.callAdmin("PUT", "/api/v1/admin/tenants/" + f.id.value, {
+          appName: f.appName.value,
+          primaryColor: f.primaryColor.value,
+          accessTokenTtlSeconds: Number(f.accessTokenTtlSeconds.value),
+          refreshTokenTtlSeconds: Number(f.refreshTokenTtlSeconds.value),
+          emailVerificationTtlSeconds: Number(f.emailVerificationTtlSeconds.value),
+          passwordResetTtlSeconds: Number(f.passwordResetTtlSeconds.value),
+          otpTtlSeconds: Number(f.otpTtlSeconds.value),
+        });
+        editDialog.close();
+        AuthCoreUi.showStatus(status, "Cliente actualizado.", false);
+        loadTenants();
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    });
 
     if (AuthCoreUi.requireAdminSession()) {
       loadTenants();
