@@ -353,5 +353,16 @@ Primer ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-f
 - Verificado en vivo en el navegador (logos de Google/Facebook renderizados en una pestaña real para confirmar que se ven fieles a la marca, íconos del sidenav revisados a tamaño real con estado activo/hover).
 - 259/259 tests en verde (sin tests nuevos — presentación pura, sin backend tocado).
 
+## Ticket 025: navegación admin↔consumidor
+
+Segundo ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`, HU-1, HU-2). Ejecutado con delegación real al rol `frontend-dev` (workaround `general-purpose` + persona inyectada, ver ticket 024).
+
+- **HU-1**: `cuenta.html` gana una tarjeta "Panel de administración" con el botón "Ir al panel de administración" — oculta por defecto en el HTML servido, revelada por JS solo si `AuthCoreUi.currentRole()` de **esta sesión** es `TENANT_ADMIN`/`PLATFORM_ADMIN`. El rol siempre se lee del JWT de la sesión actual, nunca se asume entre apps/tenants — resuelve directamente la ambigüedad original planteada por el Product Owner.
+- **HU-2**: nueva ruta `GET /ui/admin` (`UiPagesController.adminHome`) → `admin-home.html`, reutiliza el shell compartido. Tarjetas filtradas client-side por rol (mismo mecanismo que "Clientes" en el sidenav desde el ticket 020): `platform_admin` ve 3 (Clientes/Métricas/Proveedores), `tenant_admin` ve 2 (sin Clientes). Nuevo link "Inicio" agregado como primer ítem del sidenav, siempre visible (a diferencia de "Clientes", no depende del rol).
+- **Caso `role=NONE` manejado explícitamente**: la pantalla carga (sin sesión de servidor real detrás, mismo trust-boundary del ticket 009) pero ninguna tarjeta coincide con ese rol — se muestra un mensaje "No tienes acceso a ninguna sección del panel..." con link a login, en vez de una pantalla en blanco o tarjetas que solo terminarían en un 403 real del backend.
+- **Bug real pre-existente encontrado y corregido en vivo** (desde el ticket 020, no introducido por este ticket): `.hidden { display: none }` tenía menor especificidad CSS que `.admin-sidenav a { display: flex }` y `section.card { display: flex }` — el link "Clientes" del sidenav **nunca se ocultó de verdad vía CSS** para un `tenant_admin`, pese a que el JS sí actualizaba la clase correctamente. Nadie lo notó hasta que las nuevas tarjetas de HU-2 (también `display: flex`) expusieron el mismo conflicto. Corregido con `!important` en `admin.css` y `app.css` — correcto para una clase utilitaria cuyo contrato es "siempre oculto sin importar qué más aplique". Verificado en vivo con un `tenant_admin` real: "Clientes" ahora sí desaparece del sidenav y de las tarjetas de inicio.
+- Verificado en vivo con los 3 roles reales (`platform_admin`, `tenant_admin`, sin rol) — cada uno viendo exactamente lo que le corresponde, incluyendo el mensaje de "sin acceso".
+- 260/260 tests en verde (1 nuevo: `rendersTheAdminHomePageWithTheAdminShellNotTenantTheming`).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `024` (mejora del agente ux-ui-designer + sistema de íconos) — primer ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._
+_Última actualización: al cerrar la tarea `025` (navegación admin↔consumidor) — segundo ticket de la fase 2 del rediseño de UI (`docs/definiciones/rediseno-ui-fase-2.md`)._

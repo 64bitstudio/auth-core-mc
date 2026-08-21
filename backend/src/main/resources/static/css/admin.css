@@ -320,8 +320,18 @@ button.danger:hover {
   border-color: var(--admin-success-border);
 }
 
+/* Ticket 025 — real bug found live while testing this ticket's role-based
+ * show/hide, pre-existing since ticket 020, not caused by this ticket:
+ * `.admin-sidenav a { display: flex; }` (class+type, specificity 0,0,1,1)
+ * silently outranked this class alone (0,0,1,0), so `class="hidden"` on
+ * #admin-nav-tenants never actually hid "Clientes" via CSS regardless of
+ * what the JS toggled — only caught now because this ticket's own
+ * .home-card rule (also `display: flex`) hit the exact same conflict and
+ * made it visible. `!important` is the correct fix for a utility class
+ * whose entire contract is "always hidden regardless of what else applies"
+ * — every other `.hidden` toggle in the app relies on that same contract. */
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .field-hint {
@@ -498,5 +508,55 @@ dialog.form-dialog .dialog-actions {
 @media (prefers-reduced-motion: reduce) {
   .empty-state svg {
     animation: none;
+  }
+}
+
+/* Ticket 025: /ui/admin home screen — whole-card navigation links, distinct
+ * from section.card (a self-contained content card, never itself a link)
+ * so they need their own hover/focus affordance instead of reusing it. */
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.home-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-lg);
+  padding: 1.25rem 1.4rem;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+  text-decoration: none;
+  color: var(--admin-fg);
+  transition:
+    border-color 0.15s ease,
+    transform 0.05s ease;
+}
+
+.home-card:hover {
+  border-color: var(--admin-accent);
+  transform: translateY(-1px);
+}
+
+.home-card svg {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--admin-accent);
+}
+
+.home-card strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-card {
+    transition: none;
   }
 }

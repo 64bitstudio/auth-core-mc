@@ -90,6 +90,25 @@ public class UiPagesController {
     }
 
     /**
+     * Ticket 025: the panel's home screen, reached from the "Ir al panel de
+     * administración" button on {@code /ui/cuenta} and from the sidenav's
+     * "Inicio" link. Same pattern as every other {@code /ui/admin/**} route
+     * here — this only resolves theming/shell and picks {@code active} for
+     * the sidenav highlight; which section cards the page actually shows is
+     * decided client-side in {@code admin-home.html} via {@code
+     * AuthCoreUi.currentRole()}, same mechanism the sidenav already uses to
+     * hide "Clientes" from a tenant_admin (ticket 020). No new backend
+     * access control needed — every card still links to a page whose own
+     * API calls are the real, server-enforced gate.
+     */
+    @GetMapping("/admin")
+    public String adminHome(@RequestParam("client_id") String clientId, Model model) {
+        theme(clientId, model);
+        model.addAttribute(ACTIVE_ATTR, "inicio");
+        return "admin-home";
+    }
+
+    /**
      * Ticket 014: the real access control here is server-side (JWT role
      * gate on {@code /api/v1/admin/**}, ticket 012) — this route only
      * resolves theming, same as every other page in this controller. The

@@ -229,8 +229,16 @@ button.secondary:hover {
   border-color: var(--success-border);
 }
 
+/* Ticket 025 — same real bug found live in admin.css's .hidden (see that
+ * file's comment): `section.card { display: flex; }` (class+type,
+ * specificity 0,0,1,1) outranks this class alone (0,0,1,0), so a
+ * `class="card hidden"` section — this ticket's new "Panel de
+ * administración" card on /ui/cuenta, the first card here ever
+ * conditionally hidden — never actually hid via CSS despite the JS toggle
+ * working. `!important` is the correct fix for a utility class whose whole
+ * contract is "always hidden regardless of what else applies". */
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .field-hint {

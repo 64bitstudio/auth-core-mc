@@ -105,6 +105,22 @@ class UiPagesControllerTest {
     }
 
     @Test
+    void rendersTheAdminHomePageWithTheAdminShellNotTenantTheming() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+
+        mvc.get()
+                .uri("/ui/admin")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("Auth Core MC — Admin")
+                .contains("Bienvenido al panel de administración")
+                .doesNotContain("Acme App");
+    }
+
+    @Test
     void rendersTheAdminIdentityProvidersPageWithTheAdminShellNotTenantTheming() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
 

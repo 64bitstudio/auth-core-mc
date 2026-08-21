@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auth Core MC — Admin — Inicio</title>
+  <link rel="stylesheet" th:href="@{/css/admin.css}" />
+</head>
+<body class="admin-body">
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <div class="admin-shell">
+    <div th:replace="~{fragments/admin-shell :: topbar}"></div>
+    <div class="admin-body-row">
+      <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
+      <main id="main" class="admin-content">
+        <h2>Bienvenido al panel de administración</h2>
+        <p class="field-hint">Elige una sección para continuar.</p>
+        <div id="status" class="hidden" aria-live="polite"></div>
+
+        <!--
+          Ticket 025: which cards show up is decided client-side, same
+          mechanism (and same trust-boundary caveat) as the "Clientes" link
+          in fragments/admin-shell.html's sidenav — no real server session
+          behind these Thymeleaf pages (ticket 009), so every card starts
+          hidden in the HTML actually served and is revealed by the script
+          below only for the role it's meant for, to avoid a visible flash
+          of a card a NONE/tenant_admin user shouldn't act on.
+        -->
+        <div class="home-cards">
+          <a
+            id="home-card-tenants"
+            href="#"
+            class="home-card hidden"
+            th:href="@{/ui/admin/tenants(client_id=${clientId})}"
+            ><span th:replace="~{fragments/icons :: icon-clientes}"></span>
+            <span>
+              <strong>Clientes</strong>
+              <span class="field-hint">Administra los clientes (tenants) de la plataforma.</span>
+            </span></a
+          >
+          <a
+            id="home-card-metrics"
+            href="#"
+            class="home-card hidden"
+            th:href="@{/ui/admin/metrics(client_id=${clientId})}"
+            ><span th:replace="~{fragments/icons :: icon-metricas}"></span>
+            <span>
+              <strong>Métricas</strong>
+              <span class="field-hint">Consulta logins, usuarios activos, registrados y latencia.</span>
+            </span></a
+          >
+          <a
+            id="home-card-providers"
+            href="#"
+            class="home-card hidden"
+            th:href="@{/ui/admin/identity-providers(client_id=${clientId})}"
+            ><span th:replace="~{fragments/icons :: icon-proveedores}"></span>
+            <span>
+              <strong>Proveedores de login</strong>
+              <span class="field-hint">Configura los proveedores de login social (Google, Facebook).</span>
+            </span></a
+          >
+        </div>
+
+        <!--
+          Ticket 025 — caso explícito del ticket: un JWT con role=NONE (o
+          sin rol) llega aquí sin ninguna tarjeta visible (ninguna coincide
+          con su rol) y ve este mensaje en vez de una pantalla en blanco.
+          No hay nada que este usuario pueda hacer productivamente en
+          /ui/admin — la única acción útil es volver, no una tarjeta que
+          solo terminaría en un 403 real del backend.
+        -->
+        <p id="no-access-message" class="hidden field-hint">
+          No tienes acceso a ninguna sección del panel con la sesión actual. Vuelve a
+          <a th:href="@{/ui/login(client_id=${clientId})}">iniciar sesión</a> con una cuenta de administrador.
+        </p>
+      </main>
+    </div>
+  </div>
+
+  <script th:src="@{/js/api.js}"></script>
+  <div th:replace="~{fragments/admin-shell :: script}"></div>
+  <script>
+    if (AuthCoreUi.requireAdminSession()) {
+      const role = AuthCoreUi.currentRole();
+      const cardTenants = document.getElementById("home-card-tenants");
+      const cardMetrics = document.getElementById("home-card-metrics");
+      const cardProviders = document.getElementById("home-card-providers");
+      const noAccessMessage = document.getElementById("no-access-message");
+
+      if (role === "PLATFORM_ADMIN") {
+        cardTenants.classList.remove("hidden");
+      }
+      if (role === "PLATFORM_ADMIN" || role === "TENANT_ADMIN") {
+        cardMetrics.classList.remove("hidden");
+        cardProviders.classList.remove("hidden");
+      } else {
+        // Ticket 025: role=NONE (or missing/decode failure) reaches this
+        // page fine — there's no real server session to block it (see
+        // admin-shell.html's trust-boundary comment) — but no card matches,
+        // so nothing productive is offered beyond a link back to /ui/login.
+        // Any direct call to an admin API still gets a real 403 from the
+        // server regardless of what this page shows (tickets 012/019).
+        noAccessMessage.classList.remove("hidden");
+      }
+    }
+  </script>
+</body>
+</html>
