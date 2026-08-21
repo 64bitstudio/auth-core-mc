@@ -1,62 +1,79 @@
 <!DOCTYPE html>
-<html lang="es" xmlns:th="http://www.thymeleaf.org" th:attr="style='--primary-color:' + ${primaryColor} + ';'">
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title th:text="${appName} + ' — Proveedores de login'">Proveedores de login</title>
-  <link rel="stylesheet" th:href="@{/css/app.css}" />
+  <title>Auth Core MC — Admin — Proveedores de login</title>
+  <link rel="stylesheet" th:href="@{/css/admin.css}" />
 </head>
-<body>
+<body class="admin-body">
   <a class="skip-link" href="#main">Saltar al contenido</a>
-  <header class="app-header"><h1 th:text="${appName}">App</h1></header>
-  <main id="main">
-    <h2>Proveedores de login social</h2>
-    <div id="status" class="hidden" aria-live="polite"></div>
-    <p class="field-hint">
-      Configura las credenciales de Google y Facebook para este cliente. El secreto nunca se
-      vuelve a mostrar una vez guardado — para cambiarlo, ingresa uno nuevo completo. Apple no
-      está disponible todavía.
-    </p>
+  <div class="admin-shell">
+    <div th:replace="~{fragments/admin-shell :: topbar}"></div>
+    <div class="admin-body-row">
+      <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
+      <main id="main" class="admin-content">
+        <h2>Proveedores de login social</h2>
+        <div id="status" class="hidden" aria-live="polite"></div>
+        <p class="field-hint">
+          Configura las credenciales de Google y Facebook para este cliente. El secreto nunca se
+          vuelve a mostrar una vez guardado — para cambiarlo, ingresa uno nuevo completo. Apple no
+          está disponible todavía.
+        </p>
 
-    <section class="card" data-provider="GOOGLE">
-      <h3>Google</h3>
-      <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
-      <form class="provider-form" novalidate>
-        <div>
-          <label for="google-client-id">Client ID</label>
-          <input type="text" id="google-client-id" name="clientId" aria-label="Client ID de Google" required autocomplete="off" />
-        </div>
-        <div>
-          <label for="google-client-secret">Client secret</label>
-          <input type="password" id="google-client-secret" name="clientSecret" aria-label="Client secret de Google" required autocomplete="off" />
-        </div>
-        <button type="submit">Guardar</button>
-      </form>
-      <button type="button" class="secondary provider-disable-btn hidden">Desactivar Google</button>
-    </section>
+        <section class="card" data-provider="GOOGLE">
+          <h3>Google</h3>
+          <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
+          <form class="provider-form" novalidate>
+            <div>
+              <label for="google-client-id">Client ID</label>
+              <input type="text" id="google-client-id" name="clientId" aria-label="Client ID de Google" required autocomplete="off" />
+            </div>
+            <div>
+              <label for="google-client-secret">Client secret</label>
+              <input type="password" id="google-client-secret" name="clientSecret" aria-label="Client secret de Google" required autocomplete="off" />
+            </div>
+            <button type="submit">Guardar</button>
+          </form>
+          <button type="button" class="secondary provider-disable-btn hidden">Desactivar Google</button>
+        </section>
 
-    <section class="card" data-provider="FACEBOOK">
-      <h3>Facebook</h3>
-      <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
-      <form class="provider-form" novalidate>
-        <div>
-          <label for="facebook-client-id">Client ID</label>
-          <input type="text" id="facebook-client-id" name="clientId" aria-label="Client ID de Facebook" required autocomplete="off" />
-        </div>
-        <div>
-          <label for="facebook-client-secret">Client secret</label>
-          <input type="password" id="facebook-client-secret" name="clientSecret" aria-label="Client secret de Facebook" required autocomplete="off" />
-        </div>
-        <button type="submit">Guardar</button>
-      </form>
-      <button type="button" class="secondary provider-disable-btn hidden">Desactivar Facebook</button>
-    </section>
-  </main>
+        <section class="card" data-provider="FACEBOOK">
+          <h3>Facebook</h3>
+          <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
+          <form class="provider-form" novalidate>
+            <div>
+              <label for="facebook-client-id">Client ID</label>
+              <input type="text" id="facebook-client-id" name="clientId" aria-label="Client ID de Facebook" required autocomplete="off" />
+            </div>
+            <div>
+              <label for="facebook-client-secret">Client secret</label>
+              <input type="password" id="facebook-client-secret" name="clientSecret" aria-label="Client secret de Facebook" required autocomplete="off" />
+            </div>
+            <button type="submit">Guardar</button>
+          </form>
+          <button type="button" class="secondary provider-disable-btn hidden">Desactivar Facebook</button>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <script th:src="@{/js/api.js}"></script>
+  <div th:replace="~{fragments/admin-shell :: script}"></div>
   <script>
     const status = document.getElementById("status");
     const PROVIDERS = ["GOOGLE", "FACEBOOK"];
+
+    // Ticket 020: fixes a real, pre-existing bug found while testing the
+    // panel live — on a load failure (e.g. a 403), every card was stuck
+    // showing "cargando…" forever, even though the #status error message
+    // above was correct. Now each card reflects the failure too.
+    function markProvidersUnavailable() {
+      PROVIDERS.forEach((name) => {
+        const section = document.querySelector('[data-provider="' + name + '"]');
+        section.querySelector(".provider-status-value").textContent = "no disponible";
+      });
+    }
 
     async function loadProviders() {
       try {
@@ -79,6 +96,7 @@
           }
         });
       } catch (err) {
+        markProvidersUnavailable();
         AuthCoreUi.showStatus(status, err.message, true);
       }
     }

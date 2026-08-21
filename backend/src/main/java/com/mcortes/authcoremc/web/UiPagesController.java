@@ -41,6 +41,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 @RequestMapping("/ui")
 public class UiPagesController {
 
+    /** Ticket 020: model attribute key the admin shell fragment reads to highlight the active nav link. */
+    private static final String ACTIVE_ATTR = "active";
+
     private final ClientContextResolver clientContextResolver;
 
     public UiPagesController(ClientContextResolver clientContextResolver) {
@@ -98,6 +101,7 @@ public class UiPagesController {
     @GetMapping("/admin/identity-providers")
     public String adminIdentityProviders(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        model.addAttribute(ACTIVE_ATTR, "providers");
         return "admin-identity-providers";
     }
 
@@ -111,6 +115,7 @@ public class UiPagesController {
     @GetMapping("/admin/metrics")
     public String adminMetrics(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        model.addAttribute(ACTIVE_ATTR, "metrics");
         return "admin-metrics";
     }
 
@@ -122,6 +127,7 @@ public class UiPagesController {
     @GetMapping("/admin/tenants")
     public String adminTenants(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        model.addAttribute(ACTIVE_ATTR, "tenants");
         return "admin-tenants";
     }
 

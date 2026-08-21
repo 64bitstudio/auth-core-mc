@@ -288,5 +288,19 @@ Encontrado al probar en vivo la épica 011–018: no había forma de descubrir q
 - Probado end-to-end real y también en vivo en el navegador: `platform_admin` ve la lista completa de tenants reales (incluyendo uno desactivado, mostrado como tal); `tenant_admin` recibe 403 real con mensaje claro, tanto vía API como en la UI.
 - 255/255 tests en verde (250 previos + 5 nuevos).
 
+## Ticket 020: sistema visual + layout compartido del panel de administración
+
+Primer ticket del rediseño de UI definido en `docs/definiciones/rediseno-ui-completo.md` (HU-1, HU-2). El panel admin gana identidad visual propia y navegación real entre sus 3 pantallas — hasta este ticket, cada página era una isla sin nav ni sistema visual propio.
+
+- **`static/css/admin.css` (nuevo)**: paleta "Slate + Índigo" confirmada con el Product Owner (elegida entre 3 propuestas mostradas en contexto real, no como swatches). Nunca lee `--primary-color`; `app.css` queda intacto y sigue siendo exclusivo de las páginas de usuario final — cero riesgo de regresión ahí.
+- **`templates/fragments/admin-shell.html` (nuevo)**: tres fragmentos Thymeleaf (`topbar`, `sidenav(active)`, `script`) — separados en fragmentos distintos, no uno solo, porque topbar y sidenav viven en niveles distintos del layout flex (`.admin-shell` → `.admin-topbar` + `.admin-body-row` → `.admin-sidenav` + `.admin-content`); un único fragmento wrapper no podía producir esa estructura con `th:replace`.
+- **`api.js` gana `logout()` y `currentRole()`** (aditivas, mismo patrón que `currentTenantId()` — se extrajo un `decodeJwtPayload()` compartido para las tres).
+- **Bug real encontrado en vivo, no por ningún test automatizado**: el script del shell usaba `if (window.AuthCoreUi)` como guard antes de mostrar "Clientes"/enganchar el logout — pero un `const AuthCoreUi = ...` de nivel superior en un script clásico (no-módulo) **no se convierte en propiedad de `window`**, a diferencia de `var` o una función declarada. El guard era `if (undefined)` siempre, así que ese bloque nunca corría en la vida real — aunque `AuthCoreUi` sí era perfectamente accesible como identificador libre en el mismo scope. Encontrado navegando la app real (el link "Clientes" nunca aparecía para un platform_admin real, pese a que la lógica probada manualmente en consola funcionaba). Arreglado cambiando el guard a `typeof AuthCoreUi !== "undefined"`. Ninguna prueba automatizada de este proyecto ejecuta JS real en un navegador — por diseño (sin toolchain de JS), así que este tipo de bug solo lo encuentra una prueba en vivo, no la suite de tests de Java.
+- **"Clientes" se oculta/muestra 100% client-side** (`currentRole()` decodificado del JWT) — no hay sesión de servidor real detrás de estas páginas Thymeleaf (mismo trust-boundary documentado desde el ticket 009), así que el servidor no tiene ningún rol que consultar al renderizar. La aplicación real de la regla sigue siendo el 403 del backend (ticket 019) si alguien navega a `/ui/admin/tenants` directo — esto solo evita mostrar un link que fallaría.
+- Las 3 páginas admin existentes migradas al nuevo shell/estilos — de paso se corrigió un bug cosmético ya anotado desde el ticket 014 (el texto "cargando…" de proveedores de login quedaba pegado tras un error de carga, en vez de reflejar la falla).
+- Los 3 tests de `UiPagesControllerTest` que antes afirmaban `"Acme App"` en las páginas admin se actualizaron — ahora afirman explícitamente lo contrario (`doesNotContain("Acme App")`), ya que el panel dejó de tematizarse por tenant a propósito.
+- Probado en vivo en el navegador con los 3 roles reales: navegación entre secciones con resaltado correcto, "Clientes" visible solo para `platform_admin`, cerrar sesión funcionando de verdad.
+- 255/255 tests en verde (sin tests nuevos — el ticket es HTML/CSS/JS de presentación; la cobertura server-side existente ya prueba que las páginas siguen respondiendo 200 con el contenido correcto).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `019` (listado de todos los clientes)._
+_Última actualización: al cerrar la tarea `020` (sistema visual + layout compartido del panel de administración)._

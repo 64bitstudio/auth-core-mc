@@ -105,7 +105,7 @@ class UiPagesControllerTest {
     }
 
     @Test
-    void rendersTheAdminIdentityProvidersPageThemedForTheResolvedTenant() {
+    void rendersTheAdminIdentityProvidersPageWithTheAdminShellNotTenantTheming() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
 
         mvc.get()
@@ -115,11 +115,15 @@ class UiPagesControllerTest {
                 .assertThat()
                 .hasStatus(200)
                 .bodyText()
-                .contains("Acme App");
+                .contains("Auth Core MC — Admin")
+                .contains("Proveedores de login social")
+                // Ticket 020: the admin panel has its own fixed identity now —
+                // it must NOT render the tenant's own branding anymore.
+                .doesNotContain("Acme App");
     }
 
     @Test
-    void rendersTheAdminMetricsPageThemedForTheResolvedTenant() {
+    void rendersTheAdminMetricsPageWithTheAdminShellNotTenantTheming() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
 
         mvc.get()
@@ -129,11 +133,13 @@ class UiPagesControllerTest {
                 .assertThat()
                 .hasStatus(200)
                 .bodyText()
-                .contains("Acme App");
+                .contains("Auth Core MC — Admin")
+                .contains("Métricas de uso")
+                .doesNotContain("Acme App");
     }
 
     @Test
-    void rendersTheAdminTenantsPageThemedForTheResolvedTenant() {
+    void rendersTheAdminTenantsPageWithTheAdminShellNotTenantTheming() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
 
         mvc.get()
@@ -143,7 +149,9 @@ class UiPagesControllerTest {
                 .assertThat()
                 .hasStatus(200)
                 .bodyText()
-                .contains("Acme App");
+                .contains("Auth Core MC — Admin")
+                .contains("Todos los clientes")
+                .doesNotContain("Acme App");
     }
 
     @Test
