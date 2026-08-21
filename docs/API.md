@@ -3,17 +3,28 @@
 > Endpoints del backend: rutas, métodos, qué reciben y qué responden. Explicado en simple. Se actualiza cuando cada ticket que añade o cambia endpoints se mueve a `/done`.
 
 ## Estado actual
-**Pendiente de implementación.** Esta es la superficie planeada, se irá confirmando endpoint por endpoint conforme se completen los tickets `002` a `007`.
+`/register` y `/login` **implementados y probados** (ticket `002`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `003` a `007`.
 
 ## Convenciones
-- Todas las rutas van prefijadas por tenant o se resuelven por el `client_id` del llamador (a definir el detalle exacto al implementar `001`).
+- **Cómo se identifica el tenant en cada request**: header `X-Client-Id` con el `client_id` de un `IdentityClient` registrado (ver `BASE_DE_DATOS.md`). Si el header no corresponde a ningún cliente registrado, la respuesta es `401 unknown_client`. Esta fue la decisión pendiente que ticket `001` dejó abierta; ticket `002` la resolvió así — el flujo `/oauth2/authorize` de ticket `007` usará en cambio el parámetro estándar `client_id` de OAuth2, no este header (son superficies distintas: esta es la API "directa", esa es el flujo redirect).
 - Todas las respuestas de error usan el mismo formato: `{ "error": "codigo_de_error", "message": "explicación" }`.
 
 ## Registro y login (ticket `002`)
 | Método | Ruta | Qué hace | Qué recibe | Qué responde |
 |---|---|---|---|---|
-| POST | `/api/v1/register` | Crea un usuario nuevo | `email` o `phone` (uno obligatorio), `password`, `nombre`, `apellidos` | Usuario creado (sin password_hash) |
-| POST | `/api/v1/login` | Login directo (first-party, ver ticket `007`) | `identifier` (email o phone), `password` | `access_token`, `refresh_token` o requerimiento de 2FA |
+| POST | `/api/v1/register` | Crea un usuario nuevo | Header `X-Client-Id`; body: `email` o `phone` (uno obligatorio), `password` (min. 8 caracteres, letra+dígito), `nombre`, `apellidos` | `201` + usuario creado (sin `password_hash`) |
+| POST | `/api/v1/login` | Verifica credenciales (first-party, sin redirect — ver ticket `007` para el flujo OAuth2 completo) | Header `X-Client-Id`; body: `identifier` (email o phone), `password` | `200` + usuario autenticado. **No emite tokens todavía** — eso es responsabilidad de ticket `007`; este endpoint solo prueba que las credenciales son válidas |
+
+### Códigos de error de `/register` y `/login`
+| HTTP | `error` | Cuándo |
+|---|---|---|
+| 400 | `weak_password` | Password no cumple la política mínima |
+| 400 | `invalid_request` | Email/teléfono con formato inválido, o ninguno de los dos presente |
+| 400 | `validation_error` | Falta `nombre`/`apellidos`/`password` en el body |
+| 401 | `unknown_client` | El header `X-Client-Id` no corresponde a ningún cliente registrado |
+| 401 | `invalid_credentials` | Login: identificador o password incorrectos (mensaje genérico a propósito, para no revelar cuál de los dos falló) |
+| 409 | `duplicate_identifier` | Registro: el email o teléfono ya existe para ese tenant |
+| 429 | `too_many_attempts` | Más de 5 intentos de login fallidos en 15 minutos para ese tenant+identificador (Redis) |
 
 ## Verificación y cambio de correo (ticket `003`)
 | Método | Ruta | Qué hace |

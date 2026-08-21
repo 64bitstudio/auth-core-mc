@@ -56,6 +56,14 @@ Un servicio centralizado de autenticación y autorización (identidad) que cualq
 
 La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API — no tiene lógica de negocio propia, solo presenta formularios y llama a los mismos endpoints que cualquier integración externa usaría.
 
+## Ticket 002: registro, login, y cómo se identifica el tenant
+
+- **`X-Client-Id`**: cada request a `/register` o `/login` trae este header con el `client_id` de un `IdentityClient` ya registrado; el servidor resuelve su `tenant` a partir de ahí. Es una decisión deliberada para no acoplar la API "directa" (pensada para ser llamada por código, sin UI intermedia) a un mecanismo de sesión o cookie. El flujo OAuth2 real (ticket `007`) es una superficie distinta y usa el parámetro estándar `client_id`, no este header.
+- **Por qué el login no emite tokens todavía**: emitir JWT/OAuth2 tokens "de verdad" antes de que exista el servidor de autorización (ticket `007`) habría significado escribir código de emisión de tokens que luego se descarta. `AuthenticationService` termina su responsabilidad en "estas credenciales son válidas para este usuario" — ticket `007` la llama y decide qué token emitir, con qué TTL (parametrizable por tenant, ver tabla `tenant`).
+- **Por qué las excepciones de dominio (`WeakPasswordException`, `DuplicateIdentifierException`, etc.) viven en `service`, no en `web`**: son reglas de negocio, no detalles HTTP — `GlobalExceptionHandler` es la única pieza que sabe traducirlas a códigos HTTP, así que si mañana este mismo dominio se expone por otro medio (un job asíncrono, un CLI interno), las reglas siguen siendo las mismas.
+- **Rate limiting en Redis, no en la base de datos**: un contador que necesita expirar solo (ventana de 15 minutos) y ser barato de leer en cada intento de login es exactamente para lo que sirve Redis — guardar esto en Postgres obligaría a un job de limpieza y sería más lento de consultar.
+- **`@WebMvcTest` no carga tu `@Configuration` de seguridad sola**: solo escanea beans de la capa web (controllers, `@ControllerAdvice`, etc.). Sin `@Import(SecurityConfig.class)` explícito en el test, Spring Security cae a sus valores por defecto (CSRF activo, todo requiere autenticación) y cada request en el test recibe `403`, sin relación con la lógica que se quiere probar.
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -63,4 +71,4 @@ La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API �
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `001` (modelo de dominio y migraciones). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `002` (registro y login). Se actualizará con cada ticket movido a `/done`._
