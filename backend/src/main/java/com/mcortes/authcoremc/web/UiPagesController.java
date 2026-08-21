@@ -86,6 +86,21 @@ public class UiPagesController {
         return "change-email-confirm";
     }
 
+    /**
+     * Ticket 014: the real access control here is server-side (JWT role
+     * gate on {@code /api/v1/admin/**}, ticket 012) — this route only
+     * resolves theming, same as every other page in this controller. The
+     * page's own script (see {@code admin-identity-providers.html})
+     * redirects to {@code /ui/login} if there's no admin session token yet,
+     * and surfaces a real 403 from the API if the logged-in user's role
+     * isn't sufficient.
+     */
+    @GetMapping("/admin/identity-providers")
+    public String adminIdentityProviders(@RequestParam("client_id") String clientId, Model model) {
+        theme(clientId, model);
+        return "admin-identity-providers";
+    }
+
     private void theme(String clientId, Model model) {
         Tenant tenant = clientContextResolver.resolveTenant(clientId);
         model.addAttribute("clientId", clientId);

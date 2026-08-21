@@ -17,20 +17,12 @@ const AuthCoreUi = (() => {
     return new URLSearchParams(window.location.search).get("token") || "";
   }
 
-  async function call(path, body) {
-    const res = await fetch(path, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Client-Id": clientIdFromUrl(),
-      },
-      body: JSON.stringify(body || {}),
-    });
+  async function handleResponse(res) {
     let data = null;
     try {
       data = await res.json();
     } catch (e) {
-      // No JSON body (e.g. a 204 from /token/revoke) — not an error.
+      // No JSON body (e.g. a 204) — not an error.
     }
     if (!res.ok) {
       const message = (data && data.message) || `Error ${res.status}`;
@@ -40,6 +32,35 @@ const AuthCoreUi = (() => {
       throw err;
     }
     return data;
+  }
+
+  async function call(path, body) {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Client-Id": clientIdFromUrl(),
+      },
+      body: JSON.stringify(body || {}),
+    });
+    return handleResponse(res);
+  }
+
+  // Ticket 014: admin-panel calls — authenticated with the real Bearer
+  // access token saved at login (see saveSession below), not X-Client-Id.
+  // The actual access decision (role check) happens server-side
+  // (SecurityConfig + AdminIdentityProviderController); this only attaches
+  // the credential the same way any other API client would.
+  async function callAdmin(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + accessToken(),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    return handleResponse(res);
   }
 
   function showStatus(el, message, isError) {
@@ -55,11 +76,20 @@ const AuthCoreUi = (() => {
   // never sent automatically to the server, and only ever read by this same
   // page's own JS — the point is convenience (don't ask a person to type
   // their own UUID) not authentication.
-  function saveSession(user) {
+  function saveSession(user, tokens) {
     sessionStorage.setItem("authcore.userId", user.id);
     sessionStorage.setItem("authcore.clientId", clientIdFromUrl());
     sessionStorage.setItem("authcore.email", user.email || "");
     sessionStorage.setItem("authcore.emailVerified", String(!!user.emailVerified));
+    // Ticket 014: tokens is optional so any existing caller of
+    // saveSession(user) alone keeps working unchanged.
+    if (tokens && tokens.accessToken) {
+      sessionStorage.setItem("authcore.accessToken", tokens.accessToken);
+    }
+  }
+
+  function accessToken() {
+    return sessionStorage.getItem("authcore.accessToken");
   }
 
   function currentUserId() {
@@ -87,14 +117,30 @@ const AuthCoreUi = (() => {
     return true;
   }
 
+  // Ticket 014: same idea as requireSession(), but for admin-panel pages,
+  // which need a real Bearer token rather than just a remembered userId.
+  // Still only a client-side convenience to avoid showing a broken page —
+  // the real access decision is the server's role check on the admin API,
+  // which this page's own error handling surfaces as a normal 403.
+  function requireAdminSession() {
+    if (!accessToken()) {
+      window.location.href = "/ui/login?client_id=" + encodeURIComponent(clientIdFromUrl());
+      return false;
+    }
+    return true;
+  }
+
   return {
     clientIdFromUrl,
     tokenFromUrl,
     call,
+    callAdmin,
     showStatus,
     saveSession,
+    accessToken,
     currentUserId,
     currentSnapshot,
     requireSession,
+    requireAdminSession,
   };
 })();
