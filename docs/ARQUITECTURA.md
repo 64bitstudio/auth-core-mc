@@ -302,5 +302,17 @@ Primer ticket del rediseño de UI definido en `docs/definiciones/rediseno-ui-com
 - Probado en vivo en el navegador con los 3 roles reales: navegación entre secciones con resaltado correcto, "Clientes" visible solo para `platform_admin`, cerrar sesión funcionando de verdad.
 - 255/255 tests en verde (sin tests nuevos — el ticket es HTML/CSS/JS de presentación; la cobertura server-side existente ya prueba que las páginas siguen respondiendo 200 con el contenido correcto).
 
+## Ticket 021: alta y edición de tenant desde la UI
+
+Segundo ticket del rediseño de UI. Formularios reales en `/ui/admin/tenants`, sin backend nuevo — reutiliza `POST`/`PUT /api/v1/admin/tenants` ya existentes desde el ticket 013.
+
+- **Decisión resuelta con el Product Owner antes de implementar**: HU-2 (ticket 019, ya cerrada) dice que `tenant_admin` nunca ve la sección "Clientes" en absoluto; HU-5 del documento de rediseño decía que `tenant_admin` debería poder editar su propio tenant desde la UI — una contradicción real entre dos HUs ya aprobadas, no algo resoluble asumiendo. Confirmado: por ahora, edición desde esta UI es efectivamente solo-platform_admin (la única pantalla que la expone requiere ver la lista completa). Un `tenant_admin` sigue pudiendo editar su propio tenant vía API directa (el `PUT` ya lo soporta) — simplemente no tiene pantalla propia todavía. Reabrir la decisión del ticket 019 (mostrarle a un tenant_admin su propio tenant en la lista) queda fuera de este ticket — cambiaría un comportamiento de seguridad ya cerrado y probado, y eso necesita su propio VoBo dedicado, no colarse de paso aquí.
+- Formulario de alta con los 5 TTLs precargados con los valores por defecto ya usados en todo el proyecto (900/2 592 000/86 400/3 600/300) — reduce fricción sin ocultar que son editables.
+- Edición vía un `<dialog>` HTML real (no un formulario embebido en la fila) — precarga los valores actuales desde los datos ya en memoria de la tabla (sin una llamada `GET` adicional), hace `PUT` al guardar.
+- Confirmado en vivo: alta real (aparece en la tabla sin recargar), edición real (cambios reflejados de inmediato), formulario se limpia tras crear.
+- Ajuste visual encontrado en vivo: `input[type="color"]` heredaba el padding de un input de texto normal y se veía como una barra plana en vez de un swatch — corregido con una regla específica.
+- Sin tests nuevos — sin backend nuevo que probar (los endpoints ya están cubiertos desde el ticket 013); esta es una capa de presentación pura, verificada en vivo.
+- 255/255 tests en verde (sin cambio, ningún test se agregó ni se rompió).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `020` (sistema visual + layout compartido del panel de administración)._
+_Última actualización: al cerrar la tarea `021` (alta y edición de tenant desde la UI)._
