@@ -18,10 +18,32 @@
 
         <section class="card">
           <form id="filters-form" novalidate>
-            <div>
-              <label for="tenant-id">Tenant</label>
-              <input type="text" id="tenant-id" name="tenantId" aria-label="ID del tenant a consultar" required />
+            <!--
+              Ticket 028: which of these two shows up is decided client-side
+              from the current JWT's role, same "starts hidden in the HTML
+              actually served, revealed only for the role it's meant for"
+              pattern admin-home.html already uses for its section cards —
+              avoids a flash of a free-text tenant UUID field before the
+              role is known.
+            -->
+            <div id="tenant-select-wrap" class="hidden">
+              <label for="tenant-select">Tenant</label>
+              <select id="tenant-select" name="tenantId" aria-label="Tenant a consultar" required></select>
             </div>
+            <div id="tenant-fixed-wrap" class="hidden">
+              <label for="tenant-fixed-name">Tenant</label>
+              <p id="tenant-fixed-name" class="tenant-fixed-value"></p>
+            </div>
+
+            <div>
+              <p class="field-hint">Accesos rápidos de rango</p>
+              <div class="range-quick" role="group" aria-label="Accesos rápidos de rango">
+                <button type="button" class="secondary range-chip" data-range-days="7">7 días</button>
+                <button type="button" class="secondary range-chip" data-range-days="30">30 días</button>
+                <button type="button" class="secondary range-chip" data-range-days="90">90 días</button>
+              </div>
+            </div>
+
             <div>
               <label for="from-date">Desde</label>
               <input type="date" id="from-date" name="from" aria-label="Fecha inicial" />
@@ -36,14 +58,82 @@
         </section>
 
         <section class="card" id="results" aria-live="polite">
-          <p id="empty-state" class="hidden">Sin actividad de login en el rango seleccionado.</p>
+          <!-- Ticket 028: a 200 with all-zero fields is a normal, valid response
+               (see AdminMetricsService) — its own visual treatment, not an error. -->
+          <div id="empty-state" class="empty-state hidden">
+            <span th:replace="~{fragments/icons :: illus-vacio}"></span>
+            <p>Sin actividad de login en el rango seleccionado.</p>
+          </div>
+
           <div id="metrics-values" class="hidden">
-            <p>Logins totales: <span id="total-logins"></span></p>
-            <p>Éxitos: <span id="success-count"></span> — Fallos: <span id="failure-count"></span></p>
-            <p>Tasa de error: <span id="error-rate"></span></p>
-            <p>Latencia promedio: <span id="avg-latency"></span> ms</p>
-            <p>Usuarios activos: <span id="active-users"></span> — Usuarios registrados: <span id="registered-users"></span></p>
-            <p>Por proveedor: <span id="by-provider"></span></p>
+            <div class="stat-cards">
+              <div class="stat-card">
+                <span th:replace="~{fragments/icons :: icon-logins-totales}"></span>
+                <span class="stat-card-body">
+                  <strong id="total-logins" class="stat-card-value"></strong>
+                  <span class="stat-card-label">Logins totales</span>
+                </span>
+              </div>
+              <div class="stat-card">
+                <span th:replace="~{fragments/icons :: icon-usuarios-activos}"></span>
+                <span class="stat-card-body">
+                  <strong id="active-users" class="stat-card-value"></strong>
+                  <span class="stat-card-label">Usuarios activos</span>
+                </span>
+              </div>
+              <div class="stat-card">
+                <span th:replace="~{fragments/icons :: icon-usuarios-registrados}"></span>
+                <span class="stat-card-body">
+                  <strong id="registered-users" class="stat-card-value"></strong>
+                  <span class="stat-card-label">Usuarios registrados</span>
+                </span>
+              </div>
+              <div class="stat-card">
+                <span th:replace="~{fragments/icons :: icon-latencia}"></span>
+                <span class="stat-card-body">
+                  <strong><span id="avg-latency" class="stat-card-value"></span></strong>
+                  <span class="stat-card-label">Latencia promedio (ms)</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="metrics-charts">
+              <div class="chart-card">
+                <h3>
+                  Éxitos vs. fallos
+                  <span class="chart-badge">
+                    <span th:replace="~{fragments/icons :: icon-tasa}"></span>
+                    <span>Tasa de error: <span id="error-rate-text"></span></span>
+                  </span>
+                </h3>
+                <div class="chart-body">
+                  <div id="success-failure-chart" class="donut-wrap"></div>
+                  <ul class="chart-legend">
+                    <li class="legend-success">
+                      <span th:replace="~{fragments/icons :: icon-exito}"></span>
+                      <span>Éxito: <strong id="success-count"></strong></span>
+                    </li>
+                    <li class="legend-error">
+                      <span th:replace="~{fragments/icons :: icon-error}"></span>
+                      <span>Fallo: <strong id="failure-count"></strong></span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="chart-card">
+                <h3>Actividad por proveedor</h3>
+                <!-- Ticket 028: a bar chart only makes sense when there is
+                     more than one provider to compare — with exactly one
+                     provider, a plain sentence (#provider-single-note below)
+                     replaces it instead of a one-bar "comparison". -->
+                <div id="provider-chart-multi" class="chart-body hidden">
+                  <div id="provider-chart" class="provider-bar-wrap"></div>
+                  <ul class="chart-legend" id="provider-legend"></ul>
+                </div>
+                <p id="provider-single-note" class="field-hint hidden"></p>
+              </div>
+            </div>
           </div>
         </section>
       </main>
@@ -51,15 +141,25 @@
   </div>
 
   <script th:src="@{/js/api.js}"></script>
+  <script th:src="@{/js/charts.js}"></script>
   <div th:replace="~{fragments/admin-shell :: script}"></div>
   <script>
     const status = document.getElementById("status");
+    let currentRole = null;
+    const tenantSelectWrap = document.getElementById("tenant-select-wrap");
+    const tenantSelect = document.getElementById("tenant-select");
+    const tenantFixedWrap = document.getElementById("tenant-fixed-wrap");
+    const tenantFixedName = document.getElementById("tenant-fixed-name");
 
     function dateInputToInstant(value, endOfDay) {
       if (!value) {
         return null;
       }
       return value + (endOfDay ? "T23:59:59Z" : "T00:00:00Z");
+    }
+
+    function toDateInputValue(date) {
+      return date.toISOString().slice(0, 10);
     }
 
     async function loadMetrics(tenantId, from, to) {
@@ -93,37 +193,158 @@
       }
       emptyState.classList.add("hidden");
       values.classList.remove("hidden");
+
       document.getElementById("total-logins").textContent = metrics.totalLogins;
-      document.getElementById("success-count").textContent = metrics.successCount;
-      document.getElementById("failure-count").textContent = metrics.failureCount;
-      document.getElementById("error-rate").textContent = (metrics.errorRate * 100).toFixed(1) + "%";
-      document.getElementById("avg-latency").textContent = metrics.avgLatencyMs.toFixed(0);
       document.getElementById("active-users").textContent = metrics.activeUsers;
       document.getElementById("registered-users").textContent = metrics.registeredUsers;
-      document.getElementById("by-provider").textContent = Object.entries(metrics.byProvider)
-        .map(([provider, count]) => provider + ": " + count)
-        .join(", ");
+      document.getElementById("avg-latency").textContent = metrics.avgLatencyMs.toFixed(0);
+
+      document.getElementById("success-count").textContent = metrics.successCount;
+      document.getElementById("failure-count").textContent = metrics.failureCount;
+      document.getElementById("error-rate-text").textContent = (metrics.errorRate * 100).toFixed(1) + "%";
+      document.getElementById("success-failure-chart").innerHTML = AuthCoreCharts.successFailureDonut(
+        metrics.successCount,
+        metrics.failureCount
+      );
+
+      renderProviderChart(metrics.byProvider);
+    }
+
+    function renderProviderChart(byProvider) {
+      const multi = document.getElementById("provider-chart-multi");
+      const note = document.getElementById("provider-single-note");
+      const legend = document.getElementById("provider-legend");
+      legend.textContent = "";
+
+      const entries = Object.entries(byProvider)
+        .filter(([, count]) => count > 0)
+        .sort((a, b) => b[1] - a[1]);
+
+      if (entries.length >= 2) {
+        multi.classList.remove("hidden");
+        note.classList.add("hidden");
+        document.getElementById("provider-chart").innerHTML = AuthCoreCharts.providerBarChart(entries);
+        entries.forEach(([provider, count]) => {
+          const li = document.createElement("li");
+          li.textContent = provider + ": " + count;
+          legend.appendChild(li);
+        });
+      } else if (entries.length === 1) {
+        multi.classList.add("hidden");
+        note.classList.remove("hidden");
+        const [provider, count] = entries[0];
+        note.textContent = "Toda la actividad fue a través de " + provider + " (" + count + ").";
+      } else {
+        // Defensive only: totalLogins > 0 already implies at least one
+        // provider had activity (every login event carries a provider), so
+        // this branch shouldn't be reachable in practice — but it keeps the
+        // card from rendering a broken empty chart if it ever is.
+        multi.classList.add("hidden");
+        note.classList.remove("hidden");
+        note.textContent = "Sin datos de proveedor disponibles.";
+      }
+    }
+
+    function currentTenantSelection() {
+      return currentRole === "PLATFORM_ADMIN" ? tenantSelect.value : AuthCoreUi.currentTenantId();
+    }
+
+    function submitFilters() {
+      const tenantId = currentTenantSelection();
+      if (!tenantId) {
+        return;
+      }
+      const from = dateInputToInstant(document.getElementById("from-date").value, false);
+      const to = dateInputToInstant(document.getElementById("to-date").value, true);
+      loadMetrics(tenantId, from, to);
     }
 
     document.getElementById("filters-form").addEventListener("submit", (e) => {
       e.preventDefault();
-      const tenantId = e.target.tenantId.value.trim();
-      const from = dateInputToInstant(e.target.from.value, false);
-      const to = dateInputToInstant(e.target.to.value, true);
-      loadMetrics(tenantId, from, to);
+      submitFilters();
     });
 
-    if (AuthCoreUi.requireAdminSession()) {
-      // Ticket 019: a ?tenant= query param (from the "Ver métricas" link on
-      // /ui/admin/tenants, platform_admin only) takes priority over the
-      // caller's own tenant_id — that's the whole point of following that
-      // link. Falls back to the caller's own tenant, same as before.
-      const requestedTenantId = new URLSearchParams(window.location.search).get("tenant");
-      const initialTenantId = requestedTenantId || AuthCoreUi.currentTenantId();
-      if (initialTenantId) {
-        document.getElementById("tenant-id").value = initialTenantId;
-        loadMetrics(initialTenantId, null, null);
+    document.querySelectorAll(".range-chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const days = Number(btn.dataset.rangeDays);
+        const to = new Date();
+        const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+        document.getElementById("to-date").value = toDateInputValue(to);
+        document.getElementById("from-date").value = toDateInputValue(from);
+        submitFilters();
+      });
+    });
+
+    // Ticket 028: platform_admin gets a real <select> populated from the
+    // tenant list it already has access to (GET /api/v1/admin/tenants,
+    // platform_admin-only since ticket 019) — no free-text UUID field
+    // anymore. A ?tenant= query param (from the "Ver métricas" link on
+    // /ui/admin/tenants) preselects that tenant when present, same intent
+    // the old free-text field's prefill had.
+    async function loadTenantOptions() {
+      try {
+        const tenants = await AuthCoreUi.callAdmin("GET", "/api/v1/admin/tenants");
+        tenantSelect.textContent = "";
+        tenants.forEach((tenant) => {
+          const option = document.createElement("option");
+          option.value = tenant.id;
+          option.textContent = tenant.name;
+          tenantSelect.appendChild(option);
+        });
+
+        const requestedTenantId = new URLSearchParams(window.location.search).get("tenant");
+        if (requestedTenantId && tenants.some((tenant) => tenant.id === requestedTenantId)) {
+          tenantSelect.value = requestedTenantId;
+        }
+
+        if (tenantSelect.value) {
+          loadMetrics(tenantSelect.value, null, null);
+        }
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
       }
+    }
+
+    // Ticket 028: tenant_admin can't call the tenant list (403 since ticket
+    // 019) and only ever queries its own tenant — no selector, just its own
+    // tenant shown as read-only text. That tenant's *name* comes from GET
+    // /api/v1/admin/tenants/{id}, which a tenant_admin is already allowed to
+    // call for its own id (AdminAccessPolicy) — not a new backend
+    // capability, just the first UI page to call it for this role. This is
+    // a deliberate choice beyond what the definition doc's "ya disponible:
+    // su tenant_id viene en el JWT" strictly required (which would have let
+    // this just show the raw id): HU-6 explicitly retires the raw-UUID
+    // tenant field, so showing a bare UUID for tenant_admin while
+    // platform_admin sees real names would still leave one role looking at
+    // an id. Falls back to the raw id only if that lookup ever fails, so
+    // the field is never left blank.
+    async function loadFixedTenantName() {
+      const tenantId = AuthCoreUi.currentTenantId();
+      if (!tenantId) {
+        return;
+      }
+      try {
+        const tenant = await AuthCoreUi.callAdmin("GET", "/api/v1/admin/tenants/" + encodeURIComponent(tenantId));
+        tenantFixedName.textContent = tenant.name;
+      } catch (err) {
+        tenantFixedName.textContent = tenantId;
+      }
+      loadMetrics(tenantId, null, null);
+    }
+
+    function initTenantSelector() {
+      currentRole = AuthCoreUi.currentRole();
+      if (currentRole === "PLATFORM_ADMIN") {
+        tenantSelectWrap.classList.remove("hidden");
+        loadTenantOptions();
+      } else {
+        tenantFixedWrap.classList.remove("hidden");
+        loadFixedTenantName();
+      }
+    }
+
+    if (AuthCoreUi.requireAdminSession()) {
+      initTenantSelector();
     }
   </script>
 </body>

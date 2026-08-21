@@ -553,6 +553,19 @@ dialog.form-dialog .dialog-actions {
   grid-column: 1 / -1;
 }
 
+/* Ticket 028: found live — the empty-state illustration + message rendered
+ * as plain stacked block content (left-aligned, no gap) instead of reading
+ * as a deliberate, friendly empty state. Centering it is what the ticket
+ * 024 animation below was actually designed to accompany. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  padding: 1rem 0;
+}
+
 /* Ticket 024: entrance animation for the empty-state illustration
  * (fragments/icons.html :: illus-vacio). Respects prefers-reduced-motion
  * per the ux-ui-designer's brief — no motion at all for users who ask
@@ -626,4 +639,168 @@ dialog.form-dialog .dialog-actions {
   .home-card {
     transition: none;
   }
+}
+
+/* Ticket 028: /ui/admin/metrics — tenant_admin's own tenant shown as
+ * read-only text (no <select>, it has nothing to choose between) styled to
+ * look like a disabled input so it still reads as "a filled-in field", not
+ * a stray paragraph. */
+.tenant-fixed-value {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-md);
+  background: var(--admin-bg);
+  color: var(--admin-fg);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+/* Ticket 028: 7/30/90-day range shortcuts next to the existing date
+ * pickers. Deliberately not `.button-group` (that class's contract is
+ * "every child grows to fill the row equally", meant for form action rows
+ * — these are compact chips that should size to their own label and wrap
+ * on narrow viewports instead). */
+.range-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.range-quick .range-chip {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+}
+
+/* Ticket 028: metrics stat cards (logins totales, usuarios activos,
+ * usuarios registrados, latencia promedio) — same card shell as
+ * .home-card, but never a link (this is display-only data, not
+ * navigation), so it intentionally doesn't reuse that class. */
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius-lg);
+  padding: 1.1rem 1.25rem;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow);
+}
+
+.stat-card svg {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--admin-accent);
+}
+
+.stat-card-value {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.stat-card-label {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--admin-muted);
+  font-weight: 500;
+}
+
+/* Ticket 028: the two hand-rolled SVG charts (static/js/charts.js) —
+ * success-vs-failure donut and by-provider bar chart — laid out side by
+ * side on wide viewports, stacked on narrow ones via the existing
+ * auto-fit/minmax pattern already used by .home-cards/.stat-cards above. */
+.metrics-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.chart-card h3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chart-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--admin-muted);
+}
+
+.chart-badge svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.chart-body {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.donut-wrap svg {
+  display: block;
+  width: 140px;
+  height: 140px;
+}
+
+.provider-bar-wrap {
+  flex: 1;
+  min-width: 200px;
+}
+
+.provider-bar-wrap svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.88rem;
+}
+
+.chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chart-legend svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Ticket 028: legend icons match the donut segment they label — same
+ * --admin-success-fg/--admin-error-fg the SVG chart itself uses. */
+.chart-legend .legend-success svg {
+  color: var(--admin-success-fg);
+}
+
+.chart-legend .legend-error svg {
+  color: var(--admin-error-fg);
 }
