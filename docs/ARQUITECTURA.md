@@ -78,6 +78,14 @@ La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API �
 - **`SmsSender`/`TwilioSmsSender` nacen en este ticket, no en el `005`**: un usuario que se registró solo con teléfono necesita recuperar su contraseña por SMS, y ese caso ya existía antes de que 2FA (que también usará Twilio) llegara. El ticket `005` reutiliza esta misma interfaz para OTP.
 - **Preferencia email > SMS cuando el usuario tiene ambos**: decisión simple y documentada aquí — el email es gratis de enviar (Resend) y no depende de saldo/costo por mensaje (Twilio), así que se usa primero si está disponible.
 
+## Ticket 005: 2FA (OTP + TOTP)
+
+- **`SecretEncryptor` (AES-256-GCM) nace aquí, no en el ticket 006**: la columna `totp_secret_encrypted` existía desde el ticket 001, pero nada la cifraba realmente hasta ahora. Un secreto TOTP necesita ser legible en claro para calcular códigos (igual que el `client_secret` social del ticket 006) — por eso NO se hashea como una contraseña. El default de la clave (`app.secret-encryption-key`) es de solo-desarrollo y está documentado en voz alta como inseguro para producción — ver su Javadoc y `docs/README.md`.
+- **`Totp` implementado a mano (RFC 6238), sin librería externa**: es un algoritmo pequeño y muy bien especificado (HMAC-SHA1 + Base32); no justificaba una dependencia nueva.
+- **Reuso de `LoginRateLimiter` para proteger el OTP contra fuerza bruta**: un código de 6 dígitos solo tiene 1,000,000 de combinaciones — necesita exactamente la misma defensa "N intentos por ventana" que un password de login. El nombre de la clase es histórico (nació antes que 2FA), pero su comportamiento generaliza sin cambios.
+- **Protección anti-reuso de TOTP vía Redis, separada de la tolerancia a desfase de reloj**: `Totp.verify` acepta ±1 ventana de 30s (desfase de reloj normal entre servidor y app autenticadora), pero una vez que un código de una ventana específica se usó, `TotpService` lo bloquea para esa misma ventana en Redis — así que la tolerancia de desfase no se convierte en una ventana de reuso.
+- **`/2fa/**` hereda el mismo límite de confianza temporal que ticket 003** (`userId` del llamador, sin bearer token real todavía) — ver la advertencia ya documentada en `docs/API.md`.
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -85,4 +93,4 @@ La **UI web** (login/registro/2FA/reset) es un cliente más de esta misma API �
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `004` (recuperación de contraseña). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `005` (2FA: OTP + TOTP). Se actualizará con cada ticket movido a `/done`._

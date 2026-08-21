@@ -3,7 +3,7 @@
 > Endpoints del backend: rutas, métodos, qué reciben y qué responden. Explicado en simple. Se actualiza cuando cada ticket que añade o cambia endpoints se mueve a `/done`.
 
 ## Estado actual
-`/register`, `/login`, `/verify-email/*`, `/change-email/*` y `/password-reset/*` **implementados y probados** (tickets `002`-`004`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `005` a `007`.
+`/register`, `/login`, `/verify-email/*`, `/change-email/*`, `/password-reset/*` y `/2fa/*` **implementados y probados** (tickets `002`-`005`, en `/done`). El resto de la superficie sigue planeada, se irá confirmando conforme avancen los tickets `006` y `007`.
 
 ### ⚠️ Límite temporal de confianza (hasta ticket 007)
 `/verify-email/request` y `/change-email/request` reciben el `userId` directamente en el body — no hay todavía un token de acceso real que identifique "al usuario actual" (eso lo trae ticket `007`). Cualquiera que conozca (o adivine) un `userId` puede disparar el envío de un correo de verificación/cambio para ese usuario — molesto (spam, mitigado por el cooldown de 60s), pero no explotable: completar el flujo requiere poseer el token que llega a esa bandeja de entrada. Documentado también en `TenantScopedUserResolver.java`.
@@ -49,6 +49,17 @@
 
 ### ⚠️ `/password-reset/request` nunca revela si la cuenta existe
 A diferencia de `/verify-email/request` (que sí puede responder `429` porque el llamador ya "posee" el `userId`), aquí el llamador solo aporta una adivinanza de email/teléfono — así que ni el código HTTP, ni el tiempo de respuesta ni el comportamiento pueden diferir entre "existe" y "no existe". El servicio nunca lanza una excepción distinguible para este caso; ver `PasswordResetService` en `docs/ARQUITECTURA.md`.
+
+## 2FA (ticket `005`)
+Mismo header `X-Client-Id` + `userId` en el body que el resto de endpoints "temporales" (ver advertencia arriba, aplica igual aquí).
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| POST | `/api/v1/2fa/otp/request` | `userId` | `202` o `429 too_many_attempts` (cooldown de 30s) |
+| POST | `/api/v1/2fa/otp/verify` | `userId`, `code` | `200` o `400 invalid_token` (código incorrecto/expirado/ya usado) o `429` (más de 5 intentos fallidos) |
+| POST | `/api/v1/2fa/totp/enroll` | `userId` | `200` + `{ "secret": "..." }` — mostrar una sola vez como QR/código manual, nunca se vuelve a exponer en claro |
+| POST | `/api/v1/2fa/totp/verify` | `userId`, `code` | `200` o `400 invalid_token` (incluye el caso "este código ya se usó") |
+| POST | `/api/v1/2fa/method` | `userId`, `method` (`NONE`\|`OTP_EMAIL`\|`OTP_SMS`\|`TOTP`) | `200` o `400 totp_not_enrolled` si se intenta activar `TOTP` sin haber hecho `enroll` antes |
 
 ## Verificación y cambio de correo (ticket `003`)
 | Método | Ruta | Qué hace |

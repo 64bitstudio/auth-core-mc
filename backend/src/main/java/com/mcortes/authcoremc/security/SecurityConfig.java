@@ -26,6 +26,7 @@ public class SecurityConfig {
                                 "/api/v1/verify-email/**",
                                 "/api/v1/change-email/**",
                                 "/api/v1/password-reset/**",
+                                "/api/v1/2fa/**",
                                 "/actuator/health")
                         .permitAll()
                         .anyRequest()
