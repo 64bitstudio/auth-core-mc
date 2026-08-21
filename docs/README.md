@@ -15,6 +15,7 @@ Backend: modelo de dominio y migraciones (`001`), registro/login por password (`
 Este proyecto depende de servicios compartidos definidos en `~/dev-infra/docker-compose.yml` (no vive en este repo porque se reutiliza entre proyectos):
 - **SonarQube**: `http://localhost:9000`
 - **Notificaciones a Telegram**: `~/dev-infra/scripts/notify.sh`
+- **Vault** (cifrado por sobres de secretos de tenants, ticket `017`): `http://localhost:8200` — arranca sellado tras cada reinicio del contenedor, corre `~/dev-infra/scripts/vault-unseal.sh` antes de configurar cualquier proveedor de login de un tenant.
 
 ## Cómo levantar el proyecto
 1. Clonar este repo.
@@ -27,6 +28,7 @@ Este proyecto depende de servicios compartidos definidos en `~/dev-infra/docker-
 8. Credenciales de Google (`auth-core-mc`, proyecto GCP dedicado) y Facebook (`Auth Core MC`, app dedicada) ya están en `.env` — ambas apps quedaron en modo "prueba/desarrollo" (login solo para el desarrollador y testers agregados manualmente; publicarlas para cualquier usuario real es un paso aparte, ver consola de cada plataforma). El redirect URI configurado es `http://localhost:8080/login/oauth2/code/{google|facebook}`. Apple queda pendiente de que confirmes la membresía paga de Apple Developer Program.
 9. **`compose.yaml` necesita su `name:` explícito** (ya lo tiene) si alguna vez tienes en esta máquina más de un proyecto cuyo backend viva en una carpeta llamada `backend` — sin ese campo, Docker Compose usa el nombre de carpeta como identificador de proyecto y puede confundir los contenedores de dos proyectos distintos (nos pasó en el ticket `007`, ver `ARQUITECTURA.md`).
 10. **La clave RSA de firma de tokens se genera nueva en cada arranque** (`AuthorizationServerConfig`) — cualquier `accessToken` emitido antes de reiniciar el servicio deja de ser válido después. No apto para producción sin persistir y rotar la clave.
+11. Para configurar el proveedor de login de un tenant (`PUT /api/v1/identity-providers/*`), primero desella Vault (`~/dev-infra/scripts/vault-unseal.sh` — arranca sellado tras cada reinicio del contenedor) y exporta `VAULT_ADDR`/`VAULT_ROOT_TOKEN` desde `~/dev-infra/.env` — sin esto, el endpoint falla explícito (ticket `017`, cifrado por sobres).
 
 ## Cómo probar `/register` y `/login` manualmente
 

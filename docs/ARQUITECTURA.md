@@ -180,6 +180,21 @@ Segundo ticket de la épica del panel de administración. Depende del ticket 011
 - **Prueba real de punta a punta** (`AdminRoleGateIntegrationTest`, `@SpringBootTest` con Testcontainers real, no mocks): registro real → login real → token real firmado por el `JwtGenerator` realmente configurado → request Bearer real contra `/api/v1/identity-providers` (endpoint que ya existía) → 200. Sin token → 401. Claims `role`/`tenant_id` del token real verificados contra lo que se otorgó. Datos únicos por test (UUID en `client_id`) porque un `@SpringBootTest` con HTTP real no comparte transacción con el test — se descubrió con un `DataIntegrityViolationException` real, no anticipado de antemano.
 - 196/196 tests en verde (187 previos + 9 nuevos: 4 de `AdminRoleAuthoritiesConverterTest`, 2 de `DirectTokenServiceTest`, 3 de `AdminRoleGateIntegrationTest`).
 
+## Ticket 017: cifrado por sobres para secretos de clientes (Vault Transit)
+
+Tercer ticket de la épica del panel de administración. Independiente de 011/012/013.
+
+- **Vault local instalado en `~/dev-infra`** (junto a SonarQube) — backend de archivo persistente, no `vault server -dev` (dev mode pierde la master key en cada reinicio, lo que volvería indescifrables las data-keys ya envueltas). Requiere unseal manual tras cada reinicio (`~/dev-infra/scripts/vault-unseal.sh`).
+- **Bug real encontrado en vivo**: la imagen oficial de `hashicorp/vault` ya inyecta `-config=/vault/config` (todo el directorio) cuando el primer argumento del comando es `server` — pasar `-config=/vault/config/config.hcl` explícito también duplicaba el listener tcp y crasheaba con "address already in use". Arreglado quitando el `-config` explícito del `docker-compose.yml`.
+- **Segundo bug real**: `vault operator init` falló la primera vez con "permission denied" al escribir en `/vault/data/core` — el volumen nombrado se creó con ownership root, pero el proceso vault corre como usuario `vault` no-root. Arreglado con `chown -R vault:vault /vault/data`.
+- **`VaultTransitEncryptor`**: llamada HTTP delgada (mismo patrón que `ResendEmailSender`, no la librería completa `spring-vault-core` — evita riesgo de incompatibilidad de versión con este Spring Boot 4.1 bleeding-edge) contra el motor Transit de Vault — envuelve/desenvuelve la data-key de un tenant, nunca ve el secreto real.
+- **`TenantSecretEncryptor`**: AES-256-GCM local (misma forma que `SecretEncryptor`, deliberadamente no generalizado — ver su Javadoc) usando la data-key desenvuelta. Cada tenant tiene su propia data-key (`Tenant.wrappedDataKey`, columna nueva, nullable — se genera perezosamente en el primer secreto que se configure, sin necesidad de backfill).
+- **`TenantIdentityProviderService`** (ticket 006) migrado de `SecretEncryptor` (clave única) a `TenantSecretEncryptor` (por tenant) — si una data-key envuelta se filtra, el impacto queda acotado a un tenant, no a todos.
+- **Verificado que no hacía falta migrar datos reales**: se consultó la base de datos local real (`auth-core-mc-postgres-1`, no la efímera de Testcontainers) — `tenant_identity_provider` tiene 0 filas. Las credenciales reales de Google/Meta obtenidas en el ticket 006 quedaron en `backend/.env` pero nunca se guardaron vía la API real. No hay nada que migrar todavía.
+- Tests con Vault real vía Testcontainers (`testcontainers-vault`, mismo patrón hermético que Postgres) — no apuntan al Vault compartido de dev-infra, que podría estar sellado.
+- 201/201 tests en verde (196 previos + 5 nuevos: 3 de `TenantSecretEncryptorTest`, 2 de `TenantIdentityProviderServiceTest`).
+- Proveedor de KMS confirmado con el Product Owner: HashiCorp Vault self-hosted (pregunta abierta heredada de la definición, ya resuelta).
+
 ## Lecciones del ticket 001 (por qué los tests están configurados así)
 
 - **`@DataJpaTest` no usa Flyway por defecto**: genera el esquema directamente desde las anotaciones `@Entity`, lo cual habría dejado los tests corriendo contra un esquema paralelo que nunca valida que `V1__init.sql` sea correcto. Se forzó `spring.jpa.hibernate.ddl-auto=validate` en `backend/src/test/resources/application.properties` para que Hibernate solo *valide* contra lo que Flyway ya creó, nunca lo genere.
@@ -187,4 +202,4 @@ Segundo ticket de la épica del panel de administración. Depende del ticket 011
 - **OrbStack se suspende solo por inactividad** y detiene todos los contenedores (Testcontainers de los tests, SonarQube). Cualquier `./gradlew test` puede fallar con `DockerClientProviderStrategy`/`IllegalStateException` simplemente porque OrbStack estaba dormido — solución: `open -a OrbStack` y esperar unos segundos antes de reintentar.
 
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `012` (Auth del panel + guard de rol). Se actualizará con cada ticket movido a `/done`._
+_Última actualización: al cerrar la tarea `017` (cifrado por sobres, Vault Transit). Se actualizará con cada ticket movido a `/done`._

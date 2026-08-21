@@ -4,17 +4,20 @@ import com.mcortes.authcoremc.domain.IdentityProviderType;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.TenantIdentityProvider;
 import com.mcortes.authcoremc.repository.TenantIdentityProviderRepository;
-import com.mcortes.authcoremc.security.SecretEncryptor;
+import com.mcortes.authcoremc.repository.TenantRepository;
+import com.mcortes.authcoremc.security.TenantSecretEncryptor;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Per-tenant social login configuration. {@code client_secret} is
- * encrypted at rest (via {@link SecretEncryptor}, built for exactly this in
- * ticket 005) and this service NEVER returns it in decrypted form to a
- * caller — see {@link com.mcortes.authcoremc.web.IdentityProviderView},
- * which simply omits it.
+ * encrypted at rest via envelope encryption ({@link TenantSecretEncryptor},
+ * ticket 017 — each tenant has its own Vault-wrapped data-key, generated
+ * lazily on first use here) and this service NEVER returns it in
+ * decrypted form to a caller — see
+ * {@link com.mcortes.authcoremc.web.IdentityProviderView}, which simply
+ * omits it.
  *
  * <p>Apple is deliberately rejected here (see {@link UnsupportedProviderException}):
  * it doesn't use a client_id/client_secret pair like Google/Facebook — it
@@ -26,10 +29,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class TenantIdentityProviderService {
 
     private final TenantIdentityProviderRepository repository;
-    private final SecretEncryptor secretEncryptor;
+    private final TenantRepository tenantRepository;
+    private final TenantSecretEncryptor secretEncryptor;
 
-    public TenantIdentityProviderService(TenantIdentityProviderRepository repository, SecretEncryptor secretEncryptor) {
+    public TenantIdentityProviderService(
+            TenantIdentityProviderRepository repository,
+            TenantRepository tenantRepository,
+            TenantSecretEncryptor secretEncryptor) {
         this.repository = repository;
+        this.tenantRepository = tenantRepository;
         this.secretEncryptor = secretEncryptor;
     }
 
@@ -49,10 +57,16 @@ public class TenantIdentityProviderService {
             throw new IllegalArgumentException("clientId and clientSecret are required");
         }
 
+        String wrappedDataKeyBefore = tenant.getWrappedDataKey();
+        String wrappedDataKey = secretEncryptor.ensureWrappedDataKey(tenant);
+        if (wrappedDataKeyBefore == null) {
+            tenantRepository.save(tenant);
+        }
+
         TenantIdentityProvider entry = repository
                 .findByTenantAndProvider(tenant, provider)
                 .orElseGet(() -> new TenantIdentityProvider(tenant, provider));
-        entry.configure(clientId, secretEncryptor.encrypt(rawClientSecret));
+        entry.configure(clientId, secretEncryptor.encrypt(wrappedDataKey, rawClientSecret));
         return repository.save(entry);
     }
 

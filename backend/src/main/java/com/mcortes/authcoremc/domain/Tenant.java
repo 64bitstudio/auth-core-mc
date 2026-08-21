@@ -50,6 +50,14 @@ public class Tenant {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    // Ticket 017: Vault-wrapped AES-256 data-key for this tenant's envelope
+    // encryption (see TenantSecretEncryptor) — null until the first secret
+    // is configured for this tenant (lazy, via ensureWrappedDataKey()), so
+    // existing tenants from before this ticket don't need a backfill
+    // migration.
+    @Column(name = "wrapped_data_key")
+    private String wrappedDataKey;
+
     protected Tenant() {
         // JPA
     }
@@ -112,5 +120,17 @@ public class Tenant {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getWrappedDataKey() {
+        return wrappedDataKey;
+    }
+
+    /** Sets this tenant's wrapped data-key — only ever called once, by {@code TenantSecretEncryptor}'s lazy-generation path, never overwritten afterward. */
+    public void setWrappedDataKey(String wrappedDataKey) {
+        if (wrappedDataKey == null || wrappedDataKey.isBlank()) {
+            throw new IllegalArgumentException("wrappedDataKey must not be blank");
+        }
+        this.wrappedDataKey = wrappedDataKey;
     }
 }
