@@ -121,11 +121,12 @@ class AdminMetricsServiceTest {
         Tenant tenant = tenantWithId();
         Instant from = Instant.now().minus(1, ChronoUnit.DAYS);
         Instant to = Instant.now();
-        when(tenantRepository.findById(tenant.getId())).thenReturn(Optional.of(tenant));
+        UUID tenantId = tenant.getId();
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         AdminMetricsService service = service();
         UUID otherActorTenantId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.metrics(UserRole.TENANT_ADMIN, otherActorTenantId, tenant.getId(), from, to))
+        assertThatThrownBy(() -> service.metrics(UserRole.TENANT_ADMIN, otherActorTenantId, tenantId, from, to))
                 .isInstanceOf(TenantAccessDeniedException.class);
     }
 
