@@ -120,4 +120,25 @@ public class User {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    public void markEmailVerified() {
+        this.emailVerified = true;
+    }
+
+    public void markPhoneVerified() {
+        this.phoneVerified = true;
+    }
+
+    /**
+     * Changes the user's email as part of the change-email flow (ticket 003)
+     * — only called after the confirmation link sent to {@code newEmail} has
+     * been used, so the new address is verified by construction.
+     */
+    public void changeEmail(String newEmail) {
+        if (newEmail == null || newEmail.isBlank()) {
+            throw new IllegalArgumentException("newEmail must not be blank");
+        }
+        this.email = newEmail;
+        this.emailVerified = true;
+    }
 }

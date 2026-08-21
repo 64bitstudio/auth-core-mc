@@ -3,7 +3,7 @@
 Servicio centralizado de autenticación/autorización (OAuth2/OIDC), multi-tenant y clonable a instancia dedicada. Ver `ARQUITECTURA.md` para el porqué de cada decisión.
 
 ## Estado actual
-Backend: modelo de dominio y migraciones (`001`) + registro/login por password (`002`), ambos en `/done`. Aún no hay UI ni tokens OAuth2 reales (ticket `007`).
+Backend: modelo de dominio y migraciones (`001`), registro/login por password (`002`), verificación y cambio de correo (`003`) — todos en `/done`. Aún no hay UI ni tokens OAuth2 reales (ticket `007`).
 
 ## Requisitos
 - Docker + Docker Compose (ya verificado en tu máquina)
@@ -21,7 +21,8 @@ Este proyecto depende de servicios compartidos definidos en `~/dev-infra/docker-
 2. Asegúrate de que OrbStack (Docker) esté corriendo.
 3. Entra a `backend/` y corre `./gradlew bootRun` — Spring Boot levanta automáticamente Postgres y Redis vía `backend/compose.yaml` (soporte nativo de Docker Compose de Spring Boot), corre las migraciones Flyway, y arranca la API en `http://localhost:8080`.
 4. Para correr solo los tests: `cd backend && ./gradlew test` (usa contenedores Testcontainers efímeros, independientes de `compose.yaml`).
-5. (Pendiente, llega con tickets `003`/`005`/`006`): copiar `.env.example` a `.env` y completar credenciales (Resend, Twilio, Google/Facebook/Apple OAuth, clave de cifrado de secretos).
+5. Para que `/verify-email` y `/change-email` envíen correos de verdad, exporta `RESEND_API_KEY` y `RESEND_FROM_ADDRESS` (cuenta de Resend) antes de `bootRun` — sin esto, el servicio arranca igual, pero cualquier intento de enviar un correo falla explícitamente (a propósito, ver `ARQUITECTURA.md`) en vez de fingir que se envió.
+6. (Pendiente, llega con tickets `005`/`006`): credenciales de Twilio y de Google/Facebook/Apple OAuth.
 
 ## Cómo probar `/register` y `/login` manualmente
 
