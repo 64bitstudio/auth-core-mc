@@ -47,7 +47,7 @@ public class AuthorizationServerConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) {
         // Spring Security 7.1 removed the old applyDefaultSecurity(HttpSecurity)
         // static helper; .oauth2AuthorizationServer(...) is the new first-class
         // DSL entry point (alongside .oauth2Login(...), .oauth2ResourceServer(...)).
@@ -60,12 +60,19 @@ public class AuthorizationServerConfig {
         // pass — that test never sends a real HTTP request through the chain).
         // The fix: apply the DSL first, then pull the SAME instance back out
         // via getConfigurer() before asking it for its matcher.
-        http.oauth2AuthorizationServer(authorizationServer -> authorizationServer.oidc(Customizer.withDefaults()));
-        RequestMatcher endpointsMatcher =
-                http.getConfigurer(OAuth2AuthorizationServerConfigurer.class).getEndpointsMatcher();
-        http.securityMatcher(endpointsMatcher);
-        http.formLogin(Customizer.withDefaults());
-        return http.build();
+        try {
+            http.oauth2AuthorizationServer(authorizationServer -> authorizationServer.oidc(Customizer.withDefaults()));
+            RequestMatcher endpointsMatcher =
+                    http.getConfigurer(OAuth2AuthorizationServerConfigurer.class).getEndpointsMatcher();
+            http.securityMatcher(endpointsMatcher);
+            http.formLogin(Customizer.withDefaults());
+            return http.build();
+        } catch (Exception e) {
+            // Same reasoning as SecurityConfig: HttpSecurity.build() declares a
+            // broad `throws Exception` in Spring Security's own API — wrap it
+            // unchecked instead of propagating that broad type further.
+            throw new IllegalStateException("Failed to build the authorization server security filter chain", e);
+        }
     }
 
     @Bean
