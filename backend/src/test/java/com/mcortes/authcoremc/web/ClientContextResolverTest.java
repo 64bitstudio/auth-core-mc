@@ -39,4 +39,16 @@ class ClientContextResolverTest {
         assertThatThrownBy(() -> new ClientContextResolver(identityClientRepository).resolveTenant("ghost"))
                 .isInstanceOf(UnknownClientException.class);
     }
+
+    @Test
+    void rejectsAClientBelongingToADeactivatedTenant() {
+        Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+        tenant.deactivate();
+        IdentityClient client =
+                new IdentityClient(tenant, "acme-web-app", null, true, List.of("https://acme.example.com/callback"));
+        when(identityClientRepository.findByClientId("acme-web-app")).thenReturn(Optional.of(client));
+        ClientContextResolver resolver = new ClientContextResolver(identityClientRepository);
+
+        assertThatThrownBy(() -> resolver.resolveClient("acme-web-app")).isInstanceOf(TenantDeactivatedException.class);
+    }
 }

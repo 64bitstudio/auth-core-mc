@@ -29,6 +29,15 @@ public class ClientContextResolver {
 
     /** Like {@link #resolveTenant}, but for callers (ticket 007) that also need the client's firstParty flag. */
     public IdentityClient resolveClient(String clientId) {
-        return identityClientRepository.findByClientId(clientId).orElseThrow(() -> new UnknownClientException(clientId));
+        IdentityClient client = identityClientRepository
+                .findByClientId(clientId)
+                .orElseThrow(() -> new UnknownClientException(clientId));
+        // Ticket 013: a deactivated tenant blocks ALL new activity through this
+        // resolver — every plain REST endpoint (register/login/identity-providers/
+        // etc.) goes through here, so this is the one place that has to enforce it.
+        if (!client.getTenant().isActive()) {
+            throw new TenantDeactivatedException();
+        }
+        return client;
     }
 }

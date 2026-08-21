@@ -52,7 +52,9 @@ class LoginEventRecordingIntegrationTest {
     void setUp() {
         clientId = "acme-login-event-test-" + UUID.randomUUID();
         tenant = tenantRepository.save(
-                new Tenant("Acme LoginEvent", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+                // Ticket 013 added a UNIQUE constraint on tenant.name — a fixed name here
+                // collided with itself across @BeforeEach runs of different @Test methods.
+                new Tenant("Acme LoginEvent " + UUID.randomUUID(), "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
         identityClientRepository.save(
                 new IdentityClient(tenant, clientId, null, true, List.of("https://acme.example.com/callback")));
     }
