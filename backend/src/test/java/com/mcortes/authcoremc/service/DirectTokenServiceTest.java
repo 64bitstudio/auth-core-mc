@@ -12,7 +12,10 @@ import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.RefreshToken;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
+import com.mcortes.authcoremc.domain.UserRole;
+import com.mcortes.authcoremc.oauth2.AdminClaimsCustomizer;
 import com.mcortes.authcoremc.oauth2.TenantAwareRegisteredClientRepository;
+import com.nimbusds.jwt.SignedJWT;
 import com.mcortes.authcoremc.repository.IdentityClientRepository;
 import com.mcortes.authcoremc.repository.RefreshTokenRepository;
 import com.mcortes.authcoremc.security.TokenHasher;
@@ -57,6 +60,7 @@ class DirectTokenServiceTest {
     void setUp() throws Exception {
         JwtEncoder encoder = new NimbusJwtEncoder(buildJwkSource());
         jwtGenerator = new JwtGenerator(encoder);
+        jwtGenerator.setJwtCustomizer(new AdminClaimsCustomizer());
         settings = AuthorizationServerSettings.builder().issuer("https://auth.example.com").build();
 
         tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
@@ -100,6 +104,28 @@ class DirectTokenServiceTest {
         verify(refreshTokenRepository).save(captor.capture());
         assertThat(captor.getValue().getTokenHash()).isEqualTo(TokenHasher.sha256(tokens.refreshToken()));
         assertThat(captor.getValue().getUser()).isEqualTo(user);
+    }
+
+    @Test
+    void issuedAccessTokenCarriesTheUsersRoleAndTenantIdClaims() throws Exception {
+        when(identityClientRepository.findByClientId("acme-web-app")).thenReturn(Optional.of(firstPartyClient));
+        user.grantRole(UserRole.TENANT_ADMIN);
+
+        TokenPair tokens = service().issueTokens(firstPartyClient, user);
+
+        var claims = SignedJWT.parse(tokens.accessToken()).getJWTClaimsSet();
+        assertThat(claims.getStringClaim("role")).isEqualTo("TENANT_ADMIN");
+        assertThat(claims.getStringClaim("tenant_id")).isEqualTo(tenant.getId().toString());
+    }
+
+    @Test
+    void aRegularUserWithNoAdminRoleStillGetsATokenWithTheNoneRoleClaim() throws Exception {
+        when(identityClientRepository.findByClientId("acme-web-app")).thenReturn(Optional.of(firstPartyClient));
+
+        TokenPair tokens = service().issueTokens(firstPartyClient, user);
+
+        var claims = SignedJWT.parse(tokens.accessToken()).getJWTClaimsSet();
+        assertThat(claims.getStringClaim("role")).isEqualTo("NONE");
     }
 
     @Test

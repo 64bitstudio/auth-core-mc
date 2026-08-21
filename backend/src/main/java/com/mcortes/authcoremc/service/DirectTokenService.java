@@ -126,6 +126,15 @@ public class DirectTokenService {
                     .authorizedScopes(registeredClient.getScopes())
                     .tokenType(OAuth2TokenType.ACCESS_TOKEN)
                     .authorizationGrantType(DIRECT_GRANT)
+                    // Ticket 012: lets AdminClaimsCustomizer stamp role/tenant_id
+                    // claims without a second DB lookup. NOT a generic .put() —
+                    // JwtGenerator's internal JwtEncodingContext.with(...) only
+                    // copies specific recognized fields (confirmed by reading
+                    // its real bytecode, not assumed), and authorizationGrant
+                    // is one of them (copied whenever non-null). principal stays
+                    // the plain user-id string so the `sub` claim is unaffected.
+                    .authorizationGrant(
+                            new UsernamePasswordAuthenticationToken(user, null, java.util.List.of()))
                     .build();
 
             Object token = jwtGenerator.generate(context);

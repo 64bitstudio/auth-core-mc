@@ -31,6 +31,10 @@ public class TokenGeneratorConfig {
 
     @Bean
     public JwtGenerator jwtGenerator(JwtEncoder jwtEncoder) {
-        return new JwtGenerator(jwtEncoder);
+        JwtGenerator generator = new JwtGenerator(jwtEncoder);
+        // Ticket 012: stamps role/tenant_id claims for the admin panel's role
+        // gate — see AdminClaimsCustomizer.
+        generator.setJwtCustomizer(new AdminClaimsCustomizer());
+        return generator;
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -70,8 +71,27 @@ public class SecurityConfig {
                                     // masks the real error behind a 401 challenge.
                                     "/error")
                             .permitAll()
+                            // Ticket 012: admin-panel routes need an admin role, not just
+                            // "any authenticated user" — checked BEFORE the anyRequest()
+                            // catch-all below. No admin endpoints exist yet (ticket 013+
+                            // builds them under this same prefix); this rule is proven
+                            // generically here, not against a real admin route yet.
+                            .requestMatchers("/api/v1/admin/**")
+                            .hasAnyRole("TENANT_ADMIN", "PLATFORM_ADMIN")
                             .anyRequest()
                             .authenticated())
+                    // Ticket 012: wires the JwtDecoder (already defined in
+                    // AuthorizationServerConfig, but never actually connected to this
+                    // chain until now) so a Bearer JWT authenticates a request at all —
+                    // without this, IdentityProviderController's .anyRequest().authenticated()
+                    // (ticket 006) had no real way to be satisfied outside of tests'
+                    // @WithMockUser. The role claim (AdminClaimsCustomizer) becomes a
+                    // Spring authority via AdminRoleAuthoritiesConverter.
+                    .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> {
+                        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+                        converter.setJwtGrantedAuthoritiesConverter(new AdminRoleAuthoritiesConverter());
+                        jwt.jwtAuthenticationConverter(converter);
+                    }))
                     .exceptionHandling(exceptions ->
                             exceptions.authenticationEntryPoint((request, response, authException) -> {
                                 response.setStatus(401);
