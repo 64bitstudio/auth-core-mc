@@ -56,15 +56,18 @@ jobs:
         with:
           scanMetadataReportFile: backend/build/sonar/report-task.txt
 
+      # Esquema de emoji/título alineado 2026-08-21 con la convención global
+      # de notificaciones (ver memoria elite-dev-org-persona): ✅/🔴 y
+      # "[proyecto]" en el título. Sigue llamando a notify.sh directo (no al
+      # curl+secrets de ~/dev-infra/ci-templates/notify-step.yml) porque este
+      # runner es self-hosted y ya tiene ~/dev-infra/.env real en la máquina
+      # — duplicar el token/chat_id como secret de GitHub sería redundante.
       - name: Notificar a Telegram
         if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ "${{ job.status }}" = "success" ]; then
-            ~/dev-infra/scripts/notify.sh "✅ CI auth-core-mc" "Build + tests + Quality Gate OK en ${{ github.ref_name }} (${{ github.sha }}). $RUN_URL"
+            ~/dev-infra/scripts/notify.sh "✅ [auth-core-mc] CI OK" "Build + tests + Quality Gate OK en ${{ github.ref_name }} (${{ github.sha }}). $RUN_URL"
           else
-            ~/dev-infra/scripts/notify.sh "❌ CI auth-core-mc" "Falló en ${{ github.ref_name }} (${{ github.sha }}). $RUN_URL"
+            ~/dev-infra/scripts/notify.sh "🔴 [auth-core-mc] CI FALLÓ" "Falló en ${{ github.ref_name }} (${{ github.sha }}). $RUN_URL"
           fi
