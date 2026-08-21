@@ -83,13 +83,15 @@ class AdminTenantServiceTest {
     @Test
     void tenantAdminCanOnlyGetItsOwnTenant() {
         Tenant tenant = tenantWithId();
-        when(tenantRepository.findById(tenant.getId())).thenReturn(Optional.of(tenant));
+        UUID tenantId = tenant.getId();
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         AdminTenantService service = service();
+        UUID someOtherActorTenantId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.get(UserRole.TENANT_ADMIN, UUID.randomUUID(), tenant.getId()))
+        assertThatThrownBy(() -> service.get(UserRole.TENANT_ADMIN, someOtherActorTenantId, tenantId))
                 .isInstanceOf(TenantAccessDeniedException.class);
 
-        Tenant result = service.get(UserRole.TENANT_ADMIN, tenant.getId(), tenant.getId());
+        Tenant result = service.get(UserRole.TENANT_ADMIN, tenantId, tenantId);
         assertThat(result).isEqualTo(tenant);
     }
 
@@ -98,8 +100,9 @@ class AdminTenantServiceTest {
         UUID unknownId = UUID.randomUUID();
         when(tenantRepository.findById(unknownId)).thenReturn(Optional.empty());
         AdminTenantService service = service();
+        UUID actorTenantId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.get(UserRole.PLATFORM_ADMIN, UUID.randomUUID(), unknownId))
+        assertThatThrownBy(() -> service.get(UserRole.PLATFORM_ADMIN, actorTenantId, unknownId))
                 .isInstanceOf(TenantNotFoundException.class);
     }
 
@@ -120,9 +123,10 @@ class AdminTenantServiceTest {
     @Test
     void onlyPlatformAdminCanDeactivateATenant() {
         Tenant tenant = tenantWithId();
+        UUID tenantId = tenant.getId();
         AdminTenantService service = service();
 
-        assertThatThrownBy(() -> service.deactivate(UserRole.TENANT_ADMIN, tenant.getId()))
+        assertThatThrownBy(() -> service.deactivate(UserRole.TENANT_ADMIN, tenantId))
                 .isInstanceOf(TenantAccessDeniedException.class);
     }
 
