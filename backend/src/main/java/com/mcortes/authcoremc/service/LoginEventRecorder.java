@@ -30,14 +30,17 @@ public class LoginEventRecorder {
     }
 
     public void recordSuccess(Tenant tenant, User user, String provider, long latencyMs) {
-        record(tenant, user, provider, LoginOutcome.SUCCESS, latencyMs);
+        saveEvent(tenant, user, provider, LoginOutcome.SUCCESS, latencyMs);
     }
 
     public void recordFailure(Tenant tenant, String provider, long latencyMs) {
-        record(tenant, null, provider, LoginOutcome.FAILURE, latencyMs);
+        saveEvent(tenant, null, provider, LoginOutcome.FAILURE, latencyMs);
     }
 
-    private void record(Tenant tenant, User user, String provider, LoginOutcome outcome, long latencyMs) {
+    // Not named "record" — Sonar (java:S6213) flags it as a restricted
+    // identifier since Java 16 introduced record classes. Found by CI, not
+    // anticipated.
+    private void saveEvent(Tenant tenant, User user, String provider, LoginOutcome outcome, long latencyMs) {
         try {
             repository.save(new LoginEvent(tenant, user, provider, outcome, (int) latencyMs));
         } catch (RuntimeException e) {
