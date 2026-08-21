@@ -17,6 +17,7 @@ import com.mcortes.authcoremc.repository.UserRepository;
 import com.nimbusds.jwt.SignedJWT;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,7 +65,9 @@ class AdminRoleGateIntegrationTest {
     void setUp() {
         clientId = "acme-integration-test-" + java.util.UUID.randomUUID();
         tenant = tenantRepository.save(
-                new Tenant("Acme Integration", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+                // Ticket 013 added a UNIQUE constraint on tenant.name — a fixed name here
+                // collided with itself across @BeforeEach runs of different @Test methods.
+                new Tenant("Acme Integration " + UUID.randomUUID(), "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
         identityClientRepository.save(
                 new IdentityClient(tenant, clientId, null, true, List.of("https://acme.example.com/callback")));
     }

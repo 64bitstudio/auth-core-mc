@@ -79,6 +79,26 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.FORBIDDEN, "unauthorized_client", e.getMessage());
     }
 
+    @ExceptionHandler(TenantDeactivatedException.class)
+    public ResponseEntity<ErrorResponse> handleTenantDeactivated(TenantDeactivatedException e) {
+        return error(HttpStatus.FORBIDDEN, "tenant_deactivated", e.getMessage());
+    }
+
+    @ExceptionHandler(DuplicateTenantNameException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateTenantName(DuplicateTenantNameException e) {
+        return error(HttpStatus.CONFLICT, "duplicate_tenant_name", e.getMessage());
+    }
+
+    @ExceptionHandler(TenantAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleTenantAccessDenied(TenantAccessDeniedException e) {
+        return error(HttpStatus.FORBIDDEN, "tenant_access_denied", e.getMessage());
+    }
+
+    @ExceptionHandler(TenantNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleTenantNotFound(TenantNotFoundException e) {
+        return error(HttpStatus.NOT_FOUND, "tenant_not_found", e.getMessage());
+    }
+
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
         return error(HttpStatus.BAD_REQUEST, "validation_error", "Missing required header: " + e.getHeaderName());

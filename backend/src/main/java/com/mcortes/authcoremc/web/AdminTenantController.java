@@ -1,0 +1,73 @@
+package com.mcortes.authcoremc.web;
+
+import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.UserRole;
+import com.mcortes.authcoremc.service.AdminTenantService;
+import jakarta.validation.Valid;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Ticket 013: tenant CRUD for the admin panel. Coarse role gate
+ * ({@code /api/v1/admin/**} requires TENANT_ADMIN or PLATFORM_ADMIN) lives
+ * in {@code SecurityConfig} (ticket 012); the fine-grained "which specific
+ * tenant" check lives in {@code AdminTenantService}, reading role/tenant_id
+ * straight off the JWT claims (see {@code AdminClaimsCustomizer}) — no DB
+ * lookup of the caller needed for authorization.
+ */
+@RestController
+@RequestMapping("/api/v1/admin/tenants")
+public class AdminTenantController {
+
+    private final AdminTenantService service;
+
+    public AdminTenantController(AdminTenantService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public ResponseEntity<TenantResponse> create(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CreateTenantRequest request) {
+        Tenant tenant = service.create(role(jwt), request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(TenantResponse.from(tenant));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<TenantResponse> get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        Tenant tenant = service.get(role(jwt), tenantId(jwt), id);
+        return ResponseEntity.ok(TenantResponse.from(tenant));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<TenantResponse> update(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id, @Valid @RequestBody UpdateTenantRequest request) {
+        Tenant tenant = service.update(role(jwt), tenantId(jwt), id, request);
+        return ResponseEntity.ok(TenantResponse.from(tenant));
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deactivate(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        service.deactivate(role(jwt), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    private UserRole role(Jwt jwt) {
+        String claim = jwt.getClaimAsString("role");
+        return claim == null ? UserRole.NONE : UserRole.valueOf(claim);
+    }
+
+    private UUID tenantId(Jwt jwt) {
+        String claim = jwt.getClaimAsString("tenant_id");
+        return claim == null ? null : UUID.fromString(claim);
+    }
+}

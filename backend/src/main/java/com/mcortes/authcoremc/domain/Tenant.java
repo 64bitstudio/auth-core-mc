@@ -58,6 +58,12 @@ public class Tenant {
     @Column(name = "wrapped_data_key")
     private String wrappedDataKey;
 
+    // Ticket 013: soft delete — null means active. Set by deactivate(), read
+    // by ClientContextResolver (blocks new sessions) and TenantPurgeService
+    // (physically purges 90 days after this timestamp).
+    @Column(name = "deactivated_at")
+    private Instant deactivatedAt;
+
     protected Tenant() {
         // JPA
     }
@@ -132,5 +138,42 @@ public class Tenant {
             throw new IllegalArgumentException("wrappedDataKey must not be blank");
         }
         this.wrappedDataKey = wrappedDataKey;
+    }
+
+    public Instant getDeactivatedAt() {
+        return deactivatedAt;
+    }
+
+    public boolean isActive() {
+        return deactivatedAt == null;
+    }
+
+    /** Idempotent — deactivating an already-deactivated tenant does not reset its purge clock. */
+    public void deactivate() {
+        if (deactivatedAt == null) {
+            this.deactivatedAt = Instant.now();
+        }
+    }
+
+    public void reactivate() {
+        this.deactivatedAt = null;
+    }
+
+    /** Updates the editable fields (ticket 013) — {@code name} is deliberately not editable here, it's this tenant's stable identity in the panel. */
+    public void update(
+            String appName,
+            String primaryColor,
+            int accessTokenTtlSeconds,
+            int refreshTokenTtlSeconds,
+            int emailVerificationTtlSeconds,
+            int passwordResetTtlSeconds,
+            int otpTtlSeconds) {
+        this.appName = appName;
+        this.primaryColor = primaryColor;
+        this.accessTokenTtlSeconds = accessTokenTtlSeconds;
+        this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
+        this.emailVerificationTtlSeconds = emailVerificationTtlSeconds;
+        this.passwordResetTtlSeconds = passwordResetTtlSeconds;
+        this.otpTtlSeconds = otpTtlSeconds;
     }
 }
