@@ -4,6 +4,7 @@ import com.mcortes.authcoremc.domain.TotpNotEnrolledException;
 import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
 import com.mcortes.authcoremc.service.InvalidTokenException;
+import com.mcortes.authcoremc.service.NotFirstPartyClientException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
 import com.mcortes.authcoremc.service.UnsupportedProviderException;
 import com.mcortes.authcoremc.service.UserNotFoundException;
@@ -70,6 +71,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UnsupportedProviderException.class)
     public ResponseEntity<ErrorResponse> handleUnsupportedProvider(UnsupportedProviderException e) {
         return error(HttpStatus.BAD_REQUEST, "unsupported_provider", e.getMessage());
+    }
+
+    @ExceptionHandler(NotFirstPartyClientException.class)
+    public ResponseEntity<ErrorResponse> handleNotFirstPartyClient(NotFirstPartyClientException e) {
+        return error(HttpStatus.FORBIDDEN, "unauthorized_client", e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
