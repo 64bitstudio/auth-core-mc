@@ -136,6 +136,13 @@ body.admin-body {
   font-weight: 500;
   font-size: 0.9rem;
   text-decoration: none;
+  /* Ticket 030: found live during the HU-8 hover/focus audit — every other
+     interactive surface in the panel (buttons, .home-card) already
+     transitions its hover colors, but the sidenav links jumped straight
+     to their hover background/color with no transition at all. */
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 /* Ticket 024: nav icons are 24x24 in fragments/icons.html (shared
@@ -158,6 +165,12 @@ body.admin-body {
   background: var(--admin-accent-soft);
   color: var(--admin-accent-hover);
   font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidenav a {
+    transition: none;
+  }
 }
 
 /* Ticket 026: `max-width` alone left the content pinned to the sidenav's
@@ -307,7 +320,19 @@ button {
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.05s ease;
+  /* Ticket 030: widened from the original `background-color, transform`
+     pair — button.secondary/.danger and .admin-logout all also change
+     `color`/`border-color` on hover, and those two channels had no
+     transition at all (they snapped instantly while background-color
+     eased), an inconsistency found during the HU-8 hover/focus audit.
+     Every button in the panel inherits this base rule, so widening it
+     here fixes all of them at once instead of patching each variant. */
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.05s ease;
   box-shadow: 0 1px 2px rgba(16, 19, 34, 0.05);
 }
 
@@ -341,6 +366,20 @@ button.danger {
 button.danger:hover {
   background: var(--admin-error-bg);
   border-color: var(--admin-error-fg);
+}
+
+/* Ticket 030: covers the whole `button` hover/focus transition above
+   (including the pre-existing background-color/transform pair from ticket
+   020, not just the color/border-color/box-shadow channels widened by this
+   ticket) — HU-8's reduced-motion criterion reads "cualquier elemento
+   animado del panel", not just what's new, and splitting a single
+   `transition` shorthand into a "keep this part, drop that part" pair
+   under the media query would be more fragile than just turning the whole
+   thing off. Same instant-change intent as the .is-loading spinners. */
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
 }
 
 /* Ticket 026: shared button-sizing convention for the whole panel.
@@ -506,7 +545,7 @@ dialog.confirm-dialog {
 }
 
 dialog.confirm-dialog::backdrop {
-  background: rgba(16, 19, 34, 0.35);
+  background-color: rgba(16, 19, 34, 0.35);
 }
 
 dialog.confirm-dialog p {
@@ -533,7 +572,7 @@ dialog.form-dialog {
 }
 
 dialog.form-dialog::backdrop {
-  background: rgba(16, 19, 34, 0.35);
+  background-color: rgba(16, 19, 34, 0.35);
 }
 
 dialog.form-dialog .dialog-actions {
@@ -541,6 +580,93 @@ dialog.form-dialog .dialog-actions {
   gap: 0.6rem;
   justify-content: flex-end;
   margin-top: 0.25rem;
+}
+
+/* Ticket 030: entrance transition (fade + subtle scale) for every <dialog>
+ * in the panel (confirm-dialog, form-dialog — including the ticket 027
+ * create-tenant modal, same class, no extra rule needed).
+ *
+ * A native <dialog> opened via showModal() isn't a plain positioned <div>:
+ * the browser flips its `display` from `none` to `block` (and promotes it
+ * to the top layer) the instant the `open` attribute is set, as one
+ * synchronous style change — a transition on opacity/transform alone can't
+ * play across that jump because there's no previous frame where the
+ * element was rendered at a different value to interpolate from.
+ * `@starting-style` is the CSS primitive built for exactly this: it gives
+ * the browser an explicit "first frame" value for a property on an element
+ * that's newly generating boxes, so the normal transition below has
+ * something to animate *from* the instant `[open]` starts applying.
+ * `allow-discrete` on `display`/`overlay` is the companion piece from the
+ * same spec (keeps the element (and its top-layer membership) painted for
+ * the duration of a transition instead of being removed synchronously) —
+ * this ticket only asks for an entrance animation, not an exit one, but
+ * it's included because it's the complete, canonical recipe (Chrome/MDN's
+ * own "entry/exit animations for dialog" guide) rather than a half-copy of
+ * it, and it's inert here either way since nothing currently transitions
+ * dialog *close*.
+ *
+ * Chosen over `@keyframes` (the technique already used for
+ * .empty-state svg/.home-card elsewhere in this file) specifically because
+ * a keyframe animation on `[open]` would still need the same
+ * `@starting-style`-less workaround of triggering via a class toggled in
+ * JS after showModal() — @starting-style animates the *native* open/close
+ * lifecycle directly, no JS timing changes needed on top of the existing
+ * showModal()/close() calls already in admin-tenants.html.
+ *
+ * Browser support (Aug 2026): Chrome/Edge 117+, Safari 17.5+, Firefox
+ * 129+ — all shipped over a year ago, so this is the primary technique,
+ * not a progressive-enhancement afterthought. Where it's unsupported,
+ * `@starting-style` and the `allow-discrete` transition entries are simply
+ * ignored — the dialog still opens, just instantly at its final
+ * opacity:1/scale(1) state with no animation, never stuck invisible.
+ */
+dialog.confirm-dialog,
+dialog.form-dialog {
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 0.18s ease-out,
+    transform 0.18s ease-out,
+    overlay 0.18s ease-out allow-discrete,
+    display 0.18s ease-out allow-discrete;
+}
+
+dialog.confirm-dialog[open],
+dialog.form-dialog[open] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@starting-style {
+  dialog.confirm-dialog[open],
+  dialog.form-dialog[open] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+dialog.confirm-dialog::backdrop,
+dialog.form-dialog::backdrop {
+  transition:
+    background-color 0.18s ease-out,
+    overlay 0.18s ease-out allow-discrete,
+    display 0.18s ease-out allow-discrete;
+}
+
+@starting-style {
+  dialog.confirm-dialog::backdrop,
+  dialog.form-dialog::backdrop {
+    background-color: rgba(16, 19, 34, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.confirm-dialog,
+  dialog.form-dialog,
+  dialog.confirm-dialog::backdrop,
+  dialog.form-dialog::backdrop {
+    transition: none;
+  }
 }
 
 .form-grid {
