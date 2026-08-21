@@ -13,7 +13,10 @@
     <div class="admin-body-row">
       <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
       <main id="main" class="admin-content">
-        <h2>Todos los clientes</h2>
+        <div class="section-header">
+          <h2>Todos los clientes</h2>
+          <button type="button" id="open-create-tenant-btn">+ Añadir cliente</button>
+        </div>
         <p class="field-hint">Solo visible para administradores de plataforma — un administrador de un cliente específico no puede ver esta lista.</p>
         <div id="status" class="hidden" aria-live="polite"></div>
 
@@ -35,50 +38,53 @@
             </table>
           </div>
         </section>
-
-        <section class="card">
-          <h3>Dar de alta un cliente nuevo</h3>
-          <form id="create-tenant-form" novalidate>
-            <div class="form-grid">
-              <div class="span-2">
-                <label for="create-name">Nombre</label>
-                <input type="text" id="create-name" name="name" aria-label="Nombre del cliente" required />
-              </div>
-              <div class="span-2">
-                <label for="create-app-name">Nombre de la app</label>
-                <input type="text" id="create-app-name" name="appName" aria-label="Nombre de la app" required />
-              </div>
-              <div class="span-2">
-                <label for="create-color">Color primario</label>
-                <input type="color" id="create-color" name="primaryColor" aria-label="Color primario" value="#0057ff" required />
-              </div>
-              <div>
-                <label for="create-access-ttl">TTL access token (s)</label>
-                <input type="number" id="create-access-ttl" name="accessTokenTtlSeconds" aria-label="TTL del access token en segundos" value="900" min="1" required />
-              </div>
-              <div>
-                <label for="create-refresh-ttl">TTL refresh token (s)</label>
-                <input type="number" id="create-refresh-ttl" name="refreshTokenTtlSeconds" aria-label="TTL del refresh token en segundos" value="2592000" min="1" required />
-              </div>
-              <div>
-                <label for="create-verify-ttl">TTL verif. correo (s)</label>
-                <input type="number" id="create-verify-ttl" name="emailVerificationTtlSeconds" aria-label="TTL de verificación de correo en segundos" value="86400" min="1" required />
-              </div>
-              <div>
-                <label for="create-reset-ttl">TTL reseteo contraseña (s)</label>
-                <input type="number" id="create-reset-ttl" name="passwordResetTtlSeconds" aria-label="TTL de reseteo de contraseña en segundos" value="3600" min="1" required />
-              </div>
-              <div>
-                <label for="create-otp-ttl">TTL OTP (s)</label>
-                <input type="number" id="create-otp-ttl" name="otpTtlSeconds" aria-label="TTL de OTP en segundos" value="300" min="1" required />
-              </div>
-            </div>
-            <button type="submit">Crear cliente</button>
-          </form>
-        </section>
       </main>
     </div>
   </div>
+
+  <dialog id="create-tenant-dialog" class="form-dialog">
+    <h3>Dar de alta un cliente nuevo</h3>
+    <form id="create-tenant-form" novalidate>
+      <div class="form-grid">
+        <div class="span-2">
+          <label for="create-name">Nombre</label>
+          <input type="text" id="create-name" name="name" aria-label="Nombre del cliente" required />
+        </div>
+        <div class="span-2">
+          <label for="create-app-name">Nombre de la app</label>
+          <input type="text" id="create-app-name" name="appName" aria-label="Nombre de la app" required />
+        </div>
+        <div class="span-2">
+          <label for="create-color">Color primario</label>
+          <input type="color" id="create-color" name="primaryColor" aria-label="Color primario" value="#0057ff" required />
+        </div>
+        <div>
+          <label for="create-access-ttl">TTL access token (s)</label>
+          <input type="number" id="create-access-ttl" name="accessTokenTtlSeconds" aria-label="TTL del access token en segundos" value="900" min="1" required />
+        </div>
+        <div>
+          <label for="create-refresh-ttl">TTL refresh token (s)</label>
+          <input type="number" id="create-refresh-ttl" name="refreshTokenTtlSeconds" aria-label="TTL del refresh token en segundos" value="2592000" min="1" required />
+        </div>
+        <div>
+          <label for="create-verify-ttl">TTL verif. correo (s)</label>
+          <input type="number" id="create-verify-ttl" name="emailVerificationTtlSeconds" aria-label="TTL de verificación de correo en segundos" value="86400" min="1" required />
+        </div>
+        <div>
+          <label for="create-reset-ttl">TTL reseteo contraseña (s)</label>
+          <input type="number" id="create-reset-ttl" name="passwordResetTtlSeconds" aria-label="TTL de reseteo de contraseña en segundos" value="3600" min="1" required />
+        </div>
+        <div>
+          <label for="create-otp-ttl">TTL OTP (s)</label>
+          <input type="number" id="create-otp-ttl" name="otpTtlSeconds" aria-label="TTL de OTP en segundos" value="300" min="1" required />
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="secondary" id="create-cancel-btn">Cancelar</button>
+        <button type="submit">Crear cliente</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="edit-tenant-dialog" class="form-dialog">
     <h3>Editar cliente</h3>
@@ -134,6 +140,7 @@
   <script>
     const status = document.getElementById("status");
     const clientId = AuthCoreUi.clientIdFromUrl();
+    const createDialog = document.getElementById("create-tenant-dialog");
     const editDialog = document.getElementById("edit-tenant-dialog");
     const confirmDialog = document.getElementById("confirm-dialog");
     const confirmMessage = document.getElementById("confirm-dialog-message");
@@ -198,6 +205,15 @@
       }
     }
 
+    document.getElementById("open-create-tenant-btn").addEventListener("click", () => {
+      document.getElementById("create-tenant-form").reset();
+      createDialog.showModal();
+    });
+
+    document.getElementById("create-cancel-btn").addEventListener("click", () => {
+      createDialog.close();
+    });
+
     document.getElementById("create-tenant-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const f = e.target;
@@ -213,6 +229,7 @@
           otpTtlSeconds: Number(f.otpTtlSeconds.value),
         });
         f.reset();
+        createDialog.close();
         AuthCoreUi.showStatus(status, "Cliente creado.", false);
         loadTenants();
       } catch (err) {

@@ -200,6 +200,25 @@ h2 {
   margin: 0 0 1.5rem;
 }
 
+/* Ticket 027: page-header row for a section title next to its primary
+ * action button (e.g. "+ Añadir cliente"). The button is a bare <button>
+ * outside any form, so it doesn't inherit the full-width stretch that
+ * `form { display: flex; flex-direction: column }` gives buttons inside
+ * forms elsewhere in this app — it keeps its natural auto width here. h2's
+ * own bottom margin would double up with this row's gap, so it's zeroed
+ * only inside this wrapper. */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.section-header h2 {
+  margin-bottom: 0;
+}
+
 h3 {
   font-size: 1rem;
   font-weight: 700;
