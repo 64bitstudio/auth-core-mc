@@ -13,7 +13,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,12 +28,17 @@ import org.springframework.transaction.annotation.Transactional;
  * easier to audit than a cascade that could reach further than intended:
  * refresh_token (via its users) → login_event → tenant_identity_provider →
  * identity_client → app_user → tenant itself.
+ *
+ * <p>The {@code @Scheduled} entry point lives in {@link TenantPurgeScheduler},
+ * a separate bean — see that class's Javadoc for why (real SonarQube finding,
+ * java:S2229 BLOCKER: a same-class {@code this.purge(...)} self-invocation
+ * would have silently skipped {@code @Transactional}).
  */
 @Service
 public class TenantPurgeService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TenantPurgeService.class);
-    private static final int RETENTION_DAYS = 90;
+    static final int RETENTION_DAYS = 90;
 
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
@@ -58,21 +62,15 @@ public class TenantPurgeService {
         this.identityClientRepository = identityClientRepository;
     }
 
-    /** Runs daily at 03:00 — low-traffic hour, no real-time requirement for a 90-day-old cutoff. */
-    @Scheduled(cron = "0 0 3 * * *")
-    public void purgeEligibleTenants() {
-        Instant cutoff = Instant.now().minus(RETENTION_DAYS, ChronoUnit.DAYS);
-        List<Tenant> eligible = tenantRepository.findAll().stream()
-                .filter(t -> t.getDeactivatedAt() != null && t.getDeactivatedAt().isBefore(cutoff))
-                .toList();
-        for (Tenant tenant : eligible) {
-            purge(tenant);
-        }
+    /** Whether a tenant has been deactivated long enough to be purged — shared by {@link #purge} and {@link TenantPurgeScheduler}. */
+    public boolean isEligibleForPurge(Tenant tenant) {
+        return tenant.getDeactivatedAt() != null
+                && tenant.getDeactivatedAt().isBefore(Instant.now().minus(RETENTION_DAYS, ChronoUnit.DAYS));
     }
 
     @Transactional
     public void purge(Tenant tenant) {
-        if (tenant.getDeactivatedAt() == null || tenant.getDeactivatedAt().isAfter(Instant.now().minus(RETENTION_DAYS, ChronoUnit.DAYS))) {
+        if (!isEligibleForPurge(tenant)) {
             throw new IllegalStateException(
                     "Refusing to purge tenant " + tenant.getId() + " — not deactivated for at least "
                             + RETENTION_DAYS + " days");

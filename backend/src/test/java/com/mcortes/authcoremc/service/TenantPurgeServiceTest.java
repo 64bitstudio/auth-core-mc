@@ -101,8 +101,9 @@ class TenantPurgeServiceTest {
     @Test
     void refusesToPurgeATenantDeactivatedLessThan90DaysAgo() {
         Tenant tenant = deactivatedTenant(10);
+        TenantPurgeService service = service();
 
-        assertThatThrownBy(() -> service().purge(tenant)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.purge(tenant)).isInstanceOf(IllegalStateException.class);
         assertThat(tenantRepository.findById(tenant.getId())).isPresent();
     }
 
@@ -110,19 +111,9 @@ class TenantPurgeServiceTest {
     void refusesToPurgeAStillActiveTenant() {
         Tenant tenant = tenantRepository.save(
                 new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+        TenantPurgeService service = service();
 
-        assertThatThrownBy(() -> service().purge(tenant)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.purge(tenant)).isInstanceOf(IllegalStateException.class);
         assertThat(tenantRepository.findById(tenant.getId())).isPresent();
-    }
-
-    @Test
-    void purgeEligibleTenantsOnlyPurgesTheOnesPastTheRetentionWindow() {
-        Tenant eligible = deactivatedTenant(91);
-        Tenant tooRecent = deactivatedTenant(10);
-
-        service().purgeEligibleTenants();
-
-        assertThat(tenantRepository.findById(eligible.getId())).isEmpty();
-        assertThat(tenantRepository.findById(tooRecent.getId())).isPresent();
     }
 }

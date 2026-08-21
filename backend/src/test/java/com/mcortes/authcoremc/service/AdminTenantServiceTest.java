@@ -16,7 +16,6 @@ import com.mcortes.authcoremc.web.TenantNotFoundException;
 import com.mcortes.authcoremc.web.UpdateTenantRequest;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -55,8 +54,9 @@ class AdminTenantServiceTest {
     @Test
     void aTenantAdminCannotCreateATenant() {
         CreateTenantRequest request = new CreateTenantRequest("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+        AdminTenantService service = service();
 
-        assertThatThrownBy(() -> service().create(UserRole.TENANT_ADMIN, request))
+        assertThatThrownBy(() -> service.create(UserRole.TENANT_ADMIN, request))
                 .isInstanceOf(TenantAccessDeniedException.class);
     }
 
@@ -64,8 +64,9 @@ class AdminTenantServiceTest {
     void creatingWithADuplicateNameIsRejected() {
         when(tenantRepository.findByName("Acme")).thenReturn(Optional.of(tenantWithId()));
         CreateTenantRequest request = new CreateTenantRequest("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+        AdminTenantService service = service();
 
-        assertThatThrownBy(() -> service().create(UserRole.PLATFORM_ADMIN, request))
+        assertThatThrownBy(() -> service.create(UserRole.PLATFORM_ADMIN, request))
                 .isInstanceOf(DuplicateTenantNameException.class);
     }
 
@@ -83,11 +84,12 @@ class AdminTenantServiceTest {
     void tenantAdminCanOnlyGetItsOwnTenant() {
         Tenant tenant = tenantWithId();
         when(tenantRepository.findById(tenant.getId())).thenReturn(Optional.of(tenant));
+        AdminTenantService service = service();
 
-        assertThatThrownBy(() -> service().get(UserRole.TENANT_ADMIN, UUID.randomUUID(), tenant.getId()))
+        assertThatThrownBy(() -> service.get(UserRole.TENANT_ADMIN, UUID.randomUUID(), tenant.getId()))
                 .isInstanceOf(TenantAccessDeniedException.class);
 
-        Tenant result = service().get(UserRole.TENANT_ADMIN, tenant.getId(), tenant.getId());
+        Tenant result = service.get(UserRole.TENANT_ADMIN, tenant.getId(), tenant.getId());
         assertThat(result).isEqualTo(tenant);
     }
 
@@ -95,8 +97,9 @@ class AdminTenantServiceTest {
     void gettingAnUnknownTenantIdIsNotFound() {
         UUID unknownId = UUID.randomUUID();
         when(tenantRepository.findById(unknownId)).thenReturn(Optional.empty());
+        AdminTenantService service = service();
 
-        assertThatThrownBy(() -> service().get(UserRole.PLATFORM_ADMIN, UUID.randomUUID(), unknownId))
+        assertThatThrownBy(() -> service.get(UserRole.PLATFORM_ADMIN, UUID.randomUUID(), unknownId))
                 .isInstanceOf(TenantNotFoundException.class);
     }
 
@@ -117,8 +120,9 @@ class AdminTenantServiceTest {
     @Test
     void onlyPlatformAdminCanDeactivateATenant() {
         Tenant tenant = tenantWithId();
+        AdminTenantService service = service();
 
-        assertThatThrownBy(() -> service().deactivate(UserRole.TENANT_ADMIN, tenant.getId()))
+        assertThatThrownBy(() -> service.deactivate(UserRole.TENANT_ADMIN, tenant.getId()))
                 .isInstanceOf(TenantAccessDeniedException.class);
     }
 

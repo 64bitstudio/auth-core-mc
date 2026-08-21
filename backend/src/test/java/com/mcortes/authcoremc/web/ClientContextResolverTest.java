@@ -47,8 +47,8 @@ class ClientContextResolverTest {
         IdentityClient client =
                 new IdentityClient(tenant, "acme-web-app", null, true, List.of("https://acme.example.com/callback"));
         when(identityClientRepository.findByClientId("acme-web-app")).thenReturn(Optional.of(client));
+        ClientContextResolver resolver = new ClientContextResolver(identityClientRepository);
 
-        assertThatThrownBy(() -> new ClientContextResolver(identityClientRepository).resolveClient("acme-web-app"))
-                .isInstanceOf(TenantDeactivatedException.class);
+        assertThatThrownBy(() -> resolver.resolveClient("acme-web-app")).isInstanceOf(TenantDeactivatedException.class);
     }
 }
