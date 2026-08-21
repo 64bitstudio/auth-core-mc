@@ -1,39 +1,45 @@
 <!DOCTYPE html>
-<html lang="es" xmlns:th="http://www.thymeleaf.org" th:attr="style='--primary-color:' + ${primaryColor} + ';'">
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title th:text="${appName} + ' — Todos los clientes'">Todos los clientes</title>
-  <link rel="stylesheet" th:href="@{/css/app.css}" />
+  <title>Auth Core MC — Admin — Clientes</title>
+  <link rel="stylesheet" th:href="@{/css/admin.css}" />
 </head>
-<body>
+<body class="admin-body">
   <a class="skip-link" href="#main">Saltar al contenido</a>
-  <header class="app-header"><h1 th:text="${appName}">App</h1></header>
-  <main id="main">
-    <h2>Todos los clientes</h2>
-    <p class="field-hint">Solo visible para administradores de plataforma — un administrador de un cliente específico no puede ver esta lista.</p>
-    <div id="status" class="hidden" aria-live="polite"></div>
+  <div class="admin-shell">
+    <div th:replace="~{fragments/admin-shell :: topbar}"></div>
+    <div class="admin-body-row">
+      <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
+      <main id="main" class="admin-content">
+        <h2>Todos los clientes</h2>
+        <p class="field-hint">Solo visible para administradores de plataforma — un administrador de un cliente específico no puede ver esta lista.</p>
+        <div id="status" class="hidden" aria-live="polite"></div>
 
-    <section class="card" id="results" aria-live="polite">
-      <p id="empty-state" class="hidden">No hay clientes registrados todavía.</p>
-      <div class="table-scroll">
-        <table id="tenants-table" class="hidden">
-          <thead>
-            <tr>
-              <th scope="col">Nombre</th>
-              <th scope="col">App</th>
-              <th scope="col">Estado</th>
-              <th scope="col">Creado</th>
-              <th scope="col">Métricas</th>
-            </tr>
-          </thead>
-          <tbody id="tenants-tbody"></tbody>
-        </table>
-      </div>
-    </section>
-  </main>
+        <section class="card" id="results" aria-live="polite">
+          <p id="empty-state" class="hidden">No hay clientes registrados todavía.</p>
+          <div class="table-scroll">
+            <table id="tenants-table" class="hidden">
+              <thead>
+                <tr>
+                  <th scope="col">Nombre</th>
+                  <th scope="col">App</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col">Creado</th>
+                  <th scope="col">Métricas</th>
+                </tr>
+              </thead>
+              <tbody id="tenants-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <script th:src="@{/js/api.js}"></script>
+  <div th:replace="~{fragments/admin-shell :: script}"></div>
   <script>
     const status = document.getElementById("status");
     const clientId = AuthCoreUi.clientIdFromUrl();
@@ -64,10 +70,13 @@
           const row = document.createElement("tr");
           const metricsUrl =
             "/ui/admin/metrics?client_id=" + encodeURIComponent(clientId) + "&tenant=" + encodeURIComponent(tenant.id);
+          const badge = tenant.active
+            ? '<span class="badge active">activo</span>'
+            : '<span class="badge inactive">desactivado</span>';
           row.innerHTML =
             "<td>" + escapeHtml(tenant.name) + "</td>" +
             "<td>" + escapeHtml(tenant.appName) + "</td>" +
-            "<td>" + (tenant.active ? "activo" : "desactivado") + "</td>" +
+            "<td>" + badge + "</td>" +
             "<td>" + escapeHtml(new Date(tenant.createdAt).toLocaleDateString()) + "</td>" +
             '<td><a href="' + metricsUrl + '">Ver métricas</a></td>';
           tbody.appendChild(row);

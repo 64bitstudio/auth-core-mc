@@ -98,6 +98,7 @@ public class UiPagesController {
     @GetMapping("/admin/identity-providers")
     public String adminIdentityProviders(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        model.addAttribute("active", "providers");
         return "admin-identity-providers";
     }
 
@@ -111,6 +112,7 @@ public class UiPagesController {
     @GetMapping("/admin/metrics")
     public String adminMetrics(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        model.addAttribute("active", "metrics");
         return "admin-metrics";
     }
 
@@ -122,6 +124,7 @@ public class UiPagesController {
     @GetMapping("/admin/tenants")
     public String adminTenants(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        model.addAttribute("active", "tenants");
         return "admin-tenants";
     }
 

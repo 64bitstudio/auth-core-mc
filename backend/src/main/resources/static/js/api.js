@@ -99,18 +99,44 @@ const AuthCoreUi = (() => {
   // role/tenant check on the admin API; this can never grant anything by
   // itself. Returns null on any decode failure instead of throwing, so a
   // malformed/missing token just leaves the field blank.
-  function currentTenantId() {
+  // Shared by currentTenantId()/currentRole() below. No signature
+  // verification — this is a UI convenience (prefill a field, show/hide a
+  // nav link), never an authorization decision; the server enforces that
+  // for real on every admin API call regardless of what this reads.
+  function decodeJwtPayload() {
     try {
       const token = accessToken();
       // JWTs are base64url, not plain base64 (- and _ instead of + and /,
       // and padding stripped) — atob() alone would silently mis-decode or
       // throw on real tokens.
       const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-      const payload = JSON.parse(atob(base64));
-      return payload.tenant_id || null;
+      return JSON.parse(atob(base64));
     } catch (e) {
       return null;
     }
+  }
+
+  function currentTenantId() {
+    const payload = decodeJwtPayload();
+    return (payload && payload.tenant_id) || null;
+  }
+
+  // Ticket 020: which nav links the admin shell shows (e.g. "Clientes"
+  // only for PLATFORM_ADMIN) — same "UI convenience, not an access
+  // decision" caveat as currentTenantId() above.
+  function currentRole() {
+    const payload = decodeJwtPayload();
+    return (payload && payload.role) || null;
+  }
+
+  // Ticket 020: the admin shell's "Cerrar sesión" — clears the local
+  // session and sends the browser back to login. There's no server-side
+  // session/token to revoke here (the access token just expires on its
+  // own TTL, same as every other page in this app); this only clears
+  // what THIS browser remembers.
+  function logout() {
+    sessionStorage.clear();
+    window.location.href = "/ui/login?client_id=" + encodeURIComponent(clientIdFromUrl());
   }
 
   function currentUserId() {
@@ -160,6 +186,8 @@ const AuthCoreUi = (() => {
     saveSession,
     accessToken,
     currentTenantId,
+    currentRole,
+    logout,
     currentUserId,
     currentSnapshot,
     requireSession,

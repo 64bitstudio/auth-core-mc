@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+  <!--
+    Ticket 020: shared shell for every /ui/admin/** page — three
+    fragments (topbar, sidenav, script), each included via th:replace so
+    no page repeats its own header/nav by hand (as every admin page did
+    before this ticket). Split into separate fragments (not one wrapper
+    div) because they land at different levels of the admin-shell flex
+    layout — see admin.css (.admin-shell/.admin-body-row).
+
+    "active" selects which nav link gets the .active style — passed as a
+    plain string by each page's own UiPagesController method, server-side.
+
+    Whether the "Clientes" link is shown at all is decided CLIENT-SIDE
+    (AuthCoreUi.currentRole() === 'PLATFORM_ADMIN'), not here: there is
+    no real server session behind these Thymeleaf pages (see ticket 009's
+    documented trust-boundary), so the server has no role to check when
+    rendering — it only knows the tenant being themed for /ui/** public
+    pages, never who's logged in. The real enforcement is still the 403
+    a tenant_admin gets from the API (ticket 019) if they navigate to
+    /ui/admin/tenants directly; this only avoids showing a link that
+    would just error out.
+  -->
+  <header th:fragment="topbar" class="admin-topbar">
+    <span class="admin-logo-dot"></span>
+    <span class="admin-app-name">Auth Core MC — Admin</span>
+    <button type="button" id="admin-logout-btn" class="admin-logout">Cerrar sesión</button>
+  </header>
+
+  <nav th:fragment="sidenav(active)" class="admin-sidenav">
+    <a
+      id="admin-nav-tenants"
+      href="#"
+      class="hidden"
+      th:href="@{/ui/admin/tenants(client_id=${clientId})}"
+      th:classappend="${active == 'tenants'} ? ' active' : ''"
+      >Clientes</a
+    >
+    <a
+      href="#"
+      th:href="@{/ui/admin/metrics(client_id=${clientId})}"
+      th:classappend="${active == 'metrics'} ? ' active' : ''"
+      >Métricas</a
+    >
+    <a
+      href="#"
+      th:href="@{/ui/admin/identity-providers(client_id=${clientId})}"
+      th:classappend="${active == 'providers'} ? ' active' : ''"
+      >Proveedores de login</a
+    >
+  </nav>
+
+  <script th:fragment="script">
+    // Real bug found live (not caught by any automated test — this is
+    // exactly the kind of thing only a real browser catches): a classic
+    // (non-module) top-level `const AuthCoreUi = ...` in api.js does NOT
+    // become a `window` property, unlike `var`/function declarations —
+    // `if (window.AuthCoreUi)` was always false, silently skipping this
+    // whole block on every real page load. Fixed by checking the bare
+    // identifier instead (still safe: api.js is always loaded via
+    // <script th:src> immediately before this fragment on every admin
+    // page, so AuthCoreUi is always defined by the time this runs).
+    if (typeof AuthCoreUi !== "undefined") {
+      if (AuthCoreUi.currentRole() === "PLATFORM_ADMIN") {
+        var tenantsLink = document.getElementById("admin-nav-tenants");
+        if (tenantsLink) {
+          tenantsLink.classList.remove("hidden");
+        }
+      }
+      var logoutBtn = document.getElementById("admin-logout-btn");
+      if (logoutBtn) {
+        logoutBtn.addEventListener("click", function () {
+          AuthCoreUi.logout();
+        });
+      }
+    }
+  </script>
+</body>
+</html>
