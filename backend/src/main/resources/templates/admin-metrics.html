@@ -31,8 +31,20 @@
               <select id="tenant-select" name="tenantId" aria-label="Tenant a consultar" required></select>
             </div>
             <div id="tenant-fixed-wrap" class="hidden">
-              <label for="tenant-fixed-name">Tenant</label>
-              <p id="tenant-fixed-name" class="tenant-fixed-value"></p>
+              <!--
+                Ticket 030 — a11y fix: `<label for="...">` only establishes
+                the browser's built-in "labeled control" relationship when
+                its `for` target is a labelable form control (input,
+                select, textarea, button, etc.) per the HTML spec — a <p>
+                is not one, so despite the id below existing, screen
+                readers never actually announced this as "Tenant, <name>",
+                only as two unrelated pieces of text read in sequence.
+                `aria-labelledby` is the correct explicit association for a
+                non-form-control element; the <label> tag is kept only for
+                its existing visual styling, not for `for`.
+              -->
+              <label id="tenant-fixed-label">Tenant</label>
+              <p id="tenant-fixed-name" class="tenant-fixed-value" aria-labelledby="tenant-fixed-label"></p>
             </div>
 
             <div>
@@ -107,11 +119,25 @@
                   </span>
                 </h3>
                 <div class="chart-body">
+                  <!-- Ticket 030 — a11y fix: the donut's center label (the
+                       success percentage, e.g. "86%") only ever existed as
+                       <text> inside the SVG below, which is
+                       role="img" aria-hidden="true" (decorative, since the
+                       same numbers are meant to already be readable as real
+                       text alongside it) — but that specific percentage had
+                       no real-DOM counterpart anywhere on the page: the
+                       chart-badge above only states the *error* rate, and
+                       the legend below only had raw counts, not the success
+                       share the donut's fill and center text both
+                       emphasize. Added here so a screen-reader user gets
+                       the same "86% éxito" figure a sighted user reads off
+                       the chart at a glance, not just the two raw counts it
+                       can be derived from. -->
                   <div id="success-failure-chart" class="donut-wrap"></div>
                   <ul class="chart-legend">
                     <li class="legend-success">
                       <span th:replace="~{fragments/icons :: icon-exito}"></span>
-                      <span>Éxito: <strong id="success-count"></strong></span>
+                      <span>Éxito: <strong id="success-count"></strong> (<span id="success-percent-text"></span>)</span>
                     </li>
                     <li class="legend-error">
                       <span th:replace="~{fragments/icons :: icon-error}"></span>
@@ -202,6 +228,14 @@
       document.getElementById("success-count").textContent = metrics.successCount;
       document.getElementById("failure-count").textContent = metrics.failureCount;
       document.getElementById("error-rate-text").textContent = (metrics.errorRate * 100).toFixed(1) + "%";
+      // Ticket 030 — a11y fix: same rounding (Math.round of the success
+      // fraction) as the donut's own center <text> in charts.js, so this
+      // real-DOM figure always agrees with what the (decorative,
+      // aria-hidden) chart shows visually — never a second, slightly
+      // different number for the same thing.
+      const successTotal = metrics.successCount + metrics.failureCount;
+      const successPercent = successTotal > 0 ? Math.round((metrics.successCount / successTotal) * 100) : 0;
+      document.getElementById("success-percent-text").textContent = successPercent + "%";
       document.getElementById("success-failure-chart").innerHTML = AuthCoreCharts.successFailureDonut(
         metrics.successCount,
         metrics.failureCount
