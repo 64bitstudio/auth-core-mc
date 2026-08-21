@@ -9,6 +9,7 @@ import com.mcortes.authcoremc.web.DuplicateTenantNameException;
 import com.mcortes.authcoremc.web.TenantAccessDeniedException;
 import com.mcortes.authcoremc.web.TenantNotFoundException;
 import com.mcortes.authcoremc.web.UpdateTenantRequest;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +53,19 @@ public class AdminTenantService {
                 request.passwordResetTtlSeconds(),
                 request.otpTtlSeconds());
         return tenantRepository.save(tenant);
+    }
+
+    /**
+     * Ticket 019: listing every tenant is a fundamentally different
+     * authorization question than "can this actor reach ONE specific
+     * tenant" ({@link AdminAccessPolicy#canAccessTenant}) — it would leak
+     * the existence/names of every other tenant to whoever can call it, so
+     * this is deliberately platform_admin-only, not delegated to that
+     * policy at all.
+     */
+    public List<Tenant> list(UserRole actorRole) {
+        requirePlatformAdmin(actorRole);
+        return tenantRepository.findAll();
     }
 
     public Tenant get(UserRole actorRole, UUID actorTenantId, UUID targetTenantId) {

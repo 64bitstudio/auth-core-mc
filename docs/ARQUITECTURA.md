@@ -277,5 +277,16 @@ Cada sección de la épica 011–018 arriba menciona "mismo bug de permisos del 
 
 Arreglados convirtiéndolos a hooks `type: command` (`~/.claude/hooks/qa-review-pr-create.sh` / `qa-review-pr-merge.sh`) — mismo patrón que `ci-status-gate.sh`, que sí funcionaba: corren en el contexto de shell de la sesión (sin problema de herencia de permisos) y se auto-filtran leyendo `tool_input.command` directamente en vez de confiar solo en el `if` de `settings.json`. A cambio de dejar de tener revisión semántica por LLM, ahora corren de verdad en cada PR: chequeos determinísticos de secretos hardcodeados, hashing débil, PII en logs, accesibilidad básica y migraciones Flyway modificadas — complementarios al review manual, no un reemplazo.
 
+## Ticket 019: listado de todos los clientes (solo admin global)
+
+Encontrado al probar en vivo la épica 011–018: no había forma de descubrir qué tenants existen sin conocer su ID de antemano (anotado como fuera de alcance del ticket 013).
+
+- **`GET /api/v1/admin/tenants`** en el mismo `AdminTenantController` — `AdminTenantService.list(actorRole)` exige `PLATFORM_ADMIN` explícitamente, **no** reutiliza `AdminAccessPolicy.canAccessTenant` (esa política responde "¿puede este actor llegar a UN tenant específico?"; listar TODOS es una pregunta de autorización distinta y más amplia — delegarla a esa política habría sido incorrecto, no solo una decisión de estilo).
+- **UI en `/ui/admin/tenants`**: tabla con nombre/app/estado/fecha, enlace "Ver métricas" por fila que navega a `/ui/admin/metrics?tenant=<id>` — la página de métricas se extendió para leer ese query param y priorizarlo sobre el tenant propio del caller (ticket 019), ya que el punto de seguir ese enlace es ver OTRO tenant.
+- **Decisión deliberada de alcance**: NO se agregó un enlace equivalente a "proveedores de login" — esa página es intencionalmente solo-tenant-propio desde el ticket 014 (lee el tenant directo del JWT del caller, sin aceptar uno arbitrario). Extenderla a cualquier tenant es un cambio de alcance real de una decisión ya tomada, no algo que se pidió aquí — se deja fuera explícitamente en vez de expandirlo en silencio.
+- Sin paginación (volumen bajo, decisión ya establecida para este proyecto).
+- Probado end-to-end real y también en vivo en el navegador: `platform_admin` ve la lista completa de tenants reales (incluyendo uno desactivado, mostrado como tal); `tenant_admin` recibe 403 real con mensaje claro, tanto vía API como en la UI.
+- 255/255 tests en verde (250 previos + 5 nuevos).
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `018` (mecanismo de break-glass), última de la épica del panel de administración (011–018)._
+_Última actualización: al cerrar la tarea `019` (listado de todos los clientes)._

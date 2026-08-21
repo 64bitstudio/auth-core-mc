@@ -1,5 +1,6 @@
 package com.mcortes.authcoremc.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -57,6 +58,27 @@ class AdminTenantEndToEndTest {
                 new Tenant("LoginTenant-" + UUID.randomUUID(), "App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
         identityClientRepository.save(
                 new IdentityClient(loginTenant, clientId, null, true, List.of("https://acme.example.com/callback")));
+    }
+
+    @Test
+    void aPlatformAdminCanListAllTenants() throws Exception {
+        String adminToken = loginAs("platform-admin-list@example.com", UserRole.PLATFORM_ADMIN);
+        Tenant otherTenant = tenantRepository.save(new Tenant(
+                "ListOther-" + UUID.randomUUID(), "App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+
+        mvc.perform(get("/api/v1/admin/tenants").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(content -> assertThat(content.getResponse().getContentAsString())
+                        .contains(loginTenant.getId().toString())
+                        .contains(otherTenant.getId().toString()));
+    }
+
+    @Test
+    void aTenantAdminCannotListAllTenants() throws Exception {
+        String token = loginAs("tenant-admin-list@example.com", UserRole.TENANT_ADMIN);
+
+        mvc.perform(get("/api/v1/admin/tenants").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
     }
 
     @Test

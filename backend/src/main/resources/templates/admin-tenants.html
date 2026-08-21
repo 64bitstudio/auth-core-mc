@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org" th:attr="style='--primary-color:' + ${primaryColor} + ';'">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title th:text="${appName} + ' — Todos los clientes'">Todos los clientes</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header"><h1 th:text="${appName}">App</h1></header>
+  <main id="main">
+    <h2>Todos los clientes</h2>
+    <p class="field-hint">Solo visible para administradores de plataforma — un administrador de un cliente específico no puede ver esta lista.</p>
+    <div id="status" class="hidden" aria-live="polite"></div>
+
+    <section class="card" id="results" aria-live="polite">
+      <p id="empty-state" class="hidden">No hay clientes registrados todavía.</p>
+      <div class="table-scroll">
+        <table id="tenants-table" class="hidden">
+          <thead>
+            <tr>
+              <th scope="col">Nombre</th>
+              <th scope="col">App</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Creado</th>
+              <th scope="col">Métricas</th>
+            </tr>
+          </thead>
+          <tbody id="tenants-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script th:src="@{/js/api.js}"></script>
+  <script>
+    const status = document.getElementById("status");
+    const clientId = AuthCoreUi.clientIdFromUrl();
+
+    function escapeHtml(value) {
+      const div = document.createElement("div");
+      div.textContent = value;
+      return div.innerHTML;
+    }
+
+    async function loadTenants() {
+      try {
+        const tenants = await AuthCoreUi.callAdmin("GET", "/api/v1/admin/tenants");
+        const table = document.getElementById("tenants-table");
+        const emptyState = document.getElementById("empty-state");
+        const tbody = document.getElementById("tenants-tbody");
+        tbody.textContent = "";
+
+        if (tenants.length === 0) {
+          emptyState.classList.remove("hidden");
+          table.classList.add("hidden");
+          return;
+        }
+        emptyState.classList.add("hidden");
+        table.classList.remove("hidden");
+
+        tenants.forEach((tenant) => {
+          const row = document.createElement("tr");
+          const metricsUrl =
+            "/ui/admin/metrics?client_id=" + encodeURIComponent(clientId) + "&tenant=" + encodeURIComponent(tenant.id);
+          row.innerHTML =
+            "<td>" + escapeHtml(tenant.name) + "</td>" +
+            "<td>" + escapeHtml(tenant.appName) + "</td>" +
+            "<td>" + (tenant.active ? "activo" : "desactivado") + "</td>" +
+            "<td>" + escapeHtml(new Date(tenant.createdAt).toLocaleDateString()) + "</td>" +
+            '<td><a href="' + metricsUrl + '">Ver métricas</a></td>';
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    }
+
+    if (AuthCoreUi.requireAdminSession()) {
+      loadTenants();
+    }
+  </script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import com.mcortes.authcoremc.service.AdminTenantService;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -47,6 +48,14 @@ public class AdminTenantController {
     public AdminTenantController(AdminTenantService service, AdminMetricsService metricsService) {
         this.service = service;
         this.metricsService = metricsService;
+    }
+
+    /** Ticket 019: platform_admin only — see {@code AdminTenantService.list} for why this isn't delegated to the per-tenant access policy. */
+    @GetMapping
+    public ResponseEntity<List<TenantResponse>> list(@AuthenticationPrincipal Jwt jwt) {
+        List<TenantResponse> tenants =
+                service.list(role(jwt)).stream().map(TenantResponse::from).toList();
+        return ResponseEntity.ok(tenants);
     }
 
     @PostMapping
