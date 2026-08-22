@@ -55,6 +55,24 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.flywaydb:flyway-database-postgresql'
 	developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
+	// Ticket 033: hot-reload de templates Thymeleaf y recursos estáticos
+	// (CSS/JS) sin reiniciar el JVM en `./gradlew bootRun`. `developmentOnly`
+	// sigue el mismo patrón que spring-boot-docker-compose arriba — Boot
+	// excluye automáticamente estas dependencias del jar empaquetado
+	// (bootJar/bootBuildImage) y NO se agregan a testRuntimeClasspath, así
+	// que nunca llegan a producción ni a los tests. No se agrega
+	// `spring.thymeleaf.cache=false` (ni un perfil `dev` nuevo) en
+	// application.properties: devtools, cuando está presente en el
+	// classpath en runtime (siempre y cuando no se esté ejecutando desde un
+	// jar repackaged), aplica automáticamente sus "property defaults" —
+	// entre ellos spring.thymeleaf.cache=false, spring.freemarker.cache=false
+	// y spring.web.resources.chain.cache=false — ver
+	// DevToolsPropertyDefaultsPostProcessor / docs de Spring Boot,
+	// "Property defaults" bajo devtools. Como la dependencia solo vive en
+	// developmentOnly, ese comportamiento queda automáticamente confinado a
+	// desarrollo local sin tocar application.properties ni crear una
+	// separación de perfiles que hoy no existe en el proyecto.
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
