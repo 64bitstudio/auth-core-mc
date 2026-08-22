@@ -52,6 +52,35 @@
       <button type="button" id="resend-verification-btn" class="secondary">Reenviar correo de verificación</button>
     </section>
 
+    <!--
+      Ticket 041 (HU-5): shown only for a session whose cuenta no tiene
+      password todavía (client-side, AuthCoreUi.currentSnapshot().hasPassword
+      — mismo mecanismo/frontera de confianza que el admin-panel-card de
+      arriba). Starts hidden in the HTML actually served so there's no
+      visible flash for an account that already has a password before the
+      script below runs. Si ya tiene password, esta acción no se ofrece —
+      el flujo existente de recuperación de contraseña (/ui/password-reset)
+      sigue siendo el que aplica para cambiarla.
+    -->
+    <section class="card hidden" id="set-password-card">
+      <div class="card-title">
+        <span th:replace="~{fragments/icons :: icon-restablecer-password}"></span>
+        <h3>Establecer contraseña</h3>
+      </div>
+      <p class="field-hint">
+        Tu cuenta todavía no tiene una contraseña propia. Establece una para también poder iniciar sesión
+        directamente, además de con tu(s) proveedor(es) social(es).
+      </p>
+      <form id="set-password-form" novalidate>
+        <div>
+          <label class="field-label" for="new-password-set"><span th:replace="~{fragments/icons :: icon-password}"></span>Nueva contraseña</label>
+          <input type="password" id="new-password-set" name="newPassword" aria-label="Nueva contraseña" required autocomplete="new-password" minlength="8" aria-describedby="set-password-hint" />
+          <p class="field-hint" id="set-password-hint">Mínimo 8 caracteres, con al menos una letra y un dígito.</p>
+        </div>
+        <button type="submit">Establecer contraseña</button>
+      </form>
+    </section>
+
     <section class="card">
       <div class="card-title">
         <span th:replace="~{fragments/icons :: icon-cambiar-correo}"></span>
@@ -115,8 +144,11 @@
 
   <script th:src="@{/js/api.js}"></script>
   <script>
+    // Ticket 041: hoisted out of the `if` below (was block-scoped there,
+    // out of reach for the "Establecer contraseña" reveal further down) —
+    // still only populated/used when requireSession() doesn't redirect away.
+    const snapshot = AuthCoreUi.currentSnapshot();
     if (AuthCoreUi.requireSession()) {
-      const snapshot = AuthCoreUi.currentSnapshot();
       document.getElementById("email-value").textContent = snapshot.email || "(sin correo registrado)";
       document.getElementById("verified-value").textContent = snapshot.emailVerified ? "verificado" : "sin verificar";
     }
@@ -135,6 +167,32 @@
 
     const status = document.getElementById("status");
     const userId = () => AuthCoreUi.currentUserId();
+
+    // Ticket 041 (HU-5): reveal "Establecer contraseña" only when this
+    // session's own account has no password yet (see currentSnapshot()'s
+    // Javadoc for the default when the field predates this ticket).
+    if (!snapshot.hasPassword) {
+      document.getElementById("set-password-card").classList.remove("hidden");
+    }
+    document.getElementById("set-password-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await AuthCoreUi.withBusy(e.submitter, async () => {
+          // Bearer JWT, not X-Client-Id/userId — see SetPasswordController's
+          // Javadoc for why this one action can't use the same
+          // client-supplied-userId trust boundary as the rest of this page.
+          await AuthCoreUi.callAuthenticated("POST", "/api/v1/account/password", {
+            newPassword: e.target.newPassword.value,
+          });
+          AuthCoreUi.markHasPassword();
+          document.getElementById("set-password-card").classList.add("hidden");
+          e.target.reset();
+          AuthCoreUi.showStatus(status, "Contraseña establecida.", false);
+        });
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    });
 
     const resendBtn = document.getElementById("resend-verification-btn");
     resendBtn.addEventListener("click", async () => {

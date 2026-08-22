@@ -5,6 +5,7 @@ import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
 import com.mcortes.authcoremc.service.InvalidTokenException;
 import com.mcortes.authcoremc.service.NotFirstPartyClientException;
+import com.mcortes.authcoremc.service.PasswordAlreadySetException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
 import com.mcortes.authcoremc.service.UnsupportedProviderException;
 import com.mcortes.authcoremc.service.UserNotFoundException;
@@ -62,6 +63,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException e) {
         return error(HttpStatus.NOT_FOUND, "user_not_found", e.getMessage());
+    }
+
+    @ExceptionHandler(PasswordAlreadySetException.class)
+    public ResponseEntity<ErrorResponse> handlePasswordAlreadySet(PasswordAlreadySetException e) {
+        return error(HttpStatus.CONFLICT, "password_already_set", e.getMessage());
     }
 
     @ExceptionHandler(TotpNotEnrolledException.class)
