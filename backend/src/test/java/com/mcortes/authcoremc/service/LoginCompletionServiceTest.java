@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -97,9 +98,9 @@ class LoginCompletionServiceTest {
 
         verify(redisTokenStore)
                 .issue(
-                        eq(LoginCompletionService.PENDING_2FA_PURPOSE),
-                        eq("acme-web-app::" + user.getId()),
-                        eq(Duration.ofMinutes(5)));
+                        LoginCompletionService.PENDING_2FA_PURPOSE,
+                        "acme-web-app::" + user.getId(),
+                        Duration.ofMinutes(5));
     }
 
     @Test
@@ -143,9 +144,7 @@ class LoginCompletionServiceTest {
     @Test
     void stillReturnsAPendingTokenWhenTheOtpResendCooldownIsActive() {
         User user = userFixture(TwoFactorMethod.OTP_EMAIL);
-        org.mockito.Mockito.doThrow(new TooManyAttemptsException("cooldown active"))
-                .when(otpService)
-                .requestOtp(user);
+        doThrow(new TooManyAttemptsException("cooldown active")).when(otpService).requestOtp(user);
         when(redisTokenStore.issue(eq(LoginCompletionService.PENDING_2FA_PURPOSE), anyString(), any()))
                 .thenReturn("pending-token-abc");
 

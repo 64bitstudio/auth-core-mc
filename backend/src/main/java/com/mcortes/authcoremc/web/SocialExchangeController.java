@@ -80,7 +80,7 @@ public class SocialExchangeController {
     }
 
     @PostMapping("/social-exchange")
-    public ResponseEntity<?> exchange(
+    public ResponseEntity<Object> exchange(
             @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody SocialExchangeRequest request) {
         IdentityClient client = clientContextResolver.resolveClient(clientId);
         if (!client.isFirstParty()) {

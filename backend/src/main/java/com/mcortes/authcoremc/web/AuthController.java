@@ -4,7 +4,6 @@ import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.service.AuthenticationService;
-import com.mcortes.authcoremc.service.DirectTokenService;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
 import com.mcortes.authcoremc.service.LoginCompletionResult;
 import com.mcortes.authcoremc.service.LoginCompletionService;
@@ -73,7 +72,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(
+    public ResponseEntity<Object> login(
             @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody LoginRequest request) {
         IdentityClient client = clientContextResolver.resolveClient(clientId);
         if (!client.isFirstParty()) {

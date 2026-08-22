@@ -110,16 +110,14 @@ public class TwoFactorLoginController {
     }
 
     private void verifyCode(User user, String code) {
-        TwoFactorMethod method = user.getTwoFactorMethod();
-        if (method == TwoFactorMethod.TOTP) {
-            totpService.verify(user, code);
-        } else if (method == TwoFactorMethod.OTP_EMAIL || method == TwoFactorMethod.OTP_SMS) {
-            otpService.verifyOtp(user, code);
-        } else {
-            // Defensive only: a pending token is never issued for TwoFactorMethod.NONE
-            // (see LoginCompletionService#complete) — this would mean the user's 2FA
-            // preference was turned off in the window between login and this call.
-            throw invalidPendingToken();
+        switch (user.getTwoFactorMethod()) {
+            case TOTP -> totpService.verify(user, code);
+            case OTP_EMAIL, OTP_SMS -> otpService.verifyOtp(user, code);
+            case NONE ->
+                // Defensive only: a pending token is never issued for TwoFactorMethod.NONE
+                // (see LoginCompletionService#complete) — this would mean the user's 2FA
+                // preference was turned off in the window between login and this call.
+                throw invalidPendingToken();
         }
     }
 

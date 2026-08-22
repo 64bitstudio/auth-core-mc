@@ -1,6 +1,7 @@
 package com.mcortes.authcoremc.web;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -208,9 +209,7 @@ class TwoFactorLoginControllerTest {
         when(redisTokenStore.consume(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
                 .thenReturn(Optional.of("acme-web-app::" + user.getId()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        org.mockito.Mockito.doThrow(new InvalidTokenException("Invalid or expired code"))
-                .when(totpService)
-                .verify(user, "000000");
+        doThrow(new InvalidTokenException("Invalid or expired code")).when(totpService).verify(user, "000000");
 
         mvc.post()
                 .uri("/api/v1/login/2fa-verify")
@@ -235,9 +234,7 @@ class TwoFactorLoginControllerTest {
         when(redisTokenStore.consume(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
                 .thenReturn(Optional.of("acme-web-app::" + user.getId()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        org.mockito.Mockito.doThrow(new TooManyAttemptsException("blocked"))
-                .when(otpService)
-                .verifyOtp(user, "000000");
+        doThrow(new TooManyAttemptsException("blocked")).when(otpService).verifyOtp(user, "000000");
 
         mvc.post()
                 .uri("/api/v1/login/2fa-verify")

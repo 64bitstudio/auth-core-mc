@@ -113,8 +113,7 @@ class AuthControllerTest {
     void returns202WithAPendingTokenWhenTheUserHasTwoFactorActive() {
         when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(firstPartyClient);
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "argon2-hash");
-        when(authenticationService.authenticate(eq(tenant), eq("ada@example.com"), eq("abcd1234")))
-                .thenReturn(user);
+        when(authenticationService.authenticate(tenant, "ada@example.com", "abcd1234")).thenReturn(user);
         when(loginCompletionService.complete(firstPartyClient, user))
                 .thenReturn(LoginCompletionResult.twoFactorRequired("pending-token-abc", TwoFactorMethod.TOTP));
 
