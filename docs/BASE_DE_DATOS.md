@@ -10,7 +10,7 @@
 ## Diagrama de entidades
 
 ```
-tenant ──┬──< app_user
+tenant ──┬──< app_user ──< external_identity >── tenant (tenant_id denormalizado)
          ├──< tenant_identity_provider
          └──< identity_client ──< refresh_token >── app_user
 ```
@@ -62,6 +62,20 @@ Configuración de login social, por tenant.
 | `enabled` | boolean | Si está activo para este tenant |
 | `client_id` | text | Client ID entregado por el proveedor (Google/Facebook/Apple) |
 | `client_secret_encrypted` | text | Client secret, cifrado a nivel de aplicación (ver `ARQUITECTURA.md` sección 6) |
+
+## `external_identity`
+Vincula un `app_user` con su identidad en un proveedor externo (Google/Facebook) — ticket `035`, primer ticket de la épica de login social real (`docs/definiciones/login-social-real.md`). Tabla hermana de `tenant_identity_provider`, mismo patrón de `tenant_id` denormalizado.
+
+| Campo | Tipo | Para qué sirve |
+|---|---|---|
+| `id` | UUID | Identificador único |
+| `tenant_id` | UUID (FK) | Denormalizado — mismo patrón que `login_event`/`tenant_identity_provider` |
+| `user_id` | UUID (FK), NOT NULL | Cuenta local a la que queda vinculada esta identidad |
+| `provider` | enum (`GOOGLE`,`FACEBOOK`,`APPLE`) | Reutiliza `IdentityProviderType`, el mismo tipo que `tenant_identity_provider` |
+| `provider_user_id` | text, NOT NULL | El `sub` (Google) / `id` (Facebook) del proveedor — nunca el email, que puede cambiar del lado del proveedor |
+| `linked_at` | timestamp | Cuándo se vinculó |
+
+_Dos constraints UNIQUE: `external_identity_tenant_provider_unique` (`tenant_id`, `provider`, `provider_user_id`) — la misma cuenta social no puede vincularse dos veces dentro del mismo tenant; y `external_identity_user_provider_unique` (`user_id`, `provider`) — un `app_user` no puede tener más de un vínculo con el mismo proveedor, pero sí con proveedores distintos._
 
 ## `identity_client`
 Una aplicación registrada que puede pedir tokens a este servicio (ver nota de nombres arriba: no se llama `oauth2_client` a propósito).

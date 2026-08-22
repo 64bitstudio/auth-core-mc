@@ -465,5 +465,17 @@ Hallazgo de consistencia interna, encontrado durante la verificación en vivo de
 - Verificado en vivo en `login`, `password-reset-request`, `register`. **No verificado en páginas admin** (`admin-tenants` y demás) por falta de credenciales `platform_admin` — mismo CSS/JS compartido por las 11 páginas, resultado esperado idéntico, mencionado explícito en vez de asumido.
 - 260/260 tests en verde, sin cambios de comportamiento backend.
 
+## Ticket 035: modelo de datos — tabla `external_identity`
+
+Primer ticket de la épica de login social real (`docs/definiciones/login-social-real.md`, Diseño técnico, decisión 6). Solo modelo de datos — ningún endpoint ni flujo de login se toca todavía; eso llega con los tickets 037-042 que dependen de este.
+
+- **Tabla nueva, no columnas en `app_user`**: permite vincular más de un proveedor social a la vez a la misma cuenta, requerido explícitamente por la definición. Mismo patrón de `tenant_id` denormalizado que `login_event`/`tenant_identity_provider` — evita un join extra a `app_user` para filtrar por tenant.
+- **`provider_user_id` es el `sub` (Google) / `id` (Facebook) del proveedor, nunca el email** — el email puede cambiar del lado del proveedor; el identificador estable es lo único seguro para resolver un login social entrante.
+- **Reutiliza `IdentityProviderType`** (ticket 001/006), el mismo enum que ya usa `tenant_identity_provider` — no se crea un tipo paralelo.
+- **Dos constraints de unicidad, ambas a nivel de base de datos** (`external_identity_tenant_provider_unique` y `external_identity_user_provider_unique`), no solo validadas en Java: `UNIQUE(tenant_id, provider, provider_user_id)` (la misma cuenta social no puede vincularse dos veces dentro del mismo tenant) y `UNIQUE(user_id, provider)` (un `app_user` no puede tener más de un vínculo con el mismo proveedor, pero sí con proveedores distintos).
+- Migración `V8__external_identity.sql`, entidad `ExternalIdentity` y `ExternalIdentityRepository` (`findByTenantAndProviderAndProviderUserId` para resolver un login entrante, `findByUser` para listar proveedores vinculados en `/ui/cuenta`, ticket futuro).
+- Tests de repositorio (`ExternalIdentityRepositoryTest`) confirman ambas constraints con el mismo patrón que `UserRepositoryTest`: `entityManager.flush()` explícito (bypasea la traducción de excepciones de Spring) + `ConstraintViolationException` con el nombre exacto de la constraint, no solo "alguna excepción".
+- **Migración verificada contra la base de datos local real** (`auth-core-mc-postgres-1`, no solo Testcontainers) vía el CLI de Flyway en Docker apuntando al Postgres de `compose.yaml` — `flyway info` mostró la V8 como `Pending` antes y `flyway migrate` la aplicó limpio sobre el estado real (V1-V7 ya aplicadas), sin arrancar el servidor completo.
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `034` (homologar clase success/error). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034 son ajustes puntuales posteriores, no parte de esa fase._
+_Última actualización: al cerrar la tarea `035` (modelo de datos `external_identity`, primer ticket de la épica de login social real). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034 son ajustes puntuales posteriores, no parte de esa fase._
