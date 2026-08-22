@@ -48,6 +48,22 @@
       <button type="submit">Crear cuenta</button>
     </form>
 
+    <!-- Ticket 039: docs/definiciones/login-social-real.md (HU-1, HU-9).
+         Un login social exitoso con un correo nuevo crea la cuenta
+         directamente (registro implícito) — mismo botón/texto/condición
+         de visibilidad que login.html, ver el comentario ahí. -->
+    <div class="social-login" th:if="${googleEnabled} or ${facebookEnabled}">
+      <p class="divider">o</p>
+      <a th:if="${googleEnabled}" class="button-social" th:href="${googleAuthorizationUrl}">
+        <span th:replace="~{fragments/icons :: logo-google}"></span>
+        Iniciar sesión con Google
+      </a>
+      <a th:if="${facebookEnabled}" class="button-social" th:href="${facebookAuthorizationUrl}">
+        <span th:replace="~{fragments/icons :: logo-facebook}"></span>
+        Iniciar sesión con Facebook
+      </a>
+    </div>
+
     <nav class="links">
       <a th:href="@{/ui/login(client_id=${clientId})}">¿Ya tienes cuenta? Inicia sesión</a>
     </nav>

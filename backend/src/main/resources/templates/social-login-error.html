@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>No se pudo iniciar sesión</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+</head>
+<body>
+  <!--
+    Ticket 039 (docs/definiciones/login-social-real.md, HU-3, Diseño
+    técnico decisión 4): destino genérico de SocialLoginFailureHandler
+    (ticket 037) cuando NO hay una OAuth2AuthorizationRequest correlacionada
+    que recuperar (sesión expirada, callback manipulado/repetido) o las
+    credenciales del tenant están rotas. Sin theming a propósito, mismo
+    "no tenant theming" que verify-email-confirm.html/
+    change-email-confirm.html: no llega ningún client_id resoluble a esta
+    página (Decisión 4 es explícita en que este camino nunca debe tocar
+    resolución de tenant), así que no hay ningún appName/primaryColor que
+    inyectar — usa los valores por defecto de app.css tal cual.
+
+    Revisado y corregido por el orquestador al cerrar el ticket:
+    "enlace de vuelta a un login neutro" no puede ser un link real —
+    /ui/login siempre exige client_id como @RequestParam obligatorio
+    (comportamiento ya existente y aceptado, HU-4), y esta página nunca
+    tiene uno disponible (Decisión 4 es explícita en que este camino
+    nunca debe tocar resolución de tenant). Un link a /ui/login sin
+    query param garantizaría un 400 al hacer clic — peor que no ofrecer
+    ningún link. En su lugar, texto que guía sin prometer un destino que
+    no funciona: vuelve a la aplicación/sitio donde comenzó el login, no
+    a esta página huérfana sin tenant.
+  -->
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header">
+    <span th:replace="~{fragments/icons :: icon-error}"></span>
+    <h1>No se pudo iniciar sesión</h1>
+  </header>
+  <main id="main">
+    <div role="alert" class="error">
+      No pudimos completar tu inicio de sesión. Esto puede pasar si la sesión expiró o si el
+      enlace ya no es válido. Vuelve a la aplicación o sitio donde comenzaste el inicio de sesión
+      e inténtalo de nuevo.
+    </div>
+  </main>
+</body>
+</html>
