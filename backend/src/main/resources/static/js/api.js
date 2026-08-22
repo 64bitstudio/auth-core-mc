@@ -46,12 +46,17 @@ const AuthCoreUi = (() => {
     return handleResponse(res);
   }
 
-  // Ticket 014: admin-panel calls — authenticated with the real Bearer
-  // access token saved at login (see saveSession below), not X-Client-Id.
-  // The actual access decision (role check) happens server-side
-  // (SecurityConfig + AdminIdentityProviderController); this only attaches
-  // the credential the same way any other API client would.
-  async function callAdmin(method, path, body) {
+  // Ticket 014: shared by every call authenticated with the real Bearer
+  // access token saved at login (see saveSession below), not X-Client-Id —
+  // both the admin panel (callAdmin) and, since ticket 041, any other
+  // /ui/cuenta action whose server-side endpoint requires a real
+  // authenticated principal instead of the client-supplied-userId trust
+  // boundary most /ui/cuenta actions still use (see SetPasswordController's
+  // Javadoc for why "establecer contraseña" specifically needs this). The
+  // actual access decision (role check, or "is this the token's own
+  // account") always happens server-side; this only attaches the
+  // credential the same way any other API client would.
+  async function callAuthenticated(method, path, body) {
     const res = await fetch(path, {
       method,
       headers: {
@@ -62,6 +67,12 @@ const AuthCoreUi = (() => {
     });
     return handleResponse(res);
   }
+
+  // Ticket 014: admin-panel calls — kept as its own named entry point
+  // (rather than renaming every existing call site to callAuthenticated)
+  // since "this is an admin-panel call" is meaningful context at each of
+  // its call sites; identical implementation, see callAuthenticated above.
+  const callAdmin = callAuthenticated;
 
   function showStatus(el, message, isError) {
     // "is-loading" is cleared here too (not just by withBusy below) so the
@@ -126,6 +137,13 @@ const AuthCoreUi = (() => {
     sessionStorage.setItem("authcore.clientId", clientIdFromUrl());
     sessionStorage.setItem("authcore.email", user.email || "");
     sessionStorage.setItem("authcore.emailVerified", String(!!user.emailVerified));
+    // Ticket 041 (HU-5): whether this account has a password_hash yet —
+    // drives whether /ui/cuenta offers "Establecer contraseña". Every
+    // UserResponse (login/register/set-password) includes this field, so
+    // it's always freshly written here; see currentSnapshot()'s
+    // "!== 'false'" default for the one edge case (an already-open tab
+    // from before this field existed) where the key could be missing.
+    sessionStorage.setItem("authcore.hasPassword", String(!!user.hasPassword));
     // Ticket 014: tokens is optional so any existing caller of
     // saveSession(user) alone keeps working unchanged.
     if (tokens && tokens.accessToken) {
@@ -194,7 +212,18 @@ const AuthCoreUi = (() => {
       clientId: sessionStorage.getItem("authcore.clientId"),
       email: sessionStorage.getItem("authcore.email"),
       emailVerified: sessionStorage.getItem("authcore.emailVerified") === "true",
+      // Defaults to "has a password" (true) unless explicitly "false" —
+      // never "hide a card this session actually needs" on the one edge
+      // case where the key predates ticket 041 (an already-open tab that
+      // hasn't logged in again since this field started being saved).
+      hasPassword: sessionStorage.getItem("authcore.hasPassword") !== "false",
     };
+  }
+
+  // Ticket 041 (HU-5): called right after a successful "Establecer
+  // contraseña" so the card hides without requiring a full re-login.
+  function markHasPassword() {
+    sessionStorage.setItem("authcore.hasPassword", "true");
   }
 
   // Client-side-only guard: if there's no session snapshot, send the
@@ -227,6 +256,7 @@ const AuthCoreUi = (() => {
     tokenFromUrl,
     call,
     callAdmin,
+    callAuthenticated,
     showStatus,
     withBusy,
     saveSession,
@@ -236,6 +266,7 @@ const AuthCoreUi = (() => {
     logout,
     currentUserId,
     currentSnapshot,
+    markHasPassword,
     requireSession,
     requireAdminSession,
   };

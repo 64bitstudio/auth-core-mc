@@ -72,6 +72,15 @@ Mismo header `X-Client-Id` + `userId` en el body que el resto de endpoints "temp
 | POST | `/api/v1/2fa/totp/verify` | `userId`, `code` | `200` o `400 invalid_token` (incluye el caso "este código ya se usó") |
 | POST | `/api/v1/2fa/method` | `userId`, `method` (`NONE`\|`OTP_EMAIL`\|`OTP_SMS`\|`TOTP`) | `200` o `400 totp_not_enrolled` si se intenta activar `TOTP` sin haber hecho `enroll` antes |
 
+## Establecer contraseña de una cuenta social-only (ticket `041`, HU-5)
+A diferencia de `/2fa` y `/change-email` de arriba, **este endpoint sí requiere un Bearer access token real** (header `Authorization: Bearer <accessToken>`, el mismo que emite `/api/v1/login` o, cuando el resto de la épica de login social esté mergeada, el intercambio social) — no el header `X-Client-Id` ni un `userId` en el body. La razón: completar `/2fa`/`/change-email` con solo un `userId` adivinado sigue exigiendo poseer el correo/SMS de la víctima; establecer una password no tiene ese segundo factor — surte efecto de inmediato y permitiría iniciar sesión como esa cuenta en el acto. El `userId` se toma del claim `sub` del JWT verificado, nunca del body.
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| POST | `/api/v1/account/password` | Header `Authorization: Bearer <accessToken>`; body: `newPassword` (misma política que `/register`: mín. 8 caracteres, letra+dígito) | `200` + el usuario actualizado (`hasPassword: true`), o `409 password_already_set` si la cuenta ya tenía una password (nunca se sobreescribe), o `400 weak_password`, o `401` sin un Bearer token válido |
+
+`UserResponse` (el mismo objeto que devuelven `/register`, `/login` y este endpoint) incluye desde este ticket el campo `hasPassword` (booleano, derivado de `password_hash != null`) — es lo que `/ui/cuenta` usa para decidir si ofrece esta acción.
+
 ## Configuración de login social por tenant (ticket `006`)
 Requiere autenticación (ver advertencia arriba). Header `X-Client-Id` (no un `tenantId` en la ruta — el tenant siempre es el que resuelve el header, así un cliente nunca puede tocar la configuración de otro).
 
