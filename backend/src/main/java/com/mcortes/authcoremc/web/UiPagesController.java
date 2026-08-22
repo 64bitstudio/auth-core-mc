@@ -1,6 +1,9 @@
 package com.mcortes.authcoremc.web;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
+import com.mcortes.authcoremc.domain.IdentityProviderType;
 import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.oauth2.SocialRegistrationId;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -46,21 +49,28 @@ public class UiPagesController {
     private static final String ACTIVE_ATTR = "active";
 
     /**
-     * Ticket 040: the OAuth2 callback path Spring's {@code oauth2Login()}
-     * expects, by its own default convention (never overridden anywhere in
-     * this codebase) — {@code {baseUrl}/login/oauth2/code/{registrationId}}.
-     * {@code {registrationId}} is intentionally left as a literal template
-     * placeholder in what's shown to the admin (see docs/definiciones/
-     * login-social-real.md, Diseño técnico decisión 1, and
-     * admin-identity-providers.html for the full rationale) — it is NOT
-     * per-tenant input the admin needs to fill in.
+     * Ticket 040 (corrected by ticket 044): the OAuth2 callback path
+     * Spring's {@code oauth2Login()} expects, by its own default convention
+     * (never overridden anywhere in this codebase) —
+     * {@code {baseUrl}/login/oauth2/code/{registrationId}}.
+     *
+     * <p><b>Ticket 044 correction:</b> Google/Facebook validate {@code
+     * redirect_uri} by exact string match — no wildcards, no path
+     * templates. The literal {@code {registrationId}} placeholder ticket
+     * 040 originally showed the admin was never going to match the real
+     * request (which sends the concrete {@code registrationId}, e.g.
+     * {@code 3fa85f64-...::google}) — found while actually trying to
+     * register it in Google Cloud Console for a real tenant (ticket 043).
+     * {@code {registrationId}} here stays a template only for building the
+     * two CONCRETE, per-provider values below — it is never shown
+     * unresolved to the admin anymore.
      */
-    // java:S1075 — this is Spring oauth2Login()'s own fixed convention path,
-    // not a customizable/environment-specific URI (unlike app.base-url,
-    // which IS externalized below) — hardcoding it is correct, there is no
-    // parameter to extract it from.
+    // java:S1075 — Spring oauth2Login()'s own fixed convention path, not a
+    // customizable/environment-specific URI (unlike app.base-url, which IS
+    // externalized below) — hardcoding it is correct, there is no parameter
+    // to extract it from.
     @SuppressWarnings("java:S1075")
-    private static final String OAUTH2_REDIRECT_URI_PATH = "/login/oauth2/code/{registrationId}";
+    private static final String OAUTH2_REDIRECT_URI_PATH = "/login/oauth2/code/";
 
     private final ClientContextResolver clientContextResolver;
 
@@ -152,11 +162,23 @@ public class UiPagesController {
     public String adminIdentityProviders(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
         model.addAttribute(ACTIVE_ATTR, "providers");
-        // Ticket 040: single value, same for every tenant (see
-        // docs/definiciones/login-social-real.md) — computed here instead of
-        // hardcoded so it tracks app.base-url per environment.
-        model.addAttribute("oauth2RedirectUri", appBaseUrl + OAUTH2_REDIRECT_URI_PATH);
+        // Ticket 044: one CONCRETE value per provider, specific to this
+        // tenant's own IdentityClient — see the correction note on
+        // OAUTH2_REDIRECT_URI_PATH above for why the ticket 040 shared
+        // literal was wrong. clientContextResolver.resolveClient (not
+        // theme()'s resolveTenant) because we need the IdentityClient's own
+        // id, not just its tenant.
+        IdentityClient identityClient = clientContextResolver.resolveClient(clientId);
+        model.addAttribute("oauth2RedirectUriGoogle", oauth2RedirectUri(identityClient, IdentityProviderType.GOOGLE));
+        model.addAttribute(
+                "oauth2RedirectUriFacebook", oauth2RedirectUri(identityClient, IdentityProviderType.FACEBOOK));
         return "admin-identity-providers";
+    }
+
+    private String oauth2RedirectUri(IdentityClient identityClient, IdentityProviderType provider) {
+        return appBaseUrl
+                + OAUTH2_REDIRECT_URI_PATH
+                + SocialRegistrationId.of(identityClient.getId(), provider);
     }
 
     /**
