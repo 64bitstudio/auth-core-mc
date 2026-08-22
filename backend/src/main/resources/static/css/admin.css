@@ -440,7 +440,7 @@ button.danger:hover {
   flex-shrink: 0;
 }
 
-[role="alert"] {
+[role="alert"].error {
   background: var(--admin-error-bg);
   color: var(--admin-error-fg);
   border-color: var(--admin-error-border);

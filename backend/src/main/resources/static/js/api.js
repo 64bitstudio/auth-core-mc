@@ -69,11 +69,9 @@ const AuthCoreUi = (() => {
     // show a spinner on page load, before any button/form exists to attach
     // withBusy to — clear it for free the moment their one showStatus()
     // call lands, success or error.
-    el.classList.remove("hidden", "success", "is-loading");
+    el.classList.remove("hidden", "success", "error", "is-loading");
     el.setAttribute("role", isError ? "alert" : "status");
-    if (!isError) {
-      el.classList.add("success");
-    }
+    el.classList.add(isError ? "error" : "success");
 
     // Ticket 032: icon-exito/icon-error next to the message. This file is a
     // shared, page-agnostic helper with no Thymeleaf access of its own — it
