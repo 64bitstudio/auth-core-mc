@@ -41,6 +41,13 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-restclient'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-authorization-server'
+	// Ticket 036: client-side OAuth2 login (Google/Facebook social login for
+	// end users, /oauth2/authorization/** + /login/oauth2/code/**) — a
+	// different concern from spring-boot-starter-security-oauth2-authorization-server
+	// above (this app acting as an authorization SERVER for its own
+	// first/third-party clients). Brings ClientRegistrationRepository,
+	// ClientRegistration, CommonOAuth2Provider and .oauth2Login(...).
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
 	// Server-rendered theming (ticket 009): the tenant's app_name/primary_color
 	// have to be resolved and injected server-side before the page reaches the
 	// browser, since a plain page navigation can't carry the X-Client-Id header

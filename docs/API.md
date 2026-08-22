@@ -3,7 +3,7 @@
 > Endpoints del backend: rutas, métodos, qué reciben y qué responden. Explicado en simple. Se actualiza cuando cada ticket que añade o cambia endpoints se mueve a `/done`.
 
 ## Estado actual
-`/register`, `/login`, `/verify-email/*`, `/change-email/*`, `/password-reset/*`, `/2fa/*`, `/identity-providers/*`, `/token/refresh`, `/token/revoke` y `/oauth2/**`/`/.well-known/openid-configuration` **implementados y probados** (tickets `002`-`007`, en `/done`). `/login` ahora emite tokens reales (ver más abajo). El flujo real de redirect+callback de login social (Google/Facebook) sigue pendiente — ver nota en `ARQUITECTURA.md`, ticket `007` no lo resolvió (era un cliente OAuth2 first-party, no el flujo social).
+`/register`, `/login`, `/verify-email/*`, `/change-email/*`, `/password-reset/*`, `/2fa/*`, `/identity-providers/*`, `/token/refresh`, `/token/revoke` y `/oauth2/**`/`/.well-known/openid-configuration` **implementados y probados** (tickets `002`-`007`, en `/done`). `/login` ahora emite tokens reales (ver más abajo). El flujo real de redirect+callback de login social (Google/Facebook, `docs/definiciones/login-social-real.md`) está **en construcción** — `/oauth2/authorization/**` y `/login/oauth2/code/**` ya resuelven tenant+proveedor por request (ticket `036`, ver sección propia más abajo), pero todavía no crean/vinculan ningún `app_user` ni emiten tokens (llega con los tickets `037`/`038`).
 
 Este documento describe la superficie **JSON** (`/api/v1/**`, `/oauth2/**`). La UI web (ticket `009`, páginas `/ui/**` que llaman a estos mismos endpoints) está documentada en `docs/COMPONENTES.md`.
 
@@ -105,3 +105,15 @@ Flujo estándar para clientes third-party (o first-party que prefieran no maneja
 
 ### ⚠️ La clave de firma RSA se regenera en cada arranque
 `AuthorizationServerConfig` genera un par de llaves RSA nuevo cada vez que la aplicación arranca — una simplificación deliberada y documentada (ver Javadoc de la clase y `README.md`). Consecuencia real: cualquier `accessToken` emitido antes de un reinicio deja de verificar después de uno. No es apto para producción sin una clave persistida y rotada.
+
+## Login social real — redirect + callback (ticket `036`, en construcción)
+Primer ticket de `docs/definiciones/login-social-real.md`. **Todavía no es un flujo completo/usable por un usuario final** — no hay botón en `/ui/login`/`/ui/register` (ticket 039), ni `SocialLoginSuccessHandler`/`FailureHandler` (ticket 037), ni el endpoint de canje `POST /api/v1/oauth2/social-exchange` (ticket 038). Lo que este ticket sí deja andando: las dos rutas ya responden en vez de dar `401`/`403`, resolviendo tenant+proveedor por request vía `TenantAwareClientRegistrationRepository` (ver `ARQUITECTURA.md`, ticket `036`).
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| GET | `/oauth2/authorization/{identityClientId}::{provider}` | Redirige a Google/Facebook con las credenciales del tenant dueño de `identityClientId` (`provider` = `google`/`facebook`, case-insensitive). `404`/comportamiento por defecto de Spring si el `registrationId` no resuelve — nunca revela si el problema es el UUID o el proveedor deshabilitado (ver nota de seguridad abajo) |
+| GET | `/login/oauth2/code/{identityClientId}::{provider}` | Callback del proveedor tras el consentimiento — hoy usa el `successHandler`/`failureHandler` por defecto de Spring (redirigen a `/`), sin crear ni vincular ningún `app_user` todavía |
+
+Distinto de `/oauth2/authorize` (arriba): ese es el flujo Authorization Code + PKCE de este servicio actuando como *authorization server* para sus propios clientes; este es el flujo donde este servicio actúa como *cliente* OAuth2 de Google/Facebook para autenticar a un usuario final — `AuthorizationServerConfig` no interviene en ninguna de las dos rutas de esta sección (confirmado, su `securityMatcher` no las incluye).
+
+**Requisito de seguridad:** un `registrationId` con un UUID de `IdentityClient` inexistente y uno con UUID existente pero proveedor deshabilitado deben ser indistinguibles desde afuera — ambos resuelven a `null` en `TenantAwareClientRegistrationRepository` por el mismo camino, sin excepción ni log diferenciado.
