@@ -273,7 +273,7 @@ button.secondary:hover {
   flex-shrink: 0;
 }
 
-[role="alert"] {
+[role="alert"].error {
   background: var(--error-bg);
   color: var(--error-fg);
   border-color: var(--error-border);

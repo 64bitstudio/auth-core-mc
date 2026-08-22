@@ -455,5 +455,15 @@ Ticket de tooling puro (sin cambio de producto), nacido de un hallazgo real dura
 - **Hallazgo operativo real durante la propia verificación:** un proceso `bootRun` viejo (previo al cambio) seguía ocupando el puerto 8080 — detectado y detenido antes de verificar con la config actualizada. Propuesta de mejora continua (no implementada): un check en el flujo de "arranca la app" que detecte un puerto ya ocupado antes de lanzar `bootRun`.
 - `./gradlew clean test`: todo en verde.
 
+## Ticket 034: homologa clase `success`/`error` en `showStatus()` (`[role="status"]`/`[role="alert"]`)
+
+Hallazgo de consistencia interna, encontrado durante la verificación en vivo del ticket 032. Ejecutado con delegación real al rol `frontend-dev`.
+
+- **Mecanismo elegido: clase explícita simétrica** (`success`/`error`) en ambos casos, no depender de `role` para el color del error — `role="status"` ya se comparte con el estado de carga (`is-loading`, spinner de `verify-email-confirm.html`/`change-email-confirm.html`); depender solo de `role` no habría permitido distinguir "cargando" (sin color) de "éxito" (verde) en CSS sin tocar además esas plantillas. Con clase explícita, `role` queda puramente para semántica ARIA y la clase determina el color.
+- `showStatus()` (`api.js`) agrega `error`/`success` de forma simétrica; `admin.css`/`app.css`: color de error gateado por `[role="alert"].error` (la regla base de layout/ícono, compartida con `[role="status"]`, queda intacta). Sin cambio visual — mismo color/layout/ícono que antes.
+- Confirmado que ningún template tiene `role="alert"` hardcodeado (solo lo pone `showStatus()`) — el cambio no puede romper ningún otro caso.
+- Verificado en vivo en `login`, `password-reset-request`, `register`. **No verificado en páginas admin** (`admin-tenants` y demás) por falta de credenciales `platform_admin` — mismo CSS/JS compartido por las 11 páginas, resultado esperado idéntico, mencionado explícito en vez de asumido.
+- 260/260 tests en verde, sin cambios de comportamiento backend.
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `033` (hot-reload de dev). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-033 son ajustes puntuales posteriores, no parte de esa fase._
+_Última actualización: al cerrar la tarea `034` (homologar clase success/error). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034 son ajustes puntuales posteriores, no parte de esa fase._
