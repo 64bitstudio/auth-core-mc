@@ -52,6 +52,18 @@ public class RedisTokenStore {
         return Optional.ofNullable(value);
     }
 
+    /**
+     * Reads a token's bound value WITHOUT consuming it — ticket 046, for
+     * "resend the OTP code" while a {@code pendingToken} is still awaiting
+     * verification: that action must not burn the one-time token the user
+     * still needs for the actual verify step. A plain Redis {@code GET}
+     * doesn't touch the key's TTL, so peeking never extends (or shortens)
+     * how long the token stays valid.
+     */
+    public Optional<String> peek(String purpose, String token) {
+        return Optional.ofNullable(redis.opsForValue().get(key(purpose, token)));
+    }
+
     private String key(String purpose, String token) {
         return "token:%s:%s".formatted(purpose, token);
     }

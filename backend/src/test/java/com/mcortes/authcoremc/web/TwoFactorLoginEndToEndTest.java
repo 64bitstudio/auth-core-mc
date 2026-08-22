@@ -248,6 +248,71 @@ class TwoFactorLoginEndToEndTest {
                 .andExpect(jsonPath("$.tokens.accessToken").exists());
     }
 
+    // Ticket 046: POST /api/v1/login/2fa-resend, real Redis + real OtpService/EmailSender mock.
+
+    @Test
+    void resendingRightAfterLoginHitsTheRealCooldownButNeverDamagesThePendingToken() throws Exception {
+        User user = otpUser();
+        String pendingToken =
+                pendingTokenOf(login(user.getEmail(), "abcd1234").andReturn().getResponse().getContentAsString());
+
+        // LoginCompletionService already sent a code moments ago at login time —
+        // OtpService's real 30s resend cooldown (unmocked here, unlike the
+        // WebMvcTest suite) is still active, so this resend is rejected for
+        // real, not swallowed like LoginCompletionService's own first send.
+        mvc.perform(post("/api/v1/login/2fa-resend")
+                        .header("X-Client-Id", firstPartyClient.getClientId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pendingToken\":\"" + pendingToken + "\"}"))
+                .andExpect(status().isTooManyRequests());
+
+        // The pendingToken itself must still be perfectly usable — a rejected
+        // resend (peek, never consume) must not have damaged it. The original
+        // code from login is still the valid one, since no fresh code replaced it.
+        ArgumentCaptor<String> htmlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(emailSender).send(eq(user.getEmail()), any(), htmlCaptor.capture());
+        String originalCode = htmlCaptor.getValue().replaceAll("\\D", "");
+
+        mvc.perform(post("/api/v1/login/2fa-verify")
+                        .header("X-Client-Id", firstPartyClient.getClientId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pendingToken\":\"" + pendingToken + "\",\"code\":\"" + originalCode + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.email").value(user.getEmail()));
+    }
+
+    @Test
+    void resendingForATotpUserIsANoOpEndToEnd() throws Exception {
+        User user = totpUser();
+        String pendingToken =
+                pendingTokenOf(login(user.getEmail(), "abcd1234").andReturn().getResponse().getContentAsString());
+
+        mvc.perform(post("/api/v1/login/2fa-resend")
+                        .header("X-Client-Id", firstPartyClient.getClientId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pendingToken\":\"" + pendingToken + "\"}"))
+                .andExpect(status().isAccepted());
+
+        // TOTP never sends anything — the code already lives in the authenticator app.
+        verify(emailSender, org.mockito.Mockito.never()).send(any(), any(), any());
+    }
+
+    @Test
+    void resendIsRejectedByAMismatchedClientIdJustLikeVerify() throws Exception {
+        User user = otpUser();
+        IdentityClient otherClient = identityClientRepository.save(new IdentityClient(
+                tenant, "2fa-login-e2e-other-" + UUID.randomUUID(), null, true, List.of()));
+        String pendingToken =
+                pendingTokenOf(login(user.getEmail(), "abcd1234").andReturn().getResponse().getContentAsString());
+
+        mvc.perform(post("/api/v1/login/2fa-resend")
+                        .header("X-Client-Id", otherClient.getClientId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pendingToken\":\"" + pendingToken + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_token"));
+    }
+
     private org.springframework.test.web.servlet.ResultActions login(String identifier, String password)
             throws Exception {
         return mvc.perform(post("/api/v1/login")

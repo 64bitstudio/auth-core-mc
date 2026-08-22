@@ -51,4 +51,21 @@ class RedisTokenStoreTest {
 
         assertThat(tokenA).isNotEqualTo(tokenB);
     }
+
+    // Ticket 046: peek — same lookup as consume, but never deletes.
+
+    @Test
+    void peekReturnsTheBoundValueWithoutConsumingIt() {
+        String token = tokenStore.issue("login-2fa-pending", "client::user-123", Duration.ofMinutes(5));
+
+        assertThat(tokenStore.peek("login-2fa-pending", token)).contains("client::user-123");
+        // Still there — peek must not have deleted it.
+        assertThat(tokenStore.peek("login-2fa-pending", token)).contains("client::user-123");
+        assertThat(tokenStore.consume("login-2fa-pending", token)).contains("client::user-123");
+    }
+
+    @Test
+    void anUnknownTokenIsNotFoundByPeekEither() {
+        assertThat(tokenStore.peek("login-2fa-pending", "does-not-exist")).isEmpty();
+    }
 }

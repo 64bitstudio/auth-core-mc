@@ -277,4 +277,118 @@ class TwoFactorLoginControllerTest {
                 .bodyText()
                 .contains("validation_error");
     }
+
+    // Ticket 046: POST /api/v1/login/2fa-resend.
+
+    @Test
+    void resendsAnOtpCodeForOtpEmailWithoutConsumingThePendingToken() {
+        User user = userFixture(tenant, TwoFactorMethod.OTP_EMAIL);
+        when(redisTokenStore.peek(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
+                .thenReturn(Optional.of("acme-web-app::" + user.getId()));
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+
+        mvc.post()
+                .uri("/api/v1/login/2fa-resend")
+                .header("X-Client-Id", "acme-web-app")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"pendingToken":"pending-token-abc"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(202);
+
+        verify(otpService).requestOtp(user);
+        // A resend must never burn the one-time pendingToken the user still
+        // needs for the real /2fa-verify call.
+        verify(redisTokenStore, never()).consume(any(), any());
+    }
+
+    @Test
+    void resendingForATotpUserIsANoOp() {
+        User user = userFixture(tenant, TwoFactorMethod.TOTP);
+        when(redisTokenStore.peek(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
+                .thenReturn(Optional.of("acme-web-app::" + user.getId()));
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+
+        mvc.post()
+                .uri("/api/v1/login/2fa-resend")
+                .header("X-Client-Id", "acme-web-app")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"pendingToken":"pending-token-abc"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(202);
+
+        verify(otpService, never()).requestOtp(any());
+    }
+
+    @Test
+    void returns400ForAnUnknownPendingTokenOnResend() {
+        when(redisTokenStore.peek(LoginCompletionService.PENDING_2FA_PURPOSE, "bad-token"))
+                .thenReturn(Optional.empty());
+
+        mvc.post()
+                .uri("/api/v1/login/2fa-resend")
+                .header("X-Client-Id", "acme-web-app")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"pendingToken":"bad-token"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(400)
+                .bodyText()
+                .contains("invalid_token");
+
+        verify(userRepository, never()).findById(any());
+        verify(otpService, never()).requestOtp(any());
+    }
+
+    @Test
+    void returns400WhenTheXClientIdDoesNotMatchThePendingTokensClientOnResend() {
+        User user = userFixture(tenant, TwoFactorMethod.OTP_EMAIL);
+        when(redisTokenStore.peek(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
+                .thenReturn(Optional.of("some-other-client::" + user.getId()));
+
+        mvc.post()
+                .uri("/api/v1/login/2fa-resend")
+                .header("X-Client-Id", "acme-web-app")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"pendingToken":"pending-token-abc"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(400)
+                .bodyText()
+                .contains("invalid_token");
+
+        verify(userRepository, never()).findById(any());
+        verify(otpService, never()).requestOtp(any());
+    }
+
+    @Test
+    void propagatesTheRealResendCooldownAs429() {
+        User user = userFixture(tenant, TwoFactorMethod.OTP_SMS);
+        when(redisTokenStore.peek(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
+                .thenReturn(Optional.of("acme-web-app::" + user.getId()));
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        doThrow(new TooManyAttemptsException("A code was already sent recently. Please wait."))
+                .when(otpService)
+                .requestOtp(user);
+
+        mvc.post()
+                .uri("/api/v1/login/2fa-resend")
+                .header("X-Client-Id", "acme-web-app")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"pendingToken":"pending-token-abc"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(429);
+    }
 }
