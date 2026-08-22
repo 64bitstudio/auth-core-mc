@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -44,7 +45,8 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http, ObjectMapper objectMapper, ClientRegistrationRepository clientRegistrationRepository) {
         try {
             http.csrf(csrf -> csrf.disable())
                     .authorizeHttpRequests(auth -> auth.requestMatchers(
@@ -68,6 +70,18 @@ public class SecurityConfig {
                                     "/ui/**",
                                     "/css/**",
                                     "/js/**",
+                                    // Ticket 036: client-side OAuth2 login (Google/Facebook social
+                                    // login) — the redirect-to-provider endpoint and the provider's
+                                    // callback endpoint. Both are unauthenticated by definition (a
+                                    // user arriving here has no session/token yet); real tenant
+                                    // resolution happens inside
+                                    // TenantAwareClientRegistrationRepository, not here.
+                                    // AuthorizationServerConfig's own filter chain (@Order(1),
+                                    // securityMatcher scoped to getEndpointsMatcher()) already
+                                    // excludes these paths structurally — see its Javadoc — so this
+                                    // permitAll doesn't overlap with that chain at all.
+                                    "/oauth2/authorization/**",
+                                    "/login/oauth2/code/**",
                                     // Requested by every browser on every page load — never something
                                     // to gate behind authentication.
                                     "/favicon.ico",
@@ -97,6 +111,16 @@ public class SecurityConfig {
                         converter.setJwtGrantedAuthoritiesConverter(new AdminRoleAuthoritiesConverter());
                         jwt.jwtAuthenticationConverter(converter);
                     }))
+                    // Ticket 036: end-user social login (Google/Facebook), resolved per
+                    // request/per tenant by TenantAwareClientRegistrationRepository — see
+                    // its Javadoc and docs/definiciones/login-social-real.md. Deliberately
+                    // no custom successHandler/failureHandler yet: those (issuing a
+                    // one-time exchange code, creating/linking app_user) land in ticket
+                    // 037, out of scope here. The Spring Security session this DSL creates
+                    // is NOT used as ongoing auth (see Decisión 5 in the definition doc) —
+                    // only as the correlation Spring itself needs between the redirect and
+                    // the callback.
+                    .oauth2Login(oauth2Login -> oauth2Login.clientRegistrationRepository(clientRegistrationRepository))
                     .exceptionHandling(exceptions ->
                             exceptions.authenticationEntryPoint((request, response, authException) -> {
                                 response.setStatus(401);

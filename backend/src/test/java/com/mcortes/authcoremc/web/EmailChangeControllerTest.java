@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
@@ -32,6 +33,11 @@ class EmailChangeControllerTest {
     // bean to build the filter chain at all — never stubbed, just satisfies DI.
     @MockitoBean
     private JwtDecoder jwtDecoder;
+
+    // Ticket 036: SecurityConfig's .oauth2Login(...) needs a ClientRegistrationRepository
+    // bean to build the filter chain at all — never stubbed, just satisfies DI.
+    @MockitoBean
+    private ClientRegistrationRepository clientRegistrationRepository;
 
     @MockitoBean
     private ClientContextResolver clientContextResolver;
