@@ -55,6 +55,11 @@ public class UiPagesController {
      * admin-identity-providers.html for the full rationale) — it is NOT
      * per-tenant input the admin needs to fill in.
      */
+    // java:S1075 — this is Spring oauth2Login()'s own fixed convention path,
+    // not a customizable/environment-specific URI (unlike app.base-url,
+    // which IS externalized below) — hardcoding it is correct, there is no
+    // parameter to extract it from.
+    @SuppressWarnings("java:S1075")
     private static final String OAUTH2_REDIRECT_URI_PATH = "/login/oauth2/code/{registrationId}";
 
     private final ClientContextResolver clientContextResolver;
@@ -69,12 +74,6 @@ public class UiPagesController {
      */
     private final String appBaseUrl;
 
-    // java:S1075 — the "hardcoded URI" is only the local-dev fallback of a
-    // Spring @Value property (app.base-url, already environment-configurable
-    // via APP_BASE_URL); the exact same literal fallback already exists,
-    // unflagged, in VerificationLinkFactory and AuthorizationServerConfig —
-    // same established pattern, not a new hardcoding.
-    @SuppressWarnings("java:S1075")
     public UiPagesController(
             ClientContextResolver clientContextResolver,
             @Value("${app.base-url:http://localhost:8080}") String appBaseUrl) {
