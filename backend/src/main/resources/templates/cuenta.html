@@ -10,8 +10,17 @@
   <a class="skip-link" href="#main">Saltar al contenido</a>
   <header class="app-header"><h1 th:text="${appName}">App</h1></header>
   <main id="main">
-    <h2>Mi cuenta</h2>
+    <div class="card-title">
+      <span th:replace="~{fragments/icons :: icon-mi-cuenta}"></span>
+      <h2>Mi cuenta</h2>
+    </div>
     <div id="status" class="hidden" aria-live="polite"></div>
+    <!-- Ticket 032: see api.js's showStatus() comment for why this
+         per-page <template> exists. -->
+    <template id="status-icons">
+      <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
+      <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
+    </template>
     <p class="field-hint">
       Esta página muestra el estado de tu último inicio de sesión o registro en este navegador — no se
       vuelve a consultar en vivo. Si verificaste tu correo en otra pestaña, vuelve a iniciar sesión para verlo reflejado aquí.
@@ -26,22 +35,31 @@
       user before the script below runs.
     -->
     <section class="card hidden" id="admin-panel-card">
-      <h3>Panel de administración</h3>
+      <div class="card-title">
+        <span th:replace="~{fragments/icons :: icon-panel-admin}"></span>
+        <h3>Panel de administración</h3>
+      </div>
       <p class="field-hint">Tienes acceso al panel de administración con esta sesión.</p>
       <button type="button" id="admin-panel-btn" class="secondary">Ir al panel de administración</button>
     </section>
 
     <section class="card">
-      <h3>Verificación de correo</h3>
+      <div class="card-title">
+        <span th:replace="~{fragments/icons :: icon-verificacion-correo}"></span>
+        <h3>Verificación de correo</h3>
+      </div>
       <p id="verification-status">Correo: <span id="email-value"></span> — <span id="verified-value"></span></p>
       <button type="button" id="resend-verification-btn" class="secondary">Reenviar correo de verificación</button>
     </section>
 
     <section class="card">
-      <h3>Cambiar correo</h3>
+      <div class="card-title">
+        <span th:replace="~{fragments/icons :: icon-cambiar-correo}"></span>
+        <h3>Cambiar correo</h3>
+      </div>
       <form id="change-email-form" novalidate>
         <div>
-          <label for="new-email">Nuevo correo</label>
+          <label class="field-label" for="new-email"><span th:replace="~{fragments/icons :: icon-correo}"></span>Nuevo correo</label>
           <input type="email" id="new-email" name="newEmail" aria-label="Nuevo correo" required autocomplete="email" />
         </div>
         <button type="submit">Enviar confirmación al nuevo correo</button>
@@ -49,7 +67,10 @@
     </section>
 
     <section class="card">
-      <h3>Verificación en dos pasos (2FA)</h3>
+      <div class="card-title">
+        <span th:replace="~{fragments/icons :: icon-2fa}"></span>
+        <h3>Verificación en dos pasos (2FA)</h3>
+      </div>
 
       <div class="subsection">
         <h4>Código por correo o SMS</h4>

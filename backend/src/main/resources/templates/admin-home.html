@@ -13,7 +13,10 @@
     <div class="admin-body-row">
       <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
       <main id="main" class="admin-content">
-        <h2>Bienvenido al panel de administración</h2>
+        <div class="card-title">
+          <span th:replace="~{fragments/icons :: icon-inicio}"></span>
+          <h2>Bienvenido al panel de administración</h2>
+        </div>
         <p class="field-hint">Elige una sección para continuar.</p>
         <div id="status" class="hidden" aria-live="polite"></div>
 
@@ -70,10 +73,13 @@
           /ui/admin — la única acción útil es volver, no una tarjeta que
           solo terminaría en un 403 real del backend.
         -->
-        <p id="no-access-message" class="hidden field-hint">
-          No tienes acceso a ninguna sección del panel con la sesión actual. Vuelve a
-          <a th:href="@{/ui/login(client_id=${clientId})}">iniciar sesión</a> con una cuenta de administrador.
-        </p>
+        <div id="no-access-message" class="empty-state hidden">
+          <span th:replace="~{fragments/icons :: illus-sin-acceso}"></span>
+          <p>
+            No tienes acceso a ninguna sección del panel con la sesión actual. Vuelve a
+            <a th:href="@{/ui/login(client_id=${clientId})}">iniciar sesión</a> con una cuenta de administrador.
+          </p>
+        </div>
       </main>
     </div>
   </div>

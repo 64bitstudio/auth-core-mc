@@ -9,9 +9,18 @@
 <body>
   <!-- No tenant theming: see password-reset-confirm.html for why. -->
   <a class="skip-link" href="#main">Saltar al contenido</a>
-  <header class="app-header"><h1>Verificar correo</h1></header>
+  <header class="app-header">
+    <span th:replace="~{fragments/icons :: icon-verificacion-correo}"></span>
+    <h1>Verificar correo</h1>
+  </header>
   <main id="main">
     <div id="status" class="is-loading" role="status" aria-live="polite">Verificando…</div>
+    <!-- Ticket 032: see api.js's showStatus() comment for why this
+         per-page <template> exists. -->
+    <template id="status-icons">
+      <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
+      <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
+    </template>
   </main>
 
   <script th:src="@{/js/api.js}"></script>

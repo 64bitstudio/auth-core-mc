@@ -10,16 +10,25 @@
   <a class="skip-link" href="#main">Saltar al contenido</a>
   <header class="app-header"><h1 th:text="${appName}">App</h1></header>
   <main id="main">
-    <h2>Iniciar sesión</h2>
+    <div class="card-title">
+      <span th:replace="~{fragments/icons :: icon-logins-totales}"></span>
+      <h2>Iniciar sesión</h2>
+    </div>
     <div id="status" class="hidden" aria-live="polite"></div>
+    <!-- Ticket 032: see api.js's showStatus() comment for why this
+         per-page <template> exists. -->
+    <template id="status-icons">
+      <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
+      <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
+    </template>
 
     <form id="login-form" novalidate>
       <div>
-        <label for="identifier">Correo o teléfono</label>
+        <label class="field-label" for="identifier"><span th:replace="~{fragments/icons :: icon-mi-cuenta}"></span>Correo o teléfono</label>
         <input type="text" id="identifier" name="identifier" aria-label="Correo o teléfono" required autocomplete="username" />
       </div>
       <div>
-        <label for="password">Contraseña</label>
+        <label class="field-label" for="password"><span th:replace="~{fragments/icons :: icon-password}"></span>Contraseña</label>
         <input type="password" id="password" name="password" aria-label="Contraseña" required autocomplete="current-password" />
       </div>
       <button type="submit">Entrar</button>

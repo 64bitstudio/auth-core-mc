@@ -14,14 +14,34 @@
       <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
       <main id="main" class="admin-content">
         <div class="section-header">
-          <h2>Todos los clientes</h2>
+          <div class="card-title">
+            <span th:replace="~{fragments/icons :: icon-clientes}"></span>
+            <h2>Todos los clientes</h2>
+          </div>
           <button type="button" id="open-create-tenant-btn">+ Añadir cliente</button>
         </div>
         <p class="field-hint">Solo visible para administradores de plataforma — un administrador de un cliente específico no puede ver esta lista.</p>
         <div id="status" class="hidden" aria-live="polite"></div>
+        <!--
+          Ticket 032: icon-exito/icon-error for AuthCoreUi.showStatus()
+          (api.js) — see that function's own comment in api.js for why this
+          per-page <template> exists instead of hardcoding SVG in the
+          shared JS file.
+        -->
+        <template id="status-icons">
+          <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
+          <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
+        </template>
 
         <section class="card" id="results" aria-live="polite">
-          <p id="empty-state" class="hidden">No hay clientes registrados todavía.</p>
+          <!-- Ticket 032: mismo patrón que el empty-state de admin-metrics
+               (ticket 028) — illus-vacio wireada aquí por primera vez desde
+               que el ticket 024 la creó (comentario original la daba por
+               hecho pero nunca se conectó a esta página). -->
+          <div id="empty-state" class="empty-state hidden">
+            <span th:replace="~{fragments/icons :: illus-vacio}"></span>
+            <p>No hay clientes registrados todavía.</p>
+          </div>
           <div class="table-scroll">
             <table id="tenants-table" class="hidden">
               <thead>

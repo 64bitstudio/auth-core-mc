@@ -13,8 +13,21 @@
     <div class="admin-body-row">
       <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
       <main id="main" class="admin-content">
-        <h2>Métricas de uso</h2>
+        <div class="card-title">
+          <span th:replace="~{fragments/icons :: icon-metricas}"></span>
+          <h2>Métricas de uso</h2>
+        </div>
         <div id="status" class="hidden" aria-live="polite"></div>
+        <!--
+          Ticket 032: icon-exito/icon-error for AuthCoreUi.showStatus()
+          (api.js) — see that function's own comment in api.js for why this
+          per-page <template> exists instead of hardcoding SVG in the
+          shared JS file.
+        -->
+        <template id="status-icons">
+          <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
+          <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
+        </template>
 
         <section class="card">
           <form id="filters-form" novalidate>

@@ -119,6 +119,27 @@ h2 {
   margin: 0 0 1.5rem;
 }
 
+/* Ticket 032: pairs a heading with its icon (fragments/icons.html) — same
+ * icon+text idea as admin.css's own .card-title, reused under the same
+ * class name here for consistency across both stylesheets. No
+ * margin-bottom of its own on purpose: every place this wraps a heading
+ * here already has its own spacing (h2's own margin-bottom above when
+ * used standalone at the top of a page, or section.card's own flex `gap`
+ * between children when wrapping a card's h3) — adding a second
+ * margin-bottom would double it. Wrapping a heading in a flex row doesn't
+ * collapse its own margin away (flex items never collapse margins with
+ * anything), so the visual gap after it is unchanged from before this
+ * ticket either way. */
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.card-title svg {
+  flex-shrink: 0;
+}
+
 form {
   display: flex;
   flex-direction: column;
@@ -130,6 +151,23 @@ label {
   font-size: 0.875rem;
   margin-bottom: 0.4rem;
   display: block;
+}
+
+/* Ticket 032: icon next to a field's <label> text — never inside the
+ * <input> itself (see fragments/icons.html's ticket-032 comment for why
+ * that was evaluated and rejected). 18px to match a label's own small
+ * font-size instead of a page/card title's native 24x24, same convention
+ * as admin.css's .chart-legend svg. */
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.field-label svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 input,
@@ -215,6 +253,24 @@ button.secondary:hover {
   font-size: 0.9rem;
   font-weight: 600;
   border: 1px solid transparent;
+  /* Ticket 032: AuthCoreUi.showStatus() (api.js) now prepends
+     icon-exito/icon-error next to the message — currentColor means each
+     icon already picks up this box's own success/error text color below
+     with no extra CSS, same free-recolor as every other line-icon in the
+     app. */
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+[role="status"] svg,
+[role="alert"] svg {
+  /* Same 18px scale as .field-label svg / admin.css's .chart-legend svg —
+     a status line is small inline text, not a page/card title, so the icon
+     matches that weight instead of sitting at its native 24x24. */
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 [role="alert"] {
