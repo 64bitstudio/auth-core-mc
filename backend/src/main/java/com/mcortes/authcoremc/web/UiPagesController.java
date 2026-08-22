@@ -3,7 +3,11 @@ package com.mcortes.authcoremc.web;
 import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.IdentityProviderType;
 import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.TenantIdentityProvider;
 import com.mcortes.authcoremc.oauth2.SocialRegistrationId;
+import com.mcortes.authcoremc.service.TenantIdentityProviderService;
+import java.util.EnumMap;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -72,7 +76,23 @@ public class UiPagesController {
     @SuppressWarnings("java:S1075")
     private static final String OAUTH2_REDIRECT_URI_PATH = "/login/oauth2/code/";
 
+    /**
+     * Ticket 039: Spring {@code oauth2Login()}'s own fixed convention path to
+     * *start* the redirect dance (as opposed to {@link
+     * #OAUTH2_REDIRECT_URI_PATH} above, which is where the provider comes
+     * back). Same "fixed by Spring, not environment-specific" reasoning as
+     * that constant — see its Javadoc for why {@code @SuppressWarnings}
+     * applies here too. Relative (no {@code app.base-url} prefix needed): a
+     * link rendered into the page's own HTML is resolved by the browser
+     * against the current origin, unlike the admin panel's copy-to-clipboard
+     * value above, which must be an absolute URL to paste into a third-party
+     * console.
+     */
+    @SuppressWarnings("java:S1075")
+    private static final String OAUTH2_AUTHORIZATION_URI_PATH = "/oauth2/authorization/";
+
     private final ClientContextResolver clientContextResolver;
+    private final TenantIdentityProviderService tenantIdentityProviderService;
 
     /**
      * Ticket 040: reuses {@code app.base-url} — the same property already
@@ -86,21 +106,61 @@ public class UiPagesController {
 
     public UiPagesController(
             ClientContextResolver clientContextResolver,
+            TenantIdentityProviderService tenantIdentityProviderService,
             @Value("${app.base-url:http://localhost:8080}") String appBaseUrl) {
         this.clientContextResolver = clientContextResolver;
+        this.tenantIdentityProviderService = tenantIdentityProviderService;
         this.appBaseUrl = appBaseUrl;
     }
 
     @GetMapping("/register")
     public String register(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        addSocialLoginAttributes(clientId, model);
         return "register";
     }
 
     @GetMapping("/login")
     public String login(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
+        addSocialLoginAttributes(clientId, model);
         return "login";
+    }
+
+    /**
+     * Ticket 039: where {@code SocialLoginSuccessHandler} (ticket 037)
+     * redirects to after a successful Google/Facebook login —
+     * {@code ?client_id=...&code=...}, the single-use exchange code. This
+     * page is themed (unlike {@link #socialLoginError}) because, unlike the
+     * three email-token confirmation pages, a resolvable {@code client_id}
+     * IS available here — same "theme whenever client_id is available"
+     * convention every other route in this controller already follows (see
+     * docs/COMPONENTES.md). The page itself does the actual code-for-tokens
+     * exchange client-side (POST /api/v1/oauth2/social-exchange, see
+     * social-callback.html) — this method only resolves theming, same as
+     * every other page here.
+     */
+    @GetMapping("/social-callback")
+    public String socialCallback(@RequestParam("client_id") String clientId, Model model) {
+        theme(clientId, model);
+        return "social-callback";
+    }
+
+    /**
+     * Ticket 039: the generic, unthemed error page {@code
+     * SocialLoginFailureHandler} (ticket 037) redirects to when there's no
+     * correlated {@code OAuth2AuthorizationRequest} to recover a {@code
+     * client_id} from (expired session, tampered/replayed callback, or
+     * broken tenant credentials — Diseño técnico, decisión 4). No {@code
+     * client_id} query param here on purpose: this route is reached with
+     * none, same "no tenant theming" pattern as {@code
+     * verify-email-confirm.html}/{@code change-email-confirm.html} (see
+     * their own Javadoc/comments) — {@code theme(...)} is deliberately never
+     * called.
+     */
+    @GetMapping("/social-login-error")
+    public String socialLoginError() {
+        return "social-login-error";
     }
 
     @GetMapping("/cuenta")
@@ -179,6 +239,45 @@ public class UiPagesController {
         return appBaseUrl
                 + OAUTH2_REDIRECT_URI_PATH
                 + SocialRegistrationId.of(identityClient.getId(), provider);
+    }
+
+    /**
+     * Ticket 039 (HU-1/HU-9, docs/definiciones/login-social-real.md): tells
+     * {@code login.html}/{@code register.html} whether to show each social
+     * button, and where each one links to. A provider's button is visible
+     * only if {@code TenantIdentityProviderService} reports it {@code
+     * enabled} for this tenant — never shown "just in case" only to fail at
+     * {@code /oauth2/authorization/**} (Decisión 4's fail-closed {@code
+     * null} on a disabled/unknown provider would otherwise surface as a
+     * confusing dead click). The link itself reuses {@link
+     * SocialRegistrationId#of} (same formatter {@link #oauth2RedirectUri}
+     * uses, ticket 044) so the {@code "{identityClientId}::{provider}"}
+     * format stays defined in exactly one place project-wide.
+     *
+     * <p>Deliberately calls {@code clientContextResolver.resolveClient}
+     * again rather than threading the {@link IdentityClient} already
+     * resolved by {@link #theme}: same accepted duplicate-lookup pattern
+     * {@link #adminIdentityProviders} already uses for the same reason (this
+     * method needs the {@code IdentityClient} itself for its id, {@code
+     * theme()} only resolves down to the {@code Tenant}).
+     */
+    private void addSocialLoginAttributes(String clientId, Model model) {
+        IdentityClient identityClient = clientContextResolver.resolveClient(clientId);
+        Map<IdentityProviderType, Boolean> enabledByProvider = new EnumMap<>(IdentityProviderType.class);
+        for (TenantIdentityProvider provider : tenantIdentityProviderService.list(identityClient.getTenant())) {
+            enabledByProvider.put(provider.getProvider(), provider.isEnabled());
+        }
+        model.addAttribute(
+                "googleEnabled", enabledByProvider.getOrDefault(IdentityProviderType.GOOGLE, false));
+        model.addAttribute(
+                "facebookEnabled", enabledByProvider.getOrDefault(IdentityProviderType.FACEBOOK, false));
+        model.addAttribute("googleAuthorizationUrl", oauth2AuthorizationUri(identityClient, IdentityProviderType.GOOGLE));
+        model.addAttribute(
+                "facebookAuthorizationUrl", oauth2AuthorizationUri(identityClient, IdentityProviderType.FACEBOOK));
+    }
+
+    private String oauth2AuthorizationUri(IdentityClient identityClient, IdentityProviderType provider) {
+        return OAUTH2_AUTHORIZATION_URI_PATH + SocialRegistrationId.of(identityClient.getId(), provider);
     }
 
     /**

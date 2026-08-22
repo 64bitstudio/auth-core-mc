@@ -325,6 +325,67 @@ nav.links a:hover {
   text-decoration: underline;
 }
 
+/* Ticket 039: divider between the password form and the social-login
+ * buttons on login.html/register.html — text-in-a-line pattern, no new
+ * color token needed (reuses --border/--muted already defined above). */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Ticket 039: "Iniciar sesión con Google/Facebook" — an <a> (real page
+ * navigation to /oauth2/authorization/**, not a form submit) styled like
+ * button.secondary (white background, bordered) rather than the page's
+ * filled primary button, which stays reserved for this page's own
+ * email/password submit action. */
+.social-login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.button-social {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.button-social:hover {
+  background: color-mix(in srgb, var(--primary-color) 6%, white);
+  border-color: color-mix(in srgb, var(--primary-color) 40%, var(--border-strong));
+}
+
+.button-social svg {
+  flex-shrink: 0;
+}
+
 section.card {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es" xmlns:th="http://www.thymeleaf.org" th:attr="style='--primary-color:' + ${primaryColor} + ';'">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title th:text="${appName} + ' — Iniciando sesión'">Iniciando sesión</title>
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+</head>
+<body>
+  <!--
+    Ticket 039 (docs/definiciones/login-social-real.md, Diseño técnico
+    decisión 5): destino de SocialLoginSuccessHandler tras un login social
+    exitoso — ?client_id=...&code=... (código de un solo uso, NUNCA un
+    token real en la URL). Mismo patrón "confirma automáticamente al
+    cargar" que verify-email-confirm.html/change-email-confirm.html, pero
+    SÍ con theming (a diferencia de esas dos): a diferencia de un enlace de
+    correo con solo un token, aquí SÍ hay un client_id resoluble en la URL
+    (UiPagesController#socialCallback ya lo usa para armar appName/
+    primaryColor), así que aplica la misma convención que cualquier otra
+    página de este controller: si hay client_id, se themea.
+  -->
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+  <header class="app-header"><h1 th:text="${appName}">App</h1></header>
+  <main id="main">
+    <div id="status" class="is-loading" role="status" aria-live="polite">Iniciando sesión…</div>
+    <!-- Ticket 032: see api.js's showStatus() comment for why this
+         per-page <template> exists. -->
+    <template id="status-icons">
+      <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
+      <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
+    </template>
+  </main>
+
+  <script th:src="@{/js/api.js}"></script>
+  <script>
+    (async () => {
+      const status = document.getElementById("status");
+      const code = new URLSearchParams(window.location.search).get("code");
+      if (!code) {
+        AuthCoreUi.showStatus(status, "Falta el código de inicio de sesión. Vuelve a intentarlo desde el login.", true);
+        return;
+      }
+      try {
+        // AuthCoreUi.call() ya adjunta X-Client-Id leyendo ?client_id= de
+        // esta misma URL (ver api.js) — el mismo mecanismo que usa cada
+        // otra llamada de este proyecto, ninguno nuevo.
+        const result = await AuthCoreUi.call("/api/v1/oauth2/social-exchange", { code: code });
+        AuthCoreUi.saveSession(result.user, result.tokens);
+        AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
+        window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+      } catch (err) {
+        AuthCoreUi.showStatus(status, err.message, true);
+      }
+    })();
+  </script>
+</body>
+</html>

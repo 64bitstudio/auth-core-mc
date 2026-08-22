@@ -3,13 +3,18 @@ package com.mcortes.authcoremc.web;
 import static org.mockito.Mockito.when;
 
 import com.mcortes.authcoremc.domain.IdentityClient;
+import com.mcortes.authcoremc.domain.IdentityProviderType;
 import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.TenantIdentityProvider;
 import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
 import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
 import com.mcortes.authcoremc.security.SecurityConfig;
+import com.mcortes.authcoremc.service.TenantIdentityProviderService;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -48,11 +53,31 @@ class UiPagesControllerTest {
     @MockitoBean
     private ClientContextResolver clientContextResolver;
 
+    // Ticket 039: register()/login() now also resolve which social buttons
+    // to show via this service — never stubbed to throw, only its list(...)
+    // return value varies per test.
+    @MockitoBean
+    private TenantIdentityProviderService tenantIdentityProviderService;
+
     private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+
+    // Ticket 039: same IdentityClient shape as
+    // rendersTheAdminIdentityProvidersPageWithTheAdminShellNotTenantTheming
+    // below — register()/login() now resolve the IdentityClient (not just
+    // the Tenant) to build each provider's /oauth2/authorization/** link.
+    private static final UUID IDENTITY_CLIENT_ID = UUID.fromString("3fa85f64-5717-4562-b3fc-2c963f66afa6");
+
+    private IdentityClient identityClient(Tenant tenant) {
+        IdentityClient client = new IdentityClient(tenant, "acme-web-app", "secret-hash", true, List.of());
+        ReflectionTestUtils.setField(client, "id", IDENTITY_CLIENT_ID);
+        return client;
+    }
 
     @Test
     void rendersTheRegisterPageThemedForTheResolvedTenant() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(identityClient(tenant));
+        when(tenantIdentityProviderService.list(tenant)).thenReturn(List.of());
 
         mvc.get()
                 .uri("/ui/register")
@@ -62,7 +87,11 @@ class UiPagesControllerTest {
                 .hasStatus(200)
                 .bodyText()
                 .contains("Acme App")
-                .contains("#0057FF");
+                .contains("#0057FF")
+                // Ticket 039: neither provider is enabled for this tenant in
+                // this test, so neither social button should render.
+                .doesNotContain("Iniciar sesión con Google")
+                .doesNotContain("Iniciar sesión con Facebook");
     }
 
     @Test
@@ -73,6 +102,8 @@ class UiPagesControllerTest {
     @Test
     void rendersTheLoginPageThemedForTheResolvedTenant() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(identityClient(tenant));
+        when(tenantIdentityProviderService.list(tenant)).thenReturn(List.of());
 
         mvc.get()
                 .uri("/ui/login")
@@ -81,29 +112,104 @@ class UiPagesControllerTest {
                 .assertThat()
                 .hasStatus(200)
                 .bodyText()
-                .contains("Acme App");
+                .contains("Acme App")
+                .doesNotContain("Iniciar sesión con Google")
+                .doesNotContain("Iniciar sesión con Facebook");
     }
 
     @Test
-    void rendersTheCuentaPageThemedForTheResolvedTenant() {
+    void showsTheGoogleButtonOnLoginOnlyWhenGoogleIsEnabledForTheTenant() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        IdentityClient client = identityClient(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(client);
+        TenantIdentityProvider google = new TenantIdentityProvider(tenant, IdentityProviderType.GOOGLE);
+        google.configure("google-client-id", "encrypted-secret");
+        when(tenantIdentityProviderService.list(tenant)).thenReturn(List.of(google));
 
         mvc.get()
-                .uri("/ui/cuenta")
+                .uri("/ui/login")
                 .param("client_id", "acme-web-app")
                 .exchange()
                 .assertThat()
                 .hasStatus(200)
                 .bodyText()
-                .contains("Acme App");
+                .contains("Iniciar sesión con Google")
+                // Ticket 039: link built from SocialRegistrationId.of(...), the
+                // same "{identityClientId}::{provider}" formatter ticket 044
+                // already uses for admin-identity-providers.html.
+                .contains("/oauth2/authorization/" + client.getId() + "::google")
+                .doesNotContain("Iniciar sesión con Facebook");
     }
 
     @Test
-    void rendersThePasswordResetRequestPageThemedForTheResolvedTenant() {
+    void showsTheFacebookButtonOnRegisterOnlyWhenFacebookIsEnabledForTheTenant() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        IdentityClient client = identityClient(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(client);
+        TenantIdentityProvider facebook = new TenantIdentityProvider(tenant, IdentityProviderType.FACEBOOK);
+        facebook.configure("fb-client-id", "encrypted-secret");
+        when(tenantIdentityProviderService.list(tenant)).thenReturn(List.of(facebook));
+
+        mvc.get()
+                .uri("/ui/register")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("Iniciar sesión con Facebook")
+                .contains("/oauth2/authorization/" + client.getId() + "::facebook")
+                .doesNotContain("Iniciar sesión con Google");
+    }
+
+    @Test
+    void aDisabledProviderNeverShowsItsButtonEvenIfPreviouslyConfigured() {
+        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(identityClient(tenant));
+        TenantIdentityProvider google = new TenantIdentityProvider(tenant, IdentityProviderType.GOOGLE);
+        google.configure("google-client-id", "encrypted-secret");
+        google.disable();
+        when(tenantIdentityProviderService.list(tenant)).thenReturn(List.of(google));
+
+        mvc.get()
+                .uri("/ui/login")
+                .param("client_id", "acme-web-app")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .doesNotContain("Iniciar sesión con Google");
+    }
+
+    @Test
+    void socialCallbackPageWithoutClientIdIsABadRequest() {
+        mvc.get().uri("/ui/social-callback").exchange().assertThat().hasStatus(400);
+    }
+
+    @Test
+    void rendersTheSocialLoginErrorPageWithoutNeedingAClientIdAndWithoutTenantTheming() {
+        mvc.get()
+                .uri("/ui/social-login-error")
+                .exchange()
+                .assertThat()
+                .hasStatus(200)
+                .bodyText()
+                .contains("No se pudo iniciar sesión")
+                .doesNotContain("Acme App");
+    }
+
+    // Ticket 039: consolidated per SonarQube java:S5976 ("Replace these 3
+    // tests with a single Parameterized one") — social-callback joined the
+    // two pre-existing individual tests below (cuenta, password-reset
+    // request) that shared the exact same shape (theme a page from a
+    // resolved tenant, assert 200 + the tenant's own appName renders).
+    @ParameterizedTest
+    @ValueSource(strings = {"/ui/social-callback", "/ui/cuenta", "/ui/password-reset/request"})
+    void rendersThemedPagesForTheResolvedTenant(String path) {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
 
         mvc.get()
-                .uri("/ui/password-reset/request")
+                .uri(path)
                 .param("client_id", "acme-web-app")
                 .exchange()
                 .assertThat()

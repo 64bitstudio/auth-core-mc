@@ -12,13 +12,18 @@ Un servidor de autorización OAuth2 (Auth0, Keycloak, Spring Authorization Serve
 
 | Pantalla | Ruta | Necesita `client_id` | Qué hace |
 |---|---|---|---|
-| Registro | `/ui/register` | Sí (query param) | Formulario email/teléfono + password + nombre/apellidos → `POST /api/v1/register` |
-| Login | `/ui/login` | Sí | Formulario identifier + password → `POST /api/v1/login`; guarda la sesión de conveniencia (ver abajo) y redirige a `/ui/cuenta` |
+| Registro | `/ui/register` | Sí (query param) | Formulario email/teléfono + password + nombre/apellidos → `POST /api/v1/register`; botones "Iniciar sesión con Google/Facebook" (ticket `039`, ver abajo) |
+| Login | `/ui/login` | Sí | Formulario identifier + password → `POST /api/v1/login`; guarda la sesión de conveniencia (ver abajo) y redirige a `/ui/cuenta`; botones "Iniciar sesión con Google/Facebook" (ticket `039`, ver abajo); lee `?error=social_login_cancelled` para mostrar el mismo `showStatus()` cuando el usuario cancela el consentimiento social |
 | Mi cuenta | `/ui/cuenta` | Sí | Hub post-login/registro: estado de verificación de correo + botón de reenvío, establecer contraseña (solo cuenta social-only, ticket `041`), cambio de correo, OTP (request/verify), enroll/verify de TOTP, selector de método de 2FA preferido |
 | Olvidé mi contraseña | `/ui/password-reset/request` | Sí | Formulario de identifier → `POST /api/v1/password-reset/request` (mismo mensaje siempre, ver `API.md`) |
 | Restablecer contraseña | `/ui/password-reset/confirm` | No (usa `token` de la URL) | Formulario de nueva contraseña |
 | Verificar correo | `/ui/verify-email/confirm` | No (usa `token`) | Confirma automáticamente al cargar |
 | Confirmar cambio de correo | `/ui/change-email/confirm` | No (usa `token`) | Confirma automáticamente al cargar |
+| Canje de login social | `/ui/social-callback` | Sí | Ticket `039` — destino de `SocialLoginSuccessHandler` (`?client_id=...&code=...`); al cargar hace `POST /api/v1/oauth2/social-exchange` con el código y, en éxito, `AuthCoreUi.saveSession(...)` + redirect a `/ui/cuenta`. Mismo patrón "confirma automáticamente al cargar" que las páginas de confirmación por token, pero SÍ themed (hay `client_id` resoluble) |
+| Error de login social | `/ui/social-login-error` | No | Ticket `039` — destino genérico de `SocialLoginFailureHandler` cuando no hay `client_id` recuperable (sesión expirada/callback manipulado, Decisión 4 de `login-social-real.md`). Sin theming, mismo motivo que las páginas de confirmación por token |
+
+### Botones de login social (`login.html`/`register.html`, ticket `039`)
+Cada botón ("Iniciar sesión con Google"/"...Facebook") es visible solo si `TenantIdentityProviderService.list(tenant)` reporta ese proveedor `enabled` para el tenant resuelto — `UiPagesController` arma dos flags (`googleEnabled`/`facebookEnabled`) y dos URLs (`googleAuthorizationUrl`/`facebookAuthorizationUrl`, formateadas con `SocialRegistrationId.of(...)`, mismo formateador que ticket `044` ya usa para el `redirect_uri` del panel admin) y los pasa al modelo. Un proveedor deshabilitado nunca muestra su botón — evita un clic muerto contra `/oauth2/authorization/**`, que fallaría cerrado (Decisión 4) sin dar ninguna pista de por qué.
 
 ## `client_id` como query param, no como header — y por qué las páginas de confirmación no llevan theming
 La API JSON usa el header `X-Client-Id` (ticket `002`), pero una navegación de página completa (escribir una URL, dar clic en un enlace, abrir un correo) no puede fijar un header propio — solo el JS que corre DESPUÉS de cargar la página puede hacerlo (y lo hace, para sus propias llamadas a `fetch`). Por eso toda página que necesita theming lleva `?client_id=...` en su URL, igual que ya hace `/oauth2/authorize` (ticket `007`) por la misma razón.
