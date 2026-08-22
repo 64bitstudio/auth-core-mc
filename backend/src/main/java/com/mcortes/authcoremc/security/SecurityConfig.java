@@ -88,6 +88,11 @@ public class SecurityConfig {
                                     // permitAll doesn't overlap with that chain at all.
                                     "/oauth2/authorization/**",
                                     "/login/oauth2/code/**",
+                                    // Ticket 038: canjea el código de un solo uso por tokens reales —
+                                    // público por definición (es el paso que OTORGA la sesión, no uno
+                                    // que la requiere). El código de un solo uso es la única credencial
+                                    // válida aquí, ver SocialExchangeController.
+                                    "/api/v1/oauth2/social-exchange",
                                     // Requested by every browser on every page load — never something
                                     // to gate behind authentication.
                                     "/favicon.ico",

@@ -49,8 +49,15 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Component
 public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
 
-    /** Ticket 038 consumes tokens minted under this purpose via RedisTokenStore.consume(...). */
-    static final String EXCHANGE_PURPOSE = "social-login-exchange";
+    /**
+     * Ticket 038's {@code SocialExchangeController} consumes codes minted
+     * under this purpose via {@code RedisTokenStore.consume(...)} — public
+     * (not package-private) specifically so that controller, which lives in
+     * {@code com.mcortes.authcoremc.web}, can reference this exact constant
+     * instead of duplicating the literal string (one source of truth, never
+     * two copies that could drift apart).
+     */
+    public static final String EXCHANGE_PURPOSE = "social-login-exchange";
 
     private static final Duration EXCHANGE_CODE_TTL = Duration.ofSeconds(60);
 
