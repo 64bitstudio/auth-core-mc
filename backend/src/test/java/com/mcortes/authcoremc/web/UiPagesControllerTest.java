@@ -2,10 +2,13 @@ package com.mcortes.authcoremc.web;
 
 import static org.mockito.Mockito.when;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
 import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
 import com.mcortes.authcoremc.security.SecurityConfig;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -13,6 +16,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
 // See RegistrationControllerTest for why SecurityConfig must be imported explicitly here.
@@ -139,6 +143,10 @@ class UiPagesControllerTest {
     @Test
     void rendersTheAdminIdentityProvidersPageWithTheAdminShellNotTenantTheming() {
         when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        UUID identityClientId = UUID.fromString("3fa85f64-5717-4562-b3fc-2c963f66afa6");
+        IdentityClient identityClient = new IdentityClient(tenant, "acme-web-app", "secret-hash", true, List.of());
+        ReflectionTestUtils.setField(identityClient, "id", identityClientId);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(identityClient);
 
         mvc.get()
                 .uri("/ui/admin/identity-providers")
@@ -152,11 +160,13 @@ class UiPagesControllerTest {
                 // Ticket 020: the admin panel has its own fixed identity now —
                 // it must NOT render the tenant's own branding anymore.
                 .doesNotContain("Acme App")
-                // Ticket 040: the redirect_uri block — built from the
-                // app.base-url test default (see application.properties) plus
-                // Spring's own oauth2Login() callback path convention, and
-                // shown once per provider card since both cards render it.
-                .contains("http://localhost:8080/login/oauth2/code/{registrationId}");
+                // Ticket 044: one CONCRETE, resolved value per provider — the
+                // literal "{registrationId}" placeholder ticket 040 originally
+                // showed here would never match Google/Facebook's real
+                // redirect_uri validation (exact string match, no templates).
+                .contains("http://localhost:8080/login/oauth2/code/" + identityClientId + "::google")
+                .contains("http://localhost:8080/login/oauth2/code/" + identityClientId + "::facebook")
+                .doesNotContain("{registrationId}");
     }
 
     @Test

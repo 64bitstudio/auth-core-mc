@@ -528,5 +528,15 @@ Nace de `docs/definiciones/login-social-real.md` (HU-5, agregada al alcance tras
 - **3 violaciones nuevas de Quality Gate (`java:S5778`) encontradas y corregidas antes de abrir el PR** — mismo patrón ya visto en el ticket 035 (lambdas de `assertThatThrownBy` con más de una invocación que podría lanzar).
 - **Hallazgo de mejora continua, no bloqueante:** `/ui/cuenta` mezclaba dos modelos de confianza (userId del cliente vs. JWT real) sin ninguna guía explícita de cuándo usar cada uno — candidato a criterio escrito para que el próximo endpoint sensible de esa página no lo redescubra desde cero.
 
+## Ticket 044: fix — `admin-identity-providers.html` mostraba el `redirect_uri` sin resolver
+
+Hallazgo real encontrado al intentar registrar el `redirect_uri` de verdad en Google Cloud Console (paso operativo del ticket 043) — no un ejercicio hipotético. Google exige coincidencia **exacta** del `redirect_uri`, sin plantillas ni wildcards; el ticket 040 le mostraba al admin `{registrationId}` **literal, sin resolver**, que nunca iba a hacer match contra la request real. Ver la corrección completa en `docs/definiciones/login-social-real.md` (Decisión 1 / OQ-1, actualizada).
+
+- `UiPagesController.adminIdentityProviders(...)` ahora resuelve el `IdentityClient` real del tenant (`clientContextResolver.resolveClient`, no solo `resolveTenant`) y arma **dos** valores concretos, uno por proveedor, usando el nuevo formateador `SocialRegistrationId.of(...).toString()` (inverso de `SocialRegistrationId.parse`, mismo formateador que deberá reutilizar el ticket 039 al construir los links de `/oauth2/authorization/**` — mismo `"::"`/provider-en-minúsculas en un solo lugar).
+- `admin-identity-providers.html`: dos atributos (`oauth2RedirectUriGoogle`/`oauth2RedirectUriFacebook`), texto corregido ("específico de este cliente" en vez de "el mismo para todos los tenants").
+- `docs/definiciones/login-social-real.md` corregido — no se cierra en silencio: la Decisión 1 original describía bien el patrón de ruta, pero la conclusión de "un valor compartido" para la UI era incorrecta.
+- Test de `UiPagesControllerTest` actualizado: confirma los dos valores resueltos (con UUID real) y confirma explícitamente que `{registrationId}` ya NO aparece sin resolver en el HTML.
+- 308/308 tests en verde. Quality Gate de SonarQube verificado en local antes del PR: OK.
+
 ## Estado de este documento
-_Última actualización: al implementar la tarea `037` (`SocialLoginSuccessHandler`/`SocialLoginFailureHandler`, todavía en `/in-process` — pendiente de PR/merge). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034 son ajustes puntuales posteriores; 035, 036, 037, 040 y 041 son tickets de la épica de login social real (`docs/definiciones/login-social-real.md`) — 038 (canje por tokens reales) y 039 (UI) siguen pendientes._
+_Última actualización: al cerrar la tarea `044` (fix del `redirect_uri` sin resolver). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034 son ajustes puntuales posteriores; 035, 036, 037, 040, 041 y 044 son tickets de la épica de login social real (`docs/definiciones/login-social-real.md`) — 038 (canje por tokens reales), 039 (UI) y 045 (2FA obligatorio real) siguen pendientes._

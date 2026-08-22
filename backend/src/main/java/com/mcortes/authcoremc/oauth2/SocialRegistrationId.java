@@ -33,6 +33,24 @@ public final class SocialRegistrationId {
         this.provider = provider;
     }
 
+    /**
+     * Ticket 044: the inverse of {@link #parse} — builds the exact
+     * {@code registrationId} string for a given tenant's {@code
+     * IdentityClient} + provider. Used to show an admin the real, concrete
+     * {@code redirect_uri} to register in Google/Facebook's own console
+     * (see {@code UiPagesController#adminIdentityProviders}) — one
+     * formatter, so the {@code "::"}/lowercase-provider format only has to
+     * be right in this one place, same reasoning as {@link #parse}.
+     */
+    public static SocialRegistrationId of(UUID identityClientId, IdentityProviderType provider) {
+        return new SocialRegistrationId(identityClientId, provider);
+    }
+
+    @Override
+    public String toString() {
+        return identityClientId + SEPARATOR + provider.name().toLowerCase(Locale.ROOT);
+    }
+
     public static Optional<SocialRegistrationId> parse(String registrationId) {
         if (registrationId == null) {
             return Optional.empty();

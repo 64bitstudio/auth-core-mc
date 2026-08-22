@@ -14,7 +14,7 @@ Permitir que un usuario final de cualquier tenant se autentique con su cuenta de
 | Rol | Qué hace en este cambio |
 |---|---|
 | **Usuario final** (de un tenant cualquiera) | Hace clic en "Iniciar sesión con Google/Facebook" desde `/ui/login` o `/ui/register`, se autentica en el proveedor, vuelve autenticado en `auth-core-mc`. |
-| **Admin de tenant** (`TENANT_ADMIN`) | Ya configura `client_id`/`client_secret` (ticket 006/029) — sin cambio de rol, pero gana la responsabilidad de registrar el `redirect_uri` (único, compartido por todos los tenants — ver Decisiones resueltas) en su propia consola de Google/Facebook. |
+| **Admin de tenant** (`TENANT_ADMIN`) | Ya configura `client_id`/`client_secret` (ticket 006/029) — sin cambio de rol, pero gana la responsabilidad de registrar el `redirect_uri` **específico de su cliente** (ver corrección del ticket 044 en Decisiones resueltas) en su propia consola de Google/Facebook. |
 | **Admin de plataforma** (`PLATFORM_ADMIN`) | Sin rol nuevo. |
 
 No se identifican roles nuevos. **Apple queda fuera de alcance** — ya rechazado explícitamente desde el ticket 006 por falta de membresía de Apple Developer Program.
@@ -91,7 +91,7 @@ Decisiones tomadas por el `architect`, confirmadas contra el código real del re
 ### 1. Cómo se preserva el tenant a través de redirect→proveedor→callback
 **Decisión:** el `registrationId` de Spring Security codifica tenant + proveedor: `registrationId = "{identityClient.id}::{provider}"` (UUID interno). El link "Entrar con Google" arma `/oauth2/authorization/{id}::google`. Google/Facebook devuelven ese `registrationId` literal en la URL de callback — no depende de nada en sesión más allá del `state` anti-CSRF que Spring OAuth2 Client ya gestiona.
 
-**`redirect_uri` — confirmado: uno solo, compartido por todos los tenants.** Cada tenant registra la misma URL de callback en su propia consola de Google/Facebook (con `{registrationId}` como parte variable de la ruta, no del host). No hace falta generar/mostrar una URL distinta por tenant.
+**`redirect_uri` — la plantilla de ruta es la misma para todos los tenants; el valor concreto a registrar es único por tenant (corregido en el ticket 044).** La decisión original de este documento ("un solo valor compartido") describía bien el *patrón* de la ruta (`{baseUrl}/login/oauth2/code/{registrationId}`) pero se aplicó mal a la UI del ticket 040: Google/Facebook exigen coincidencia **exacta** del `redirect_uri` — sin plantillas ni wildcards — así que mostrarle al admin el `{registrationId}` literal, sin resolver, nunca iba a hacer match contra la request real. Cada tenant ya tiene su propio client OAuth (`TenantIdentityProvider`) en Google/Facebook, así que registrar un valor exacto y distinto por tenant (con su propio `identityClientId` ya resuelto) es correcto y esperado — no es una regresión del diseño, es cómo siempre tuvo que funcionar. `admin-identity-providers.html` ahora muestra el valor ya resuelto, uno por proveedor.
 
 **Alternativas descartadas:** guardar el tenant en sesión de servidor con un `registrationId` fijo compartido (rompe con pestañas de tenants distintos abiertas a la vez); inyectar tenant en el `state` (requiere reemplazar componentes internos de Spring sin necesidad).
 
@@ -278,7 +278,7 @@ Todas las preguntas abiertas de la primera versión de este documento, con VoBo 
 | # | Pregunta | Decisión |
 |---|---|---|
 | OQ-0 | Motivo de negocio | Paridad competitiva — otros proveedores ya lo ofrecen. |
-| OQ-1 | `redirect_uri` compartido vs. por tenant | Uno solo, compartido por todos los tenants. |
+| OQ-1 | `redirect_uri` compartido vs. por tenant | Misma plantilla de ruta, valor concreto único por tenant — **corregido en el ticket 044** tras descubrir que Google/Facebook no aceptan wildcards. |
 | OQ-1 (sin `client_id`) | Qué se muestra sin `client_id` | Ya resuelto por comportamiento existente: 400 (`client_id` ya es `@RequestParam` obligatorio). |
 | OQ-2 / Decisión §3 | Vinculación automática | Sí, solo si el proveedor reporta el correo verificado. |
 | OQ-3 | Mismo correo, dos tenants | Confirmado: cuentas independientes, sin vínculo. |
