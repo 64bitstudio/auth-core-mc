@@ -7,6 +7,8 @@ import static org.mockito.Mockito.when;
 
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
+import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
+import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
 import com.mcortes.authcoremc.security.SecurityConfig;
 import com.mcortes.authcoremc.service.EmailVerificationService;
 import com.mcortes.authcoremc.service.InvalidTokenException;
@@ -38,6 +40,14 @@ class EmailVerificationControllerTest {
     // bean to build the filter chain at all — never stubbed, just satisfies DI.
     @MockitoBean
     private ClientRegistrationRepository clientRegistrationRepository;
+
+    // Ticket 037: SecurityConfig's .oauth2Login(...) needs the Social*Handler
+    // beans to build the filter chain at all — never stubbed, just satisfies DI.
+    @MockitoBean
+    private SocialLoginSuccessHandler socialLoginSuccessHandler;
+
+    @MockitoBean
+    private SocialLoginFailureHandler socialLoginFailureHandler;
 
     @MockitoBean
     private ClientContextResolver clientContextResolver;
