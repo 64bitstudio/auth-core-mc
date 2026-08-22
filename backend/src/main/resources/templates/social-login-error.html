@@ -19,14 +19,16 @@
     resolución de tenant), así que no hay ningún appName/primaryColor que
     inyectar — usa los valores por defecto de app.css tal cual.
 
-    Decisión tomada al implementar, marcada para revisión del Product
-    Owner al cerrar el ticket: "enlace de vuelta a un login neutro" no
-    puede ser un link a /ui/login?client_id=... (no hay ningún client_id
-    disponible aquí) — /ui/login siempre exige client_id como
-    @RequestParam obligatorio (comportamiento ya existente y aceptado,
-    HU-4). El enlace de abajo apunta a /ui/login sin query param: mismo
-    400 ya documentado como aceptado en HU-4 si se usa sin haber llegado
-    ahí con un client_id propio, no una regresión nueva introducida aquí.
+    Revisado y corregido por el orquestador al cerrar el ticket:
+    "enlace de vuelta a un login neutro" no puede ser un link real —
+    /ui/login siempre exige client_id como @RequestParam obligatorio
+    (comportamiento ya existente y aceptado, HU-4), y esta página nunca
+    tiene uno disponible (Decisión 4 es explícita en que este camino
+    nunca debe tocar resolución de tenant). Un link a /ui/login sin
+    query param garantizaría un 400 al hacer clic — peor que no ofrecer
+    ningún link. En su lugar, texto que guía sin prometer un destino que
+    no funciona: vuelve a la aplicación/sitio donde comenzó el login, no
+    a esta página huérfana sin tenant.
   -->
   <a class="skip-link" href="#main">Saltar al contenido</a>
   <header class="app-header">
@@ -36,11 +38,9 @@
   <main id="main">
     <div role="alert" class="error">
       No pudimos completar tu inicio de sesión. Esto puede pasar si la sesión expiró o si el
-      enlace ya no es válido. Vuelve a intentarlo desde el inicio.
+      enlace ya no es válido. Vuelve a la aplicación o sitio donde comenzaste el inicio de sesión
+      e inténtalo de nuevo.
     </div>
-    <nav class="links">
-      <a th:href="@{/ui/login}">Volver al inicio de sesión</a>
-    </nav>
   </main>
 </body>
 </html>
