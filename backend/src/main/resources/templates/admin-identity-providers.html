@@ -36,6 +36,35 @@
             <h3>Google</h3>
           </div>
           <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
+          <!-- Ticket 040: nace de docs/definiciones/login-social-real.md (Diseño
+               técnico, decisión 1). El redirect_uri es UN SOLO valor, igual para
+               todos los tenants — no se genera ni se muestra uno distinto por
+               cliente (a propósito: evita que un admin piense que necesita un
+               valor propio y registre algo distinto por error). El backend lo
+               arma en UiPagesController a partir de `app.base-url` (misma
+               property ya usada por VerificationLinkFactory/AuthorizationServerConfig
+               para URLs absolutas de esta app) + la ruta de callback fija que
+               Spring OAuth2 Client espera por convención propia:
+               `/login/oauth2/code/{registrationId}`. `{registrationId}` se
+               deja literal a propósito (no un placeholder vacío) — en tiempo
+               de ejecución el propio flujo lo arma como
+               `{identityClientId}::{provider}`, pero eso es un detalle
+               interno de este servicio, no algo que el admin del tenant
+               tenga que resolver o sustituir: registra la URL completa tal
+               como se muestra aquí. Mismo bloque, mismo valor, en ambas
+               tarjetas (Google/Facebook) — el patrón no depende del
+               proveedor. -->
+          <div class="redirect-uri-block">
+            <p class="field-hint">
+              <strong>Redirect URI a registrar en la consola de Google:</strong>
+              este valor es el mismo para todos los clientes/tenants — no generes ni
+              registres uno distinto para este cliente en particular.
+            </p>
+            <div class="copy-field">
+              <input type="text" id="google-redirect-uri" readonly aria-label="Redirect URI de Google a copiar" class="redirect-uri-value" th:value="${oauth2RedirectUri}" />
+              <button type="button" class="secondary copy-btn" aria-label="Copiar redirect URI de Google" data-copy-target="google-redirect-uri">Copiar</button>
+            </div>
+          </div>
           <!-- Ticket 029: evaluated the .form-grid/.span-2 two-column layout
                already used by the tenant edit modal (admin-tenants.html) and
                decided against it here. That modal's 2 columns pay off
@@ -74,6 +103,19 @@
             <h3>Facebook</h3>
           </div>
           <p class="provider-status">Estado: <span class="provider-status-value">cargando…</span></p>
+          <!-- Ticket 040: mismo bloque/valor que la tarjeta de Google — ver el
+               comentario ahí para el porqué completo. -->
+          <div class="redirect-uri-block">
+            <p class="field-hint">
+              <strong>Redirect URI a registrar en la consola de Facebook:</strong>
+              este valor es el mismo para todos los clientes/tenants — no generes ni
+              registres uno distinto para este cliente en particular.
+            </p>
+            <div class="copy-field">
+              <input type="text" id="facebook-redirect-uri" readonly aria-label="Redirect URI de Facebook a copiar" class="redirect-uri-value" th:value="${oauth2RedirectUri}" />
+              <button type="button" class="secondary copy-btn" aria-label="Copiar redirect URI de Facebook" data-copy-target="facebook-redirect-uri">Copiar</button>
+            </div>
+          </div>
           <form class="provider-form" id="facebook-provider-form" novalidate>
             <div>
               <label for="facebook-client-id">Client ID</label>
@@ -159,6 +201,29 @@
           loadProviders();
         } catch (err) {
           AuthCoreUi.showStatus(status, err.message, true);
+        }
+      });
+    });
+
+    // Ticket 040: no existía ningún patrón de "copiar al portapapeles" en el
+    // proyecto todavía — este es simple, sin dependencias externas, mismo
+    // criterio que el resto del JS de esta página (fetch nativo, sin
+    // framework). Usa el mismo #status/showStatus() ya presente en esta
+    // página para el resultado, éxito o fallo (ej. navigator.clipboard
+    // requiere un contexto seguro — https o localhost — y puede no estar
+    // disponible en navegadores viejos o si el usuario lo bloqueó).
+    document.querySelectorAll(".copy-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const input = document.getElementById(btn.dataset.copyTarget);
+        try {
+          await navigator.clipboard.writeText(input.value);
+          AuthCoreUi.showStatus(status, "Redirect URI copiado al portapapeles.", false);
+        } catch (err) {
+          AuthCoreUi.showStatus(
+            status,
+            "No se pudo copiar automáticamente — selecciona el valor y cópialo manualmente.",
+            true,
+          );
         }
       });
     });

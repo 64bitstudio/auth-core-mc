@@ -141,7 +141,12 @@ class UiPagesControllerTest {
                 .contains("Proveedores de login social")
                 // Ticket 020: the admin panel has its own fixed identity now —
                 // it must NOT render the tenant's own branding anymore.
-                .doesNotContain("Acme App");
+                .doesNotContain("Acme App")
+                // Ticket 040: the redirect_uri block — built from the
+                // app.base-url test default (see application.properties) plus
+                // Spring's own oauth2Login() callback path convention, and
+                // shown once per provider card since both cards render it.
+                .contains("http://localhost:8080/login/oauth2/code/{registrationId}");
     }
 
     @Test
