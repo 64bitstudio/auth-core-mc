@@ -444,5 +444,16 @@ Segundo ajuste puntual post-epic (fase 2 de UI cerrada en el 030), en paralelo c
 - **Decisiones de alcance explícitas del `ux-ui-designer`, no implementadas a propósito:** logos de proveedor (Google/Facebook) en la leyenda de `admin-metrics` — descartado porque `byProvider` incluye "PASSWORD" (sin logo propio) y exigiría lógica de fallback en `charts.js`, fuera del alcance de un cambio puramente de iconografía.
 - 260/260 tests en verde (sin tests nuevos — cambio de presentación puro).
 
+## Ticket 033: hot-reload de dev — templates Thymeleaf y recursos estáticos sin reiniciar el JVM
+
+Ticket de tooling puro (sin cambio de producto), nacido de un hallazgo real durante el ticket 031. Ejecutado con delegación real al rol `backend-dev`.
+
+- `spring-boot-devtools` agregado como `developmentOnly` en `backend/build.gradle` (mismo patrón que `spring-boot-docker-compose`, ya existente).
+- **Decisión clave: no hizo falta ninguna config explícita ni separación de perfiles `dev`/`prod`** (el proyecto solo tiene un `application.properties`) — devtools aplica automáticamente sus "property defaults" (`spring.thymeleaf.cache=false` y equivalentes) en cuanto está en el classpath de `bootRun`, confirmado en el log real. Aislamiento de producción/tests verificado explícitamente (jar empaquetado y `testRuntimeClasspath` inspeccionados, sin devtools en ninguno de los dos) — no solo asumido por la convención de `developmentOnly`.
+- Verificado en vivo con `bootRun` real: edición de prueba en `templates/login.html` y `static/css/app.css`, `./gradlew processResources`, log de devtools reiniciando el contexto (mismo PID, sin matar el proceso), cambio confirmado vía `curl` sin reinicio manual.
+- `docs/README.md` actualizado con el matiz práctico: sin IDE con auto-build, hace falta `./gradlew processResources` (o `-t` en continuo) tras cada edición para que devtools la detecte.
+- **Hallazgo operativo real durante la propia verificación:** un proceso `bootRun` viejo (previo al cambio) seguía ocupando el puerto 8080 — detectado y detenido antes de verificar con la config actualizada. Propuesta de mejora continua (no implementada): un check en el flujo de "arranca la app" que detecte un puerto ya ocupado antes de lanzar `bootRun`.
+- `./gradlew clean test`: todo en verde.
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `032` (iconografía e ilustraciones — resto del panel admin y páginas de usuario final). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031 y 032 son ajustes puntuales posteriores, no parte de esa fase._
+_Última actualización: al cerrar la tarea `033` (hot-reload de dev). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-033 son ajustes puntuales posteriores, no parte de esa fase._
