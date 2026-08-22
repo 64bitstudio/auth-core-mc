@@ -13,8 +13,17 @@
     <div class="admin-body-row">
       <div th:replace="~{fragments/admin-shell :: sidenav(active=${active})}"></div>
       <main id="main" class="admin-content">
-        <h2>Proveedores de login social</h2>
+        <div class="card-title">
+          <span th:replace="~{fragments/icons :: icon-proveedores}"></span>
+          <h2>Proveedores de login social</h2>
+        </div>
         <div id="status" class="hidden" aria-live="polite"></div>
+        <!-- Ticket 032: see api.js's showStatus() comment for why this
+             per-page <template> exists. -->
+        <template id="status-icons">
+          <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
+          <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
+        </template>
         <p class="field-hint">
           Configura las credenciales de Google y Facebook para este cliente. El secreto nunca se
           vuelve a mostrar una vez guardado — para cambiarlo, ingresa uno nuevo completo. Apple no

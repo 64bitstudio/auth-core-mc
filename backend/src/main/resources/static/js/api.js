@@ -64,7 +64,6 @@ const AuthCoreUi = (() => {
   }
 
   function showStatus(el, message, isError) {
-    el.textContent = message;
     // "is-loading" is cleared here too (not just by withBusy below) so the
     // two token-confirmation pages (verify-email, change-email) — which
     // show a spinner on page load, before any button/form exists to attach
@@ -75,6 +74,32 @@ const AuthCoreUi = (() => {
     if (!isError) {
       el.classList.add("success");
     }
+
+    // Ticket 032: icon-exito/icon-error next to the message. This file is a
+    // shared, page-agnostic helper with no Thymeleaf access of its own — it
+    // can't render fragments/icons.html directly, and the project's
+    // established convention (see icons.html) is to never hardcode SVG
+    // markup as a JS string literal. Instead, each of the pages that call
+    // showStatus() renders both icons once, server-side, into an inert
+    // <template id="status-icons"> (see e.g. login.html) — read here by id
+    // and cloned per call. Kept as a same-signature DOM lookup rather than
+    // a new parameter so none of this helper's ~20 existing call sites
+    // needed to change. A page with no such template (currently only
+    // admin-tenants.html, mid-edit on ticket 031's branch) just shows the
+    // message with no icon — identical to this function's behavior before
+    // this ticket.
+    el.textContent = "";
+    const iconsTemplate = document.getElementById("status-icons");
+    if (iconsTemplate) {
+      const iconName = isError ? "error" : "exito";
+      const iconSource = iconsTemplate.content.querySelector('[data-status-icon="' + iconName + '"] svg');
+      if (iconSource) {
+        el.appendChild(iconSource.cloneNode(true));
+      }
+    }
+    const textEl = document.createElement("span");
+    textEl.textContent = message;
+    el.appendChild(textEl);
   }
 
   // Ticket 023: shared "this trigger is mid-request" state — disables the

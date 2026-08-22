@@ -254,6 +254,14 @@ h3 {
   margin: 0;
 }
 
+/* Ticket 032: same .card-title row reused for a page-level h2 (e.g.
+ * admin-home.html's "Bienvenido…") instead of only a card's h3 — zeroed the
+ * same way h3 is above so .card-title's own margin-bottom is the only
+ * spacing source, not doubled up with h2's normal 1.5rem. */
+.card-title h2 {
+  margin: 0;
+}
+
 form {
   display: flex;
   flex-direction: column;
@@ -412,6 +420,24 @@ button.danger:hover {
   font-size: 0.88rem;
   font-weight: 600;
   border: 1px solid transparent;
+  /* Ticket 032: AuthCoreUi.showStatus() (api.js) now prepends
+     icon-exito/icon-error next to the message — currentColor means each
+     icon already picks up this box's own success/error text color below
+     with no extra CSS, same free-recolor as every other line-icon in the
+     app. */
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+[role="status"] svg,
+[role="alert"] svg {
+  /* Same 18px scale as .chart-legend svg above — a status line is small
+     inline text, not a page/card title, so the icon matches that weight
+     instead of sitting at its native 24x24. */
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 [role="alert"] {
