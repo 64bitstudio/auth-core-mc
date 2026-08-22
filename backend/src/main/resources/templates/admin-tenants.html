@@ -135,6 +135,17 @@
     </div>
   </dialog>
 
+  <!-- Ticket 031: row-action icons for the JS-built tenants table
+       (loadTenants() assembles each <tr> via .innerHTML, not per-row
+       Thymeleaf rendering). Thymeleaf fragments only render server-side,
+       so each icon is rendered once into a hidden <template> here and its
+       markup is read into a JS string that loadTenants() reuses for every
+       row — keeps the icons defined once in fragments/icons.html instead
+       of duplicating raw SVG inside the script. -->
+  <template id="icon-editar-tpl"><span th:replace="~{fragments/icons :: icon-editar}"></span></template>
+  <template id="icon-desactivar-tpl"><span th:replace="~{fragments/icons :: icon-desactivar}"></span></template>
+  <template id="icon-reactivar-tpl"><span th:replace="~{fragments/icons :: icon-reactivar}"></span></template>
+
   <script th:src="@{/js/api.js}"></script>
   <div th:replace="~{fragments/admin-shell :: script}"></div>
   <script>
@@ -147,10 +158,24 @@
     let tenantsById = {};
     let pendingLifecycleAction = null;
 
+    // Ticket 031: rendered server-side by Thymeleaf into the hidden
+    // <template>s above, read once here as HTML strings so loadTenants()
+    // can splice them into each row's button markup below.
+    const iconEditarHtml = document.getElementById("icon-editar-tpl").innerHTML;
+    const iconDesactivarHtml = document.getElementById("icon-desactivar-tpl").innerHTML;
+    const iconReactivarHtml = document.getElementById("icon-reactivar-tpl").innerHTML;
+
     function escapeHtml(value) {
       const div = document.createElement("div");
       div.textContent = value;
-      return div.innerHTML;
+      // Ticket 031: this helper's output is now also used inside
+      // attribute values (aria-label on the row-action buttons below),
+      // not just text nodes — textContent/innerHTML round-tripping
+      // escapes &, <, > but leaves quote characters untouched, which
+      // would let a tenant name containing a `"` break out of an
+      // attribute. Escaping both quote styles makes the same helper safe
+      // for both uses.
+      return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
     async function loadTenants() {
@@ -178,19 +203,32 @@
           const badge = tenant.active
             ? '<span class="badge active">activo</span>'
             : '<span class="badge inactive">desactivado</span>';
+          const nameAttr = escapeHtml(tenant.name);
+          // Ticket 031: buttons show a short label ("Editar"/"Baja"/"Alta")
+          // plus icon so a pair fits in a row without truncating or
+          // forcing horizontal scroll (see .actions-cell-inner /
+          // .icon-btn in admin.css), but every row has the same short
+          // labels — aria-label carries the full action + tenant name so
+          // assistive tech users can tell rows apart without relying on
+          // visual/table position.
+          const editBtn =
+            '<button type="button" class="secondary icon-btn edit-btn" data-tenant-id="' +
+            tenant.id + '" aria-label="Editar ' + nameAttr + '">' +
+            iconEditarHtml + "<span>Editar</span></button>";
           const lifecycleBtn = tenant.active
-            ? '<button type="button" class="secondary danger lifecycle-btn" data-tenant-id="' +
-              tenant.id + '" data-action="deactivate">Desactivar</button>'
-            : '<button type="button" class="secondary lifecycle-btn" data-tenant-id="' +
-              tenant.id + '" data-action="reactivate">Reactivar</button>';
+            ? '<button type="button" class="secondary danger icon-btn lifecycle-btn" data-tenant-id="' +
+              tenant.id + '" data-action="deactivate" aria-label="Desactivar ' + nameAttr + '">' +
+              iconDesactivarHtml + "<span>Baja</span></button>"
+            : '<button type="button" class="secondary icon-btn lifecycle-btn" data-tenant-id="' +
+              tenant.id + '" data-action="reactivate" aria-label="Reactivar ' + nameAttr + '">' +
+              iconReactivarHtml + "<span>Alta</span></button>";
           row.innerHTML =
             "<td>" + escapeHtml(tenant.name) + "</td>" +
             "<td>" + escapeHtml(tenant.appName) + "</td>" +
             "<td>" + badge + "</td>" +
             "<td>" + escapeHtml(new Date(tenant.createdAt).toLocaleDateString()) + "</td>" +
             '<td><a href="' + metricsUrl + '">Ver métricas</a></td>' +
-            '<td><div class="actions-cell-inner"><button type="button" class="secondary edit-btn" data-tenant-id="' + tenant.id + '">Editar</button>' +
-            lifecycleBtn + "</div></td>";
+            '<td class="actions-cell"><div class="actions-cell-inner">' + editBtn + lifecycleBtn + "</div></td>";
           tbody.appendChild(row);
         });
 

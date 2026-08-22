@@ -516,18 +516,68 @@ td a:hover {
   border: 1px solid var(--admin-border-strong);
 }
 
-/* Ticket 022: found live — two buttons side by side in the Acciones cell
- * pushed the table wider than the card, so the second button's text got
- * silently truncated inside the horizontal scroll area instead of
- * wrapping visibly. Stacking them (via an inner flex wrapper, not the
- * <td> itself — a flex <td> drops out of the table's own layout
- * algorithm) keeps the column narrow regardless of how many lifecycle
- * actions a row ends up with. */
+/* Ticket 022 (superseded by ticket 031 below): found live — two buttons
+ * side by side in the Acciones cell pushed the table wider than the
+ * card, so the second button's text got silently truncated inside the
+ * horizontal scroll area instead of wrapping visibly. Stacking them (via
+ * an inner flex wrapper, not the <td> itself — a flex <td> drops out of
+ * the table's own layout algorithm) kept the column narrow regardless of
+ * how many lifecycle actions a row ends up with, at the cost of a
+ * visually stacked/cramped cell.
+ *
+ * Ticket 031: back to a row. What actually overflowed in 022 was two
+ * *full-width-label* buttons ("Editar" + "Desactivar"/"Reactivar"); this
+ * ticket shrinks each button to icon + short label ("Editar"/"Baja"/
+ * "Alta", see .icon-btn and loadTenants() in admin-tenants.html) instead
+ * of reverting to wide labels. Verified live (Chrome, logged in as a
+ * platform_admin) against this panel's actual dev tenant list — a mix of
+ * active/inactive tenants including long leftover test names/app names
+ * from earlier tickets (e.g. "TicketVerify027" / "Verify App 027",
+ * "ClienteC" / "Cliente C App Editada") — at the panel's standard
+ * viewport: `.table-scroll`'s scrollWidth == clientWidth (0px overflow,
+ * confirmed via devtools), no truncated text, no horizontal scrollbar.
+ * Getting there needed shrinking further than the button alone — see
+ * .icon-btn and .actions-cell below. The inner-wrapper-not-<td> reasoning
+ * above still applies unchanged. */
 .actions-cell-inner {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Ticket 031: the Acciones <td> itself, not just its inner wrapper —
+ * needs its own (tighter) horizontal padding, not the table-wide
+ * `td { padding: 0.65rem 0.75rem }`. Live-measured with this panel's
+ * actual dev tenant list (long leftover test names like "TicketVerify027"
+ * / "Verify App 027" widen Nombre/App via the table's normal auto layout)
+ * the standard 0.75rem side padding on this column alone was enough to
+ * push the row past the card into horizontal scroll even after the
+ * buttons themselves were shrunk — scoped here instead of shrinking the
+ * shared `td` rule so every other column keeps its normal padding. */
+.actions-cell {
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
+}
+
+/* Ticket 031: compact icon+text button — an icon from fragments/icons.html
+ * plus a short label, sized down from the base `button` rule so a pair
+ * fits side by side in a table cell without truncating or forcing
+ * horizontal scroll. Not scoped to .actions-cell-inner specifically —
+ * reusable by any future row-action UI that needs the same compact
+ * icon+label pattern. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.4rem;
+  font-size: 0.75rem;
+}
+
+.icon-btn svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
 }
 
 /* Ticket 022: confirmation dialog, shared by "deactivate" and
