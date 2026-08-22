@@ -54,6 +54,13 @@ import org.springframework.stereotype.Component;
  * config. This already satisfies OQ-1: the exact same template string for
  * every tenant, only {@code registrationId} varies in the path.
  */
+// java:S5673 — Sonar suggests @Repository because of the type name, but this
+// isn't a Spring Data repository: it's a hand-rolled adapter to a Spring
+// Security interface (same reasoning already applied to the sibling
+// TenantAwareRegisteredClientRepository). @Repository would additionally
+// opt this bean into Spring's persistence-exception-translation aspect,
+// which doesn't apply here and isn't wanted.
+@SuppressWarnings("java:S5673")
 @Component
 public class TenantAwareClientRegistrationRepository implements ClientRegistrationRepository {
 
@@ -114,7 +121,7 @@ public class TenantAwareClientRegistrationRepository implements ClientRegistrati
         UUID identityClientId;
         try {
             identityClientId = UUID.fromString(registrationId.substring(0, separatorIndex));
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             return Optional.empty();
         }
 
@@ -122,7 +129,7 @@ public class TenantAwareClientRegistrationRepository implements ClientRegistrati
         try {
             provider = IdentityProviderType.valueOf(
                     registrationId.substring(separatorIndex + SEPARATOR.length()).toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             return Optional.empty();
         }
 
