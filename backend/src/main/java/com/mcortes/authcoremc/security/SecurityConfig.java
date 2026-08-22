@@ -1,6 +1,8 @@
 package com.mcortes.authcoremc.security;
 
 import tools.jackson.databind.ObjectMapper;
+import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
+import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
 import com.mcortes.authcoremc.web.ErrorResponse;
 import java.io.IOException;
 import org.springframework.context.annotation.Bean;
@@ -46,7 +48,11 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http, ObjectMapper objectMapper, ClientRegistrationRepository clientRegistrationRepository) {
+            HttpSecurity http,
+            ObjectMapper objectMapper,
+            ClientRegistrationRepository clientRegistrationRepository,
+            SocialLoginSuccessHandler socialLoginSuccessHandler,
+            SocialLoginFailureHandler socialLoginFailureHandler) {
         try {
             http.csrf(csrf -> csrf.disable())
                     .authorizeHttpRequests(auth -> auth.requestMatchers(
@@ -111,16 +117,19 @@ public class SecurityConfig {
                         converter.setJwtGrantedAuthoritiesConverter(new AdminRoleAuthoritiesConverter());
                         jwt.jwtAuthenticationConverter(converter);
                     }))
-                    // Ticket 036: end-user social login (Google/Facebook), resolved per
-                    // request/per tenant by TenantAwareClientRegistrationRepository — see
-                    // its Javadoc and docs/definiciones/login-social-real.md. Deliberately
-                    // no custom successHandler/failureHandler yet: those (issuing a
-                    // one-time exchange code, creating/linking app_user) land in ticket
-                    // 037, out of scope here. The Spring Security session this DSL creates
-                    // is NOT used as ongoing auth (see Decisión 5 in the definition doc) —
-                    // only as the correlation Spring itself needs between the redirect and
-                    // the callback.
-                    .oauth2Login(oauth2Login -> oauth2Login.clientRegistrationRepository(clientRegistrationRepository))
+                    // Ticket 036/037: end-user social login (Google/Facebook), resolved
+                    // per request/per tenant by TenantAwareClientRegistrationRepository —
+                    // see its Javadoc and docs/definiciones/login-social-real.md.
+                    // SocialLoginSuccessHandler/SocialLoginFailureHandler (ticket 037) own
+                    // creating/linking app_user, issuing the one-time exchange code, and
+                    // the themed-vs-generic error split (HU-3). The Spring Security
+                    // session this DSL creates is NOT used as ongoing auth (see Decisión 5
+                    // in the definition doc) — only as the correlation Spring itself needs
+                    // between the redirect and the callback.
+                    .oauth2Login(oauth2Login -> oauth2Login
+                            .clientRegistrationRepository(clientRegistrationRepository)
+                            .successHandler(socialLoginSuccessHandler)
+                            .failureHandler(socialLoginFailureHandler))
                     .exceptionHandling(exceptions ->
                             exceptions.authenticationEntryPoint((request, response, authException) -> {
                                 response.setStatus(401);

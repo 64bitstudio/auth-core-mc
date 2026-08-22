@@ -7,7 +7,6 @@ import com.mcortes.authcoremc.domain.TenantIdentityProvider;
 import com.mcortes.authcoremc.repository.IdentityClientRepository;
 import com.mcortes.authcoremc.repository.TenantIdentityProviderRepository;
 import com.mcortes.authcoremc.security.TenantSecretEncryptor;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.config.oauth2.client.CommonOAuth2Provider;
@@ -64,7 +63,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class TenantAwareClientRegistrationRepository implements ClientRegistrationRepository {
 
-    private static final String SEPARATOR = "::";
     private static final String REDIRECT_URI_TEMPLATE = "{baseUrl}/login/oauth2/code/{registrationId}";
 
     private final IdentityClientRepository identityClientRepository;
@@ -110,39 +108,20 @@ public class TenantAwareClientRegistrationRepository implements ClientRegistrati
     }
 
     private Optional<ParsedRegistrationId> parse(String registrationId) {
-        if (registrationId == null) {
-            return Optional.empty();
-        }
-        int separatorIndex = registrationId.indexOf(SEPARATOR);
-        if (separatorIndex < 0) {
-            return Optional.empty();
-        }
-
-        UUID identityClientId;
-        try {
-            identityClientId = UUID.fromString(registrationId.substring(0, separatorIndex));
-        } catch (IllegalArgumentException _) {
-            return Optional.empty();
-        }
-
-        IdentityProviderType provider;
-        try {
-            provider = IdentityProviderType.valueOf(
-                    registrationId.substring(separatorIndex + SEPARATOR.length()).toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException _) {
-            return Optional.empty();
-        }
-
-        CommonOAuth2Provider commonProvider = toCommonProvider(provider);
-        if (commonProvider == null) {
-            // APPLE is out of scope (docs/definiciones/login-social-real.md): no
-            // CommonOAuth2Provider entry exists for it, and
-            // TenantIdentityProviderService already refuses to ever enable it —
-            // falls through to the same null as any other unresolvable id.
-            return Optional.empty();
-        }
-
-        return Optional.of(new ParsedRegistrationId(identityClientId, provider, commonProvider));
+        // Shared with SocialLoginSuccessHandler/SocialLoginFailureHandler
+        // (ticket 037) — see SocialRegistrationId's Javadoc. This class keeps
+        // the extra CommonOAuth2Provider mapping step, which only it needs.
+        return SocialRegistrationId.parse(registrationId).flatMap(parsed -> {
+            CommonOAuth2Provider commonProvider = toCommonProvider(parsed.provider());
+            if (commonProvider == null) {
+                // APPLE is out of scope (docs/definiciones/login-social-real.md): no
+                // CommonOAuth2Provider entry exists for it, and
+                // TenantIdentityProviderService already refuses to ever enable it —
+                // falls through to the same null as any other unresolvable id.
+                return Optional.empty();
+            }
+            return Optional.of(new ParsedRegistrationId(parsed.identityClientId(), parsed.provider(), commonProvider));
+        });
     }
 
     private static CommonOAuth2Provider toCommonProvider(IdentityProviderType provider) {
