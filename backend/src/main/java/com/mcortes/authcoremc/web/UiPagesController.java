@@ -1,6 +1,7 @@
 package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.Tenant;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,10 +45,35 @@ public class UiPagesController {
     /** Ticket 020: model attribute key the admin shell fragment reads to highlight the active nav link. */
     private static final String ACTIVE_ATTR = "active";
 
+    /**
+     * Ticket 040: the OAuth2 callback path Spring's {@code oauth2Login()}
+     * expects, by its own default convention (never overridden anywhere in
+     * this codebase) — {@code {baseUrl}/login/oauth2/code/{registrationId}}.
+     * {@code {registrationId}} is intentionally left as a literal template
+     * placeholder in what's shown to the admin (see docs/definiciones/
+     * login-social-real.md, Diseño técnico decisión 1, and
+     * admin-identity-providers.html for the full rationale) — it is NOT
+     * per-tenant input the admin needs to fill in.
+     */
+    private static final String OAUTH2_REDIRECT_URI_PATH = "/login/oauth2/code/{registrationId}";
+
     private final ClientContextResolver clientContextResolver;
 
-    public UiPagesController(ClientContextResolver clientContextResolver) {
+    /**
+     * Ticket 040: reuses {@code app.base-url} — the same property already
+     * used by {@code VerificationLinkFactory} (verification/reset links) and
+     * {@code AuthorizationServerConfig} (the OIDC issuer) to build absolute
+     * URLs for this app. Deliberately not a new property: this is the
+     * project's one established source of truth for "this app's own public
+     * domain", already environment-configurable via {@code APP_BASE_URL}.
+     */
+    private final String appBaseUrl;
+
+    public UiPagesController(
+            ClientContextResolver clientContextResolver,
+            @Value("${app.base-url:http://localhost:8080}") String appBaseUrl) {
         this.clientContextResolver = clientContextResolver;
+        this.appBaseUrl = appBaseUrl;
     }
 
     @GetMapping("/register")
@@ -121,6 +147,10 @@ public class UiPagesController {
     public String adminIdentityProviders(@RequestParam("client_id") String clientId, Model model) {
         theme(clientId, model);
         model.addAttribute(ACTIVE_ATTR, "providers");
+        // Ticket 040: single value, same for every tenant (see
+        // docs/definiciones/login-social-real.md) — computed here instead of
+        // hardcoded so it tracks app.base-url per environment.
+        model.addAttribute("oauth2RedirectUri", appBaseUrl + OAUTH2_REDIRECT_URI_PATH);
         return "admin-identity-providers";
     }
 

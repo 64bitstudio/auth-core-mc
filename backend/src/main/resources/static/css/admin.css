@@ -474,6 +474,43 @@ button.danger:hover {
   line-height: 1.4;
 }
 
+/* Ticket 040: the redirect_uri callout on each identity-provider card. Sits
+ * between .provider-status and the credentials form (not inside .card-title
+ * or .provider-form) — it's informational, not a field the admin fills in. */
+.redirect-uri-block {
+  margin: 0.9rem 0 1.1rem;
+}
+
+.redirect-uri-block > .field-hint {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+/* Same "long opaque value, one row" reasoning as the ticket 029 comment
+ * above the provider forms — the input just needs to fit next to a
+ * fixed-width Copiar button instead of stretching to 100% like a normal
+ * form input. */
+.copy-field {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.copy-field input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  /* Read-only informational value, not an editable field — the accent
+     focus/hover treatment above is for inputs the admin actually types
+     into. */
+  background: var(--admin-bg);
+  cursor: text;
+}
+
+.copy-field button {
+  flex-shrink: 0;
+}
+
 section.card {
   border: 1px solid var(--admin-border);
   border-radius: var(--admin-radius-lg);
