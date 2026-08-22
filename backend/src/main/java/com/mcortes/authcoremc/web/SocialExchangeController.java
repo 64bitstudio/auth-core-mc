@@ -5,12 +5,13 @@ import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.RedisTokenStore;
-import com.mcortes.authcoremc.service.DirectTokenService;
 import com.mcortes.authcoremc.service.InvalidTokenException;
+import com.mcortes.authcoremc.service.LoginCompletionResult;
+import com.mcortes.authcoremc.service.LoginCompletionService;
 import com.mcortes.authcoremc.service.NotFirstPartyClientException;
-import com.mcortes.authcoremc.service.TokenPair;
 import jakarta.validation.Valid;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,10 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p><b>Por qué requiere {@code X-Client-Id} igual que {@code /login}</b>:
  * el código emitido por {@code SocialLoginSuccessHandler} solo lleva el
- * {@code userId} (ver {@code RedisTokenStore.issue} allá) — {@link
- * DirectTokenService#issueTokens} necesita además un {@link IdentityClient}
- * first-party para mintear (mismos scopes/TTLs que {@code /login}). El
- * mismo {@code client_id} viaja en la URL del redirect a {@code
+ * {@code userId} (ver {@code RedisTokenStore.issue} allá) — el minter final
+ * ({@code DirectTokenService}, vía {@link LoginCompletionService}) necesita
+ * además un {@link IdentityClient} first-party para mintear (mismos
+ * scopes/TTLs que {@code /login}). El mismo {@code client_id} viaja en la
+ * URL del redirect a {@code
  * /ui/social-callback} (ver ese handler), y {@code AuthCoreUi.call(...)} ya
  * adjunta automáticamente ese {@code client_id} como header {@code
  * X-Client-Id} en cada llamada — el mismo mecanismo que usa cada otro
@@ -45,6 +47,17 @@ import org.springframework.web.bind.annotation.RestController;
  * nada; un desajuste (p. ej. un código robado de otro tenant combinado con
  * un {@code client_id} distinto) falla igual de genérico que un código
  * inválido — nunca revela cuál de las dos cosas no coincidió.
+ *
+ * <p><b>Ticket 045 — 2FA:</b> igual que {@code AuthController}, esta vez
+ * llama a {@link LoginCompletionService#complete} en vez de mintear tokens
+ * directamente — mismo punto de unificación, ningún gate paralelo. Si el
+ * usuario resuelto tiene 2FA activo, responde {@code 202} con {@code
+ * TwoFactorRequiredResponse} en vez de tokens; el cliente completa el login
+ * vía {@code POST /api/v1/login/2fa-verify}, el mismo endpoint compartido
+ * que usa el flujo de password. No se agrega ningún registro nuevo en
+ * {@code LoginEventRecorder} aquí — este controller nunca lo llamó (el
+ * evento de login social ya se registra antes, en {@code
+ * SocialLoginSuccessHandler}, sin cambios por este ticket).
  */
 @RestController
 @RequestMapping("/api/v1/oauth2")
@@ -53,21 +66,21 @@ public class SocialExchangeController {
     private final ClientContextResolver clientContextResolver;
     private final RedisTokenStore redisTokenStore;
     private final UserRepository userRepository;
-    private final DirectTokenService directTokenService;
+    private final LoginCompletionService loginCompletionService;
 
     public SocialExchangeController(
             ClientContextResolver clientContextResolver,
             RedisTokenStore redisTokenStore,
             UserRepository userRepository,
-            DirectTokenService directTokenService) {
+            LoginCompletionService loginCompletionService) {
         this.clientContextResolver = clientContextResolver;
         this.redisTokenStore = redisTokenStore;
         this.userRepository = userRepository;
-        this.directTokenService = directTokenService;
+        this.loginCompletionService = loginCompletionService;
     }
 
     @PostMapping("/social-exchange")
-    public ResponseEntity<LoginResponse> exchange(
+    public ResponseEntity<Object> exchange(
             @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody SocialExchangeRequest request) {
         IdentityClient client = clientContextResolver.resolveClient(clientId);
         if (!client.isFirstParty()) {
@@ -91,8 +104,12 @@ public class SocialExchangeController {
             throw invalidCode();
         }
 
-        TokenPair tokens = directTokenService.issueTokens(client, user);
-        return ResponseEntity.ok(new LoginResponse(UserResponse.from(user), tokens));
+        LoginCompletionResult result = loginCompletionService.complete(client, user);
+        if (result.twoFactorRequired()) {
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(new TwoFactorRequiredResponse(result.pendingToken(), result.method()));
+        }
+        return ResponseEntity.ok(new LoginResponse(UserResponse.from(result.user()), result.tokens()));
     }
 
     private static InvalidTokenException invalidCode() {

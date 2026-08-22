@@ -58,6 +58,12 @@ public class SecurityConfig {
                     .authorizeHttpRequests(auth -> auth.requestMatchers(
                                     "/api/v1/register",
                                     "/api/v1/login",
+                                    // Ticket 045: completes a login LoginCompletionService left
+                                    // pending on a 2FA gate — public by the same reasoning as
+                                    // /api/v1/oauth2/social-exchange below: it's the step that
+                                    // GRANTS the session, not one that requires it already. The
+                                    // pending token + code are its own real credential.
+                                    "/api/v1/login/2fa-verify",
                                     "/api/v1/verify-email/**",
                                     "/api/v1/change-email/**",
                                     "/api/v1/password-reset/**",

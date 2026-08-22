@@ -5,6 +5,8 @@
 ## Estado actual
 `/register`, `/login`, `/verify-email/*`, `/change-email/*`, `/password-reset/*`, `/2fa/*`, `/identity-providers/*`, `/token/refresh`, `/token/revoke` y `/oauth2/**`/`/.well-known/openid-configuration` **implementados y probados** (tickets `002`-`007`, en `/done`). `/login` ahora emite tokens reales (ver más abajo). El flujo real de redirect+callback de login social (Google/Facebook, `docs/definiciones/login-social-real.md`) está **en construcción** — `/oauth2/authorization/**` y `/login/oauth2/code/**` resuelven tenant+proveedor por request (ticket `036`), el callback exitoso crea/vincula el `app_user` y emite un código de un solo uso (`SocialLoginSuccessHandler`/`FailureHandler`, ticket `037`), y ese código ya puede canjearse por tokens reales vía `POST /api/v1/oauth2/social-exchange` (ticket `038`, ver sección propia más abajo) — pero todavía no hay ningún botón/página en la UI que dispare el flujo completo end-to-end (ticket `039`).
 
+**Ticket `045`:** `/login` y `/social-exchange` ahora exigen 2FA de verdad para el usuario que lo tiene activo, vía un gate compartido (`LoginCompletionService`) y un endpoint nuevo, `POST /api/v1/login/2fa-verify` — ver sección propia más abajo. ⚠️ **Gap de UI conocido, explícitamente fuera de alcance de este ticket:** ninguna pantalla de `/ui/**` sabe todavía interpretar una respuesta `202 twoFactorRequired` — un usuario real con 2FA activo que intente loguearse desde `/ui/login` hoy queda varado sin ningún prompt para el segundo factor. Candidato a ticket de UI de seguimiento (coordinar con el ticket `039`, en curso, que toca las mismas plantillas).
+
 Este documento describe la superficie **JSON** (`/api/v1/**`, `/oauth2/**`). La UI web (ticket `009`, páginas `/ui/**` que llaman a estos mismos endpoints) está documentada en `docs/COMPONENTES.md`.
 
 ### ⚠️ `/identity-providers/*` requiere autenticación (a propósito, no es un descuido)
@@ -17,11 +19,11 @@ A diferencia de todos los demás endpoints de este documento, estos **no** está
 - **Cómo se identifica el tenant en cada request**: header `X-Client-Id` con el `client_id` de un `IdentityClient` registrado (ver `BASE_DE_DATOS.md`). Si el header no corresponde a ningún cliente registrado, la respuesta es `401 unknown_client`. Esta fue la decisión pendiente que ticket `001` dejó abierta; ticket `002` la resolvió así — el flujo `/oauth2/authorize` de ticket `007` usará en cambio el parámetro estándar `client_id` de OAuth2, no este header (son superficies distintas: esta es la API "directa", esa es el flujo redirect).
 - Todas las respuestas de error usan el mismo formato: `{ "error": "codigo_de_error", "message": "explicación" }`.
 
-## Registro y login (ticket `002`, `/login` actualizado en ticket `007`)
+## Registro y login (ticket `002`, `/login` actualizado en tickets `007` y `045`)
 | Método | Ruta | Qué hace | Qué recibe | Qué responde |
 |---|---|---|---|---|
 | POST | `/api/v1/register` | Crea un usuario nuevo | Header `X-Client-Id`; body: `email` o `phone` (uno obligatorio), `password` (min. 8 caracteres, letra+dígito), `nombre`, `apellidos` | `201` + usuario creado (sin `password_hash`) |
-| POST | `/api/v1/login` | Verifica credenciales y, si el cliente es first-party, **emite tokens reales** (grant directo, sin redirect — ver ticket `007` en `ARQUITECTURA.md`) | Header `X-Client-Id`; body: `identifier` (email o phone), `password` | `200` + `{ "user": {...}, "tokens": { "accessToken", "refreshToken", "tokenType": "Bearer", "expiresInSeconds" } }` |
+| POST | `/api/v1/login` | Verifica credenciales y, si el cliente es first-party **y el usuario no tiene 2FA activo**, **emite tokens reales** (grant directo, sin redirect — ver ticket `007` en `ARQUITECTURA.md`). Si el usuario sí tiene 2FA activo, no emite tokens todavía (ver ticket `045` abajo) | Header `X-Client-Id`; body: `identifier` (email o phone), `password` | `200` + `{ "user": {...}, "tokens": { "accessToken", "refreshToken", "tokenType": "Bearer", "expiresInSeconds" } }`, o `202` + `{ "twoFactorRequired": true, "pendingToken", "method" }` si el usuario tiene 2FA activo |
 
 `accessToken` es un JWT firmado (RS256) por el mismo `JwtGenerator` que usa `/oauth2/token`; `refreshToken` es un string opaco (no JWT), guardado hasheado (SHA-256) en la tabla `refresh_token` — ver `ARQUITECTURA.md` ticket `007` para el porqué de esta asimetría.
 
@@ -39,6 +41,37 @@ Si el `IdentityClient` resuelto por `X-Client-Id` tiene `is_first_party = false`
 | 403 | `unauthorized_client` | Login: el cliente resuelto por `X-Client-Id` no es first-party |
 | 409 | `duplicate_identifier` | Registro: el email o teléfono ya existe para ese tenant |
 | 429 | `too_many_attempts` | Más de 5 intentos de login fallidos en 15 minutos para ese tenant+identificador (Redis) |
+
+## 2FA obligatorio en el login — password y social (ticket `045`)
+Hallazgo del ticket `037`: hasta este ticket, ni `/api/v1/login` ni `/api/v1/oauth2/social-exchange` exigían el segundo factor de un usuario que lo tenía activo (`TwoFactorPreferenceService`, autoservicio desde `/ui/cuenta`, ticket `005`) — ambos emitían tokens de inmediato. Este ticket cierra ese hueco, **con un único mecanismo compartido** (`LoginCompletionService`) entre ambos flujos de entrada, no dos gates paralelos.
+
+**⚠️ Cambio de contrato que rompe compatibilidad**, solo para usuarios con 2FA activo — aprobado explícitamente por el Product Owner: antes, esos usuarios recibían `200` + tokens de `/login`/`/social-exchange`; ahora reciben `202` + `TwoFactorRequiredResponse` y deben completar un paso adicional. Un usuario **sin** 2FA activo no ve ningún cambio en ninguno de los dos endpoints (criterio de aceptación explícito, cubierto con test).
+
+| Método | Ruta | Qué hace | Qué recibe | Qué responde |
+|---|---|---|---|---|
+| POST | `/api/v1/login/2fa-verify` | Completa un login que quedó pendiente de 2FA (emitido por `/login` o por `/social-exchange`) y recién ahí emite tokens reales | Header `X-Client-Id`; body: `pendingToken`, `code` | `200` + el mismo `{ "user": {...}, "tokens": {...} }` de siempre, o `400 invalid_token` / `429 too_many_attempts` (ver abajo) |
+
+### El paso intermedio: `TwoFactorRequiredResponse`
+Cuando `/login` o `/social-exchange` resuelven un usuario con 2FA activo, responden `202 Accepted` (no `200`, precisamente para que el status code por sí solo ya distinga los dos casos) con:
+```json
+{ "twoFactorRequired": true, "pendingToken": "…", "method": "TOTP" }
+```
+`method` es el mismo enum que usa `/2fa/method` (`OTP_EMAIL`\|`OTP_SMS`\|`TOTP`). `pendingToken` es de un solo uso real (vía `RedisTokenStore`, el mismo mecanismo que ya usa el código de canje social — ningún almacén nuevo), TTL 5 minutos, y empaqueta internamente el `clientId` + `userId` para que `/login/2fa-verify` pueda recuperarlos sin confiar en nada más que el cliente envíe.
+
+**Método `OTP_EMAIL`/`OTP_SMS`:** el código ya se envía en este mismo paso (vía `OtpService.requestOtp`, reutilizado tal cual) — el cliente no necesita (ni puede, el `pendingToken` no lleva `userId`) llamar `/2fa/otp/request` por separado. Si hubiera una colisión con el cooldown de reenvío (un código muy reciente todavía válido), no se surface como error — el `pendingToken` se emite igual. **Método `TOTP`:** no hace falta ningún envío, el código ya vive en la app autenticadora del usuario.
+
+### Códigos de error de `/api/v1/login/2fa-verify`
+| HTTP | `error` | Cuándo |
+|---|---|---|
+| 400 | `invalid_token` | `pendingToken` inexistente/expirado/ya usado, el `X-Client-Id` no coincide con el cliente empaquetado en el `pendingToken`, el usuario ya no existe, o el `code` es incorrecto — deliberadamente el mismo error genérico para los cuatro casos, mismo criterio que `/social-exchange` |
+| 429 | `too_many_attempts` | Solo para método OTP: más de 5 intentos de código incorrecto (reutiliza `LoginRateLimiter` vía `OtpService`, sin lógica nueva) |
+| 400 | `validation_error` | Falta `pendingToken`/`code` en el body |
+| 401 | `unknown_client` | El header `X-Client-Id` no corresponde a ningún cliente registrado |
+
+**Nota de seguridad conocida, no cerrada por este ticket:** a diferencia de `OtpService.verifyOtp` (que sí reutiliza `LoginRateLimiter`), `TotpService.verify` **no tiene ningún límite de intentos** propio — este ticket expone esa verificación, por primera vez, como parte del flujo principal de login (antes solo vivía detrás del uso autoservicio en `/ui/cuenta`). Flagged como hallazgo real para el Product Owner, no resuelto aquí (ver reporte de cierre del ticket `045`).
+
+### Dónde se registra el "éxito" de un login con 2FA pendiente (`LoginEventRecorder`)
+`LoginOutcome` es un `CHECK` de dos valores a nivel de base de datos (`SUCCESS`/`FAILURE`, `V5__login_event.sql`) — agregar un tercer estado ("pendiente de 2FA") es un cambio de esquema que necesita su propio VoBo dedicado, no algo para meter de paso en este ticket. Decisión tomada: `AuthController` sigue registrando `SUCCESS` en el mismo punto que antes (password verificado), sin esperar a que `LoginCompletionService` decida si hace falta 2FA — mismo precedente que ya existía en `SocialLoginSuccessHandler`, que registra éxito en "identidad probada", antes del paso de canje que puede fallar por separado. Consecuencia: un segundo factor incorrecto o abandonado **no genera ningún evento nuevo** — hallazgo real, no una decisión silenciosa: haría falta un tercer `LoginOutcome` para atribuir correctamente ese desenlace, lo cual es su propio ticket de cambio de esquema.
 
 ## Verificación de correo (ticket `003`)
 | Método | Ruta | Qué recibe | Qué responde |
@@ -122,16 +155,16 @@ Primeros tres tickets de `docs/definiciones/login-social-real.md`. **Todavía no
 |---|---|---|
 | GET | `/oauth2/authorization/{identityClientId}::{provider}` | Redirige a Google/Facebook con las credenciales del tenant dueño de `identityClientId` (`provider` = `google`/`facebook`, case-insensitive). `404`/comportamiento por defecto de Spring si el `registrationId` no resuelve — nunca revela si el problema es el UUID o el proveedor deshabilitado (ver nota de seguridad abajo) |
 | GET | `/login/oauth2/code/{identityClientId}::{provider}` | Callback del proveedor tras el consentimiento. Éxito: `SocialLoginSuccessHandler` crea/vincula el `app_user` (HU-1/HU-2), registra un `LoginEvent`, emite un código de un solo uso vía `RedisTokenStore` (`purpose="social-login-exchange"`, TTL 60s) y redirige a `/ui/social-callback?client_id=...&code=...` — **nunca un token real en la URL**. Fallo (consentimiento denegado): `SocialLoginFailureHandler` redirige a `/ui/login?client_id=...&error=...` del mismo tenant (theming correcto). Fallo sin correlación válida (sesión expirada/callback manipulado) o credenciales del tenant rotas: redirige a `/ui/social-login-error` — placeholder sin plantilla real todavía (llega con el ticket `039`), deliberadamente sin theming (no se infiere `client_id` vía `Referer`) |
-| POST | `/api/v1/oauth2/social-exchange` | Canjea el código de un solo uso por tokens reales — el único paso que efectivamente emite tokens en todo el flujo social. Header `X-Client-Id` (el mismo `client_id` recibido en la query de `/ui/social-callback`, ver nota abajo); body: `code`. `200` + el mismo `{ "user": {...}, "tokens": {...} }` que `/api/v1/login` (misma clase de respuesta, para que `AuthCoreUi.saveSession(...)` no necesite lógica nueva) |
+| POST | `/api/v1/oauth2/social-exchange` | Canjea el código de un solo uso por tokens reales, salvo que el usuario resuelto tenga 2FA activo (ver ticket `045` arriba). Header `X-Client-Id` (el mismo `client_id` recibido en la query de `/ui/social-callback`, ver nota abajo); body: `code`. `200` + el mismo `{ "user": {...}, "tokens": {...} }` que `/api/v1/login`, o `202` + `TwoFactorRequiredResponse` (mismo shape que `/login`, ver ticket `045`) |
 
 Distinto de `/oauth2/authorize` (arriba): ese es el flujo Authorization Code + PKCE de este servicio actuando como *authorization server* para sus propios clientes; este es el flujo donde este servicio actúa como *cliente* OAuth2 de Google/Facebook para autenticar a un usuario final — `AuthorizationServerConfig` no interviene en ninguna de las tres rutas de esta sección (confirmado, su `securityMatcher` no las incluye).
 
 **Requisito de seguridad:** un `registrationId` con un UUID de `IdentityClient` inexistente y uno con UUID existente pero proveedor deshabilitado deben ser indistinguibles desde afuera — ambos resuelven a `null` en `TenantAwareClientRegistrationRepository` por el mismo camino, sin excepción ni log diferenciado.
 
-**2FA (OQ-8 de la definición):** el diseño exige que el 2FA obligatorio del tenant se siga exigiendo tras un login social. En la práctica hoy `/api/v1/login` (password) no tiene ningún gate de 2FA en el momento del login — `TwoFactorController`/`TwoFactorPreferenceService` son un mecanismo autoservicio desde `/ui/cuenta`, no una puerta de login. `SocialLoginSuccessHandler` no inventó una puerta nueva solo para el login social (habría quedado más estricto que el password, inconsistente y fuera del alcance del ticket `037`) — replica el comportamiento real de hoy: ninguno. Pendiente de decisión del Product Owner: construir un gate de 2FA real en el login (ticket futuro, tocando ambos flujos a la vez) o confirmar que el criterio ya está satisfecho tal cual.
+**2FA (OQ-8 de la definición) — resuelto por el ticket `045`:** el diseño exige que el 2FA obligatorio del tenant se siga exigiendo tras un login social. Hasta el ticket `045` esto no era el caso — ni el login social ni el password tenían ningún gate de 2FA real, solo el mecanismo autoservicio de `TwoFactorController`/`TwoFactorPreferenceService`. El ticket `045` construyó ese gate (`LoginCompletionService`, ver sección propia arriba) y lo aplicó a ambos flujos de entrada por igual — ver esa sección para el contrato completo.
 
 ### `/api/v1/oauth2/social-exchange` — por qué requiere `X-Client-Id` igual que `/login`
-El código emitido por `SocialLoginSuccessHandler` solo lleva el `userId` (ver `RedisTokenStore.issue` arriba) — `DirectTokenService.issueTokens` (el mismo minter de `/api/v1/login`, sin cambios en su firma) necesita además un `IdentityClient` first-party para mintear. Ese mismo `client_id` ya viaja en la query del redirect a `/ui/social-callback`, y el helper compartido `AuthCoreUi.call(...)` (`static/js/api.js`) ya adjunta automáticamente ese `client_id` como header `X-Client-Id` en cada llamada — el mismo mecanismo que usa cualquier otro endpoint de este documento, ninguno nuevo. Como con `/login`, si el cliente resuelto no es first-party responde `403 unauthorized_client` **sin consumir el código** (para no quemar un código todavía válido por un error de configuración del lado del cliente).
+El código emitido por `SocialLoginSuccessHandler` solo lleva el `userId` (ver `RedisTokenStore.issue` arriba) — el minter final (`DirectTokenService`, vía `LoginCompletionService` desde el ticket `045`) necesita además un `IdentityClient` first-party para mintear. Ese mismo `client_id` ya viaja en la query del redirect a `/ui/social-callback`, y el helper compartido `AuthCoreUi.call(...)` (`static/js/api.js`) ya adjunta automáticamente ese `client_id` como header `X-Client-Id` en cada llamada — el mismo mecanismo que usa cualquier otro endpoint de este documento, ninguno nuevo. Como con `/login`, si el cliente resuelto no es first-party responde `403 unauthorized_client` **sin consumir el código** (para no quemar un código todavía válido por un error de configuración del lado del cliente).
 
 ### Códigos de error de `/api/v1/oauth2/social-exchange`
 | HTTP | `error` | Cuándo |

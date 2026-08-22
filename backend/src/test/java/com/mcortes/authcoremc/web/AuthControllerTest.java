@@ -8,13 +8,15 @@ import static org.mockito.Mockito.when;
 
 import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.TwoFactorMethod;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
 import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
 import com.mcortes.authcoremc.security.SecurityConfig;
 import com.mcortes.authcoremc.service.AuthenticationService;
-import com.mcortes.authcoremc.service.DirectTokenService;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
+import com.mcortes.authcoremc.service.LoginCompletionResult;
+import com.mcortes.authcoremc.service.LoginCompletionService;
 import com.mcortes.authcoremc.service.LoginEventRecorder;
 import com.mcortes.authcoremc.service.TokenPair;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
@@ -62,7 +64,7 @@ class AuthControllerTest {
     private AuthenticationService authenticationService;
 
     @MockitoBean
-    private DirectTokenService directTokenService;
+    private LoginCompletionService loginCompletionService;
 
     @MockitoBean
     private LoginEventRecorder loginEventRecorder;
@@ -79,8 +81,9 @@ class AuthControllerTest {
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "argon2-hash");
         when(authenticationService.authenticate(eq(tenant), eq("ada@example.com"), eq("abcd1234")))
                 .thenReturn(user);
-        when(directTokenService.issueTokens(firstPartyClient, user))
-                .thenReturn(new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900));
+        when(loginCompletionService.complete(firstPartyClient, user))
+                .thenReturn(LoginCompletionResult.completed(
+                        user, new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900)));
 
         mvc.post()
                 .uri("/api/v1/login")
@@ -97,6 +100,41 @@ class AuthControllerTest {
                 .contains("jwt-access-token")
                 .contains("opaque-refresh-token")
                 .doesNotContain("argon2-hash");
+    }
+
+    /**
+     * Ticket 045's explicit acceptance criterion: a user with 2FA active
+     * doesn't get tokens right away — {@code /login} responds {@code 202}
+     * with the pending-2FA shape instead, and {@link LoginEventRecorder}
+     * still records the password success (see AuthController's Javadoc for
+     * why that recording doesn't wait for the 2FA gate).
+     */
+    @Test
+    void returns202WithAPendingTokenWhenTheUserHasTwoFactorActive() {
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(firstPartyClient);
+        User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "argon2-hash");
+        when(authenticationService.authenticate(tenant, "ada@example.com", "abcd1234")).thenReturn(user);
+        when(loginCompletionService.complete(firstPartyClient, user))
+                .thenReturn(LoginCompletionResult.twoFactorRequired("pending-token-abc", TwoFactorMethod.TOTP));
+
+        mvc.post()
+                .uri("/api/v1/login")
+                .header("X-Client-Id", "acme-web-app")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"identifier":"ada@example.com","password":"abcd1234"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(202)
+                .bodyText()
+                .contains("\"twoFactorRequired\":true")
+                .contains("pending-token-abc")
+                .contains("\"method\":\"TOTP\"")
+                .doesNotContain("jwt-access-token")
+                .doesNotContain("argon2-hash");
+
+        verify(loginEventRecorder).recordSuccess(eq(tenant), eq(user), eq("PASSWORD"), org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

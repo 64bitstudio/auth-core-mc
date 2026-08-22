@@ -7,13 +7,15 @@ import static org.mockito.Mockito.when;
 
 import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.TwoFactorMethod;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
 import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.RedisTokenStore;
 import com.mcortes.authcoremc.security.SecurityConfig;
-import com.mcortes.authcoremc.service.DirectTokenService;
+import com.mcortes.authcoremc.service.LoginCompletionResult;
+import com.mcortes.authcoremc.service.LoginCompletionService;
 import com.mcortes.authcoremc.service.TokenPair;
 import java.util.List;
 import java.util.Optional;
@@ -65,7 +67,7 @@ class SocialExchangeControllerTest {
     private UserRepository userRepository;
 
     @MockitoBean
-    private DirectTokenService directTokenService;
+    private LoginCompletionService loginCompletionService;
 
     private final Tenant tenant = tenantFixture();
     private final Tenant otherTenant = tenantFixture();
@@ -97,8 +99,9 @@ class SocialExchangeControllerTest {
         when(redisTokenStore.consume(SocialLoginSuccessHandler.EXCHANGE_PURPOSE, "one-time-code"))
                 .thenReturn(Optional.of(user.getId().toString()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(directTokenService.issueTokens(firstPartyClient, user))
-                .thenReturn(new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900));
+        when(loginCompletionService.complete(firstPartyClient, user))
+                .thenReturn(LoginCompletionResult.completed(
+                        user, new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900)));
 
         mvc.post()
                 .uri("/api/v1/oauth2/social-exchange")
@@ -124,6 +127,34 @@ class SocialExchangeControllerTest {
                 .doesNotContain("password_hash");
     }
 
+    /** Ticket 045's explicit acceptance criterion, applied to the social flow. */
+    @Test
+    void returns202WithAPendingTokenWhenTheResolvedUserHasTwoFactorActive() {
+        User user = userFixture(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(firstPartyClient);
+        when(redisTokenStore.consume(SocialLoginSuccessHandler.EXCHANGE_PURPOSE, "one-time-code"))
+                .thenReturn(Optional.of(user.getId().toString()));
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(loginCompletionService.complete(firstPartyClient, user))
+                .thenReturn(LoginCompletionResult.twoFactorRequired("pending-token-abc", TwoFactorMethod.OTP_EMAIL));
+
+        mvc.post()
+                .uri("/api/v1/oauth2/social-exchange")
+                .header("X-Client-Id", "acme-web-app")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"code":"one-time-code"}
+                        """)
+                .exchange()
+                .assertThat()
+                .hasStatus(202)
+                .bodyText()
+                .contains("\"twoFactorRequired\":true")
+                .contains("pending-token-abc")
+                .contains("\"method\":\"OTP_EMAIL\"")
+                .doesNotContain("jwt-access-token");
+    }
+
     @Test
     void returns400ForAnAlreadyUsedOrUnknownCode() {
         when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(firstPartyClient);
@@ -144,7 +175,7 @@ class SocialExchangeControllerTest {
                 .contains("invalid_token");
 
         verify(userRepository, never()).findById(any());
-        verify(directTokenService, never()).issueTokens(any(), any());
+        verify(loginCompletionService, never()).complete(any(), any());
     }
 
     @Test
@@ -230,7 +261,7 @@ class SocialExchangeControllerTest {
                 .bodyText()
                 .contains("invalid_token");
 
-        verify(directTokenService, never()).issueTokens(any(), any());
+        verify(loginCompletionService, never()).complete(any(), any());
     }
 
     /** Same regression shape as AuthControllerTest's — see SecurityConfig's Javadoc. */
