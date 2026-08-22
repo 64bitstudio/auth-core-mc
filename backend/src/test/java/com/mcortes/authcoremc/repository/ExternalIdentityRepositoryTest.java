@@ -82,11 +82,13 @@ class ExternalIdentityRepositoryTest {
         // since the flush call itself (not the repository's save()) is what
         // throws, it bypasses Spring's @Repository exception translation —
         // same reasoning as UserRepositoryTest's unique-constraint tests.
-        assertThatThrownBy(() -> {
-                    externalIdentityRepository.save(
-                            new ExternalIdentity(tenant, userB, IdentityProviderType.GOOGLE, "google-sub-123"));
-                    entityManager.flush();
-                })
+        // save() is called outside the assertion on purpose (Sonar java:S5778):
+        // only the one call actually expected to throw — flush() — belongs
+        // inside assertThatThrownBy, so the assertion stays unambiguous about
+        // what it's testing.
+        externalIdentityRepository.save(
+                new ExternalIdentity(tenant, userB, IdentityProviderType.GOOGLE, "google-sub-123"));
+        assertThatThrownBy(entityManager::flush)
                 .isInstanceOf(ConstraintViolationException.class)
                 .hasMessageContaining("external_identity_tenant_provider_unique");
     }
@@ -100,11 +102,9 @@ class ExternalIdentityRepositoryTest {
                 new ExternalIdentity(tenant, user, IdentityProviderType.GOOGLE, "google-sub-123"));
         entityManager.flush();
 
-        assertThatThrownBy(() -> {
-                    externalIdentityRepository.save(
-                            new ExternalIdentity(tenant, user, IdentityProviderType.GOOGLE, "google-sub-999"));
-                    entityManager.flush();
-                })
+        externalIdentityRepository.save(
+                new ExternalIdentity(tenant, user, IdentityProviderType.GOOGLE, "google-sub-999"));
+        assertThatThrownBy(entityManager::flush)
                 .isInstanceOf(ConstraintViolationException.class)
                 .hasMessageContaining("external_identity_user_provider_unique");
     }
