@@ -1,7 +1,6 @@
 package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.IdentityClient;
-import com.mcortes.authcoremc.domain.TwoFactorMethod;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.RedisTokenStore;
