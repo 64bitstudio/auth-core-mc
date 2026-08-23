@@ -29,6 +29,11 @@
       <span data-status-icon="exito" th:insert="~{fragments/icons :: icon-exito}"></span>
       <span data-status-icon="error" th:insert="~{fragments/icons :: icon-error}"></span>
     </template>
+
+    <!-- Ticket 046: paso intermedio de 2FA, oculto hasta que
+         /api/v1/oauth2/social-exchange responda 202 twoFactorRequired
+         (ticket 045) — ver fragments/two-factor-step.html. -->
+    <div th:replace="~{fragments/two-factor-step :: step}"></div>
   </main>
 
   <script th:src="@{/js/api.js}"></script>
@@ -45,6 +50,18 @@
         // esta misma URL (ver api.js) — el mismo mecanismo que usa cada
         // otra llamada de este proyecto, ninguno nuevo.
         const result = await AuthCoreUi.call("/api/v1/oauth2/social-exchange", { code: code });
+        // Ticket 046: el usuario tiene 2FA activo (ticket 045) — no hay
+        // tokens todavía, se completa el paso intermedio antes de seguir.
+        if (result.twoFactorRequired) {
+          status.classList.remove("is-loading");
+          status.classList.add("hidden");
+          AuthCoreUi.startTwoFactorStep(result.pendingToken, result.method, status, (verifyResult) => {
+            AuthCoreUi.saveSession(verifyResult.user, verifyResult.tokens);
+            AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
+            window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+          });
+          return;
+        }
         AuthCoreUi.saveSession(result.user, result.tokens);
         AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
         window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());

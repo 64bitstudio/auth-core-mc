@@ -64,6 +64,12 @@ public class SecurityConfig {
                                     // GRANTS the session, not one that requires it already. The
                                     // pending token + code are its own real credential.
                                     "/api/v1/login/2fa-verify",
+                                    // Ticket 046: resends the OTP code for a pending 2FA login —
+                                    // same reasoning as 2fa-verify above (the caller has no
+                                    // session yet by definition), the pendingToken is its own
+                                    // real credential (peeked, not consumed — see
+                                    // TwoFactorLoginController).
+                                    "/api/v1/login/2fa-resend",
                                     "/api/v1/verify-email/**",
                                     "/api/v1/change-email/**",
                                     "/api/v1/password-reset/**",

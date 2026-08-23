@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+  <!--
+    Ticket 046: shared "segundo factor pendiente" step for /ui/login and
+    /ui/social-callback — both pages get a 202 twoFactorRequired from their
+    own POST (/api/v1/login o /api/v1/oauth2/social-exchange, ticket 045) y
+    necesitan exactamente la misma UI intermedia para completarlo vía
+    POST /api/v1/login/2fa-verify. Un solo fragmento, cableado por
+    AuthCoreUi.startTwoFactorStep() (api.js) — el mismo criterio "markup
+    server-side, comportamiento en api.js" que ya usa el resto del
+    proyecto (ver el comentario de icons.html sobre por qué el SVG nunca
+    se construye como string de JS).
+  -->
+  <section th:fragment="step" id="twofactor-step" class="hidden">
+    <div class="card-title">
+      <span th:replace="~{fragments/icons :: icon-2fa}"></span>
+      <h3>Verifica tu identidad</h3>
+    </div>
+    <p id="twofactor-hint" class="field-hint"></p>
+    <form id="twofactor-form" novalidate>
+      <div>
+        <label class="field-label" for="twofactor-code">Código de verificación</label>
+        <input type="text" id="twofactor-code" name="code" aria-label="Código de verificación" inputmode="numeric" autocomplete="one-time-code" required />
+      </div>
+      <button type="submit">Verificar</button>
+    </form>
+    <button type="button" id="twofactor-resend-btn" class="secondary hidden">Reenviar código</button>
+    <p id="twofactor-expiry" class="hidden" role="alert"></p>
+  </section>
+</body>
+</html>

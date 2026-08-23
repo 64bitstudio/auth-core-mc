@@ -5,7 +5,7 @@
 ## Estado actual
 `/register`, `/login`, `/verify-email/*`, `/change-email/*`, `/password-reset/*`, `/2fa/*`, `/identity-providers/*`, `/token/refresh`, `/token/revoke` y `/oauth2/**`/`/.well-known/openid-configuration` **implementados y probados** (tickets `002`-`007`, en `/done`). `/login` ahora emite tokens reales (ver más abajo). El flujo real de redirect+callback de login social (Google/Facebook, `docs/definiciones/login-social-real.md`) está **en construcción** — `/oauth2/authorization/**` y `/login/oauth2/code/**` resuelven tenant+proveedor por request (ticket `036`), el callback exitoso crea/vincula el `app_user` y emite un código de un solo uso (`SocialLoginSuccessHandler`/`FailureHandler`, ticket `037`), y ese código ya puede canjearse por tokens reales vía `POST /api/v1/oauth2/social-exchange` (ticket `038`, ver sección propia más abajo) — pero todavía no hay ningún botón/página en la UI que dispare el flujo completo end-to-end (ticket `039`).
 
-**Ticket `045`:** `/login` y `/social-exchange` ahora exigen 2FA de verdad para el usuario que lo tiene activo, vía un gate compartido (`LoginCompletionService`) y un endpoint nuevo, `POST /api/v1/login/2fa-verify` — ver sección propia más abajo. ⚠️ **Gap de UI conocido, explícitamente fuera de alcance de este ticket:** ninguna pantalla de `/ui/**` sabe todavía interpretar una respuesta `202 twoFactorRequired` — un usuario real con 2FA activo que intente loguearse desde `/ui/login` hoy queda varado sin ningún prompt para el segundo factor. Candidato a ticket de UI de seguimiento (coordinar con el ticket `039`, en curso, que toca las mismas plantillas).
+**Ticket `045`:** `/login` y `/social-exchange` ahora exigen 2FA de verdad para el usuario que lo tiene activo, vía un gate compartido (`LoginCompletionService`) y un endpoint nuevo, `POST /api/v1/login/2fa-verify` — ver sección propia más abajo. **Ticket `046`:** `/ui/login` y `/ui/social-callback` ya interpretan la respuesta `202 twoFactorRequired` con un paso intermedio compartido — un usuario real con 2FA activo ya no queda varado. También agrega `POST /api/v1/login/2fa-resend` (reenvío de OTP) — ver secciones propias más abajo.
 
 Este documento describe la superficie **JSON** (`/api/v1/**`, `/oauth2/**`). La UI web (ticket `009`, páginas `/ui/**` que llaman a estos mismos endpoints) está documentada en `docs/COMPONENTES.md`.
 
@@ -50,6 +50,7 @@ Hallazgo del ticket `037`: hasta este ticket, ni `/api/v1/login` ni `/api/v1/oau
 | Método | Ruta | Qué hace | Qué recibe | Qué responde |
 |---|---|---|---|---|
 | POST | `/api/v1/login/2fa-verify` | Completa un login que quedó pendiente de 2FA (emitido por `/login` o por `/social-exchange`) y recién ahí emite tokens reales | Header `X-Client-Id`; body: `pendingToken`, `code` | `200` + el mismo `{ "user": {...}, "tokens": {...} }` de siempre, o `400 invalid_token` / `429 too_many_attempts` (ver abajo) |
+| POST | `/api/v1/login/2fa-resend` | Ticket `046`. Reenvía el código OTP de un `pendingToken` todavía vigente (no-op para `TOTP`) | Header `X-Client-Id`; body: `pendingToken` | `202 Accepted`, o `400 invalid_token` / `429 too_many_attempts` (mismos criterios que `2fa-verify`, ver abajo) |
 
 ### El paso intermedio: `TwoFactorRequiredResponse`
 Cuando `/login` o `/social-exchange` resuelven un usuario con 2FA activo, responden `202 Accepted` (no `200`, precisamente para que el status code por sí solo ya distinga los dos casos) con:
@@ -68,7 +69,20 @@ Cuando `/login` o `/social-exchange` resuelven un usuario con 2FA activo, respon
 | 400 | `validation_error` | Falta `pendingToken`/`code` en el body |
 | 401 | `unknown_client` | El header `X-Client-Id` no corresponde a ningún cliente registrado |
 
-**Nota de seguridad conocida, no cerrada por este ticket:** a diferencia de `OtpService.verifyOtp` (que sí reutiliza `LoginRateLimiter`), `TotpService.verify` **no tiene ningún límite de intentos** propio — este ticket expone esa verificación, por primera vez, como parte del flujo principal de login (antes solo vivía detrás del uso autoservicio en `/ui/cuenta`). Flagged como hallazgo real para el Product Owner, no resuelto aquí (ver reporte de cierre del ticket `045`).
+**Nota de seguridad conocida, no cerrada por este ticket:** a diferencia de `OtpService.verifyOtp` (que sí reutiliza `LoginRateLimiter`), `TotpService.verify` **no tiene ningún límite de intentos** propio — este ticket expone esa verificación, por primera vez, como parte del flujo principal de login (antes solo vivía detrás del uso autoservicio en `/ui/cuenta`). Flagged como hallazgo real para el Product Owner, no resuelto aquí — trackeado en el ticket `047`.
+
+### `POST /api/v1/login/2fa-resend` (ticket `046`)
+Reenvía el código OTP mientras un `pendingToken` (el mismo que emite `202 twoFactorRequired`) sigue vigente — pensado para la UI de `/ui/login`/`/ui/social-callback`, que necesita un botón "Reenviar código" sin obligar a un segundo login completo.
+
+- Usa `RedisTokenStore.peek`, **no** `consume` — a diferencia de `2fa-verify`, reenviar un código nunca debe invalidar el `pendingToken` que el usuario sigue necesitando para el paso real de verificación.
+- Mismo empaquetado `clientId::userId` y misma verificación cruzada de `X-Client-Id` que `2fa-verify` — mismo error genérico `invalid_token` si no coincide.
+- Solo tiene efecto para `OTP_EMAIL`/`OTP_SMS` (llama a `OtpService.requestOtp`, reutilizado tal cual, incluyendo su cooldown real de reenvío de 30s — a diferencia del primer envío automático de `LoginCompletionService`, aquí una colisión de cooldown **sí** se surface como `429 too_many_attempts`, porque el usuario pidió este reenvío explícitamente). Para `TOTP` es un no-op silencioso (`202` igual, nada que reenviar — el código ya vive en la app autenticadora).
+
+| HTTP | `error` | Cuándo |
+|---|---|---|
+| 400 | `invalid_token` | `pendingToken` inexistente/expirado/ya usado, o el `X-Client-Id` no coincide con el cliente empaquetado — mismo criterio que `2fa-verify` |
+| 429 | `too_many_attempts` | Solo OTP: cooldown de reenvío de 30s todavía activo (`OtpService`, sin lógica nueva) |
+| 400 | `validation_error` | Falta `pendingToken` en el body |
 
 ### Dónde se registra el "éxito" de un login con 2FA pendiente (`LoginEventRecorder`)
 `LoginOutcome` es un `CHECK` de dos valores a nivel de base de datos (`SUCCESS`/`FAILURE`, `V5__login_event.sql`) — agregar un tercer estado ("pendiente de 2FA") es un cambio de esquema que necesita su propio VoBo dedicado, no algo para meter de paso en este ticket. Decisión tomada: `AuthController` sigue registrando `SUCCESS` en el mismo punto que antes (password verificado), sin esperar a que `LoginCompletionService` decida si hace falta 2FA — mismo precedente que ya existía en `SocialLoginSuccessHandler`, que registra éxito en "identidad probada", antes del paso de canje que puede fallar por separado. Consecuencia: un segundo factor incorrecto o abandonado **no genera ningún evento nuevo** — hallazgo real, no una decisión silenciosa: haría falta un tercer `LoginOutcome` para atribuir correctamente ese desenlace, lo cual es su propio ticket de cambio de esquema.

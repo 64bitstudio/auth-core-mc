@@ -1,6 +1,7 @@
 package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.IdentityClient;
+import com.mcortes.authcoremc.domain.TwoFactorMethod;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.RedisTokenStore;
@@ -11,7 +12,6 @@ import com.mcortes.authcoremc.service.OtpService;
 import com.mcortes.authcoremc.service.TokenPair;
 import com.mcortes.authcoremc.service.TotpService;
 import jakarta.validation.Valid;
-import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -46,6 +46,17 @@ import org.springframework.web.bind.annotation.RestController;
  * code exchange, except a wrong OTP code, which surfaces {@code
  * OtpService}'s own {@code 429 too_many_attempts} once its guess limit is
  * hit (reused, not reimplemented).
+ *
+ * <p><b>Ticket 046 — {@code /2fa-resend}:</b> the UI gap ticket 045
+ * explicitly flagged. Uses {@code RedisTokenStore.peek} rather than {@code
+ * consume} — resending a code must not burn the one-time {@code
+ * pendingToken} the user still needs for the real {@code /2fa-verify}
+ * call. Unlike {@code verify}, a resend cooldown collision ({@link
+ * com.mcortes.authcoremc.service.TooManyAttemptsException}) is NOT
+ * swallowed here (unlike {@code LoginCompletionService}'s automatic
+ * first send) — the user explicitly asked for this one, so {@code
+ * OtpService}'s real {@code 429 too_many_attempts} is exactly the
+ * feedback they need ("a code was already sent, wait").
  */
 @RestController
 @RequestMapping("/api/v1/login")
@@ -79,33 +90,63 @@ public class TwoFactorLoginController {
         String value = redisTokenStore
                 .consume(LoginCompletionService.PENDING_2FA_PURPOSE, request.pendingToken())
                 .orElseThrow(TwoFactorLoginController::invalidPendingToken);
-
-        LoginCompletionService.PendingLogin pending;
-        UUID userId;
-        try {
-            pending = LoginCompletionService.parsePendingLogin(value);
-            userId = pending.userId();
-        } catch (RuntimeException _) {
-            // Malformed stored value — can't happen from a real flow, only from
-            // a tampered/corrupted Redis entry. Same generic error as any other
-            // failure mode here.
-            throw invalidPendingToken();
-        }
-
-        if (!pending.clientId().equals(clientId)) {
-            // Deliberately as generic as an unknown pending token — never reveal
-            // that the token itself was fine but the client didn't match, same
-            // criterion SocialExchangeController uses for a cross-tenant code.
-            throw invalidPendingToken();
-        }
+        LoginCompletionService.PendingLogin pending = parsePendingLoginOrThrow(value, clientId);
 
         IdentityClient client = clientContextResolver.resolveClient(clientId);
-        User user = userRepository.findById(userId).orElseThrow(TwoFactorLoginController::invalidPendingToken);
+        User user =
+                userRepository.findById(pending.userId()).orElseThrow(TwoFactorLoginController::invalidPendingToken);
 
         verifyCode(user, request.code());
 
         TokenPair tokens = directTokenService.issueTokens(client, user);
         return ResponseEntity.ok(new LoginResponse(UserResponse.from(user), tokens));
+    }
+
+    @PostMapping("/2fa-resend")
+    public ResponseEntity<Void> resend(
+            @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody TwoFactorResendRequest request) {
+        // peek, not consume — a resend must not burn the pendingToken the
+        // user still needs for the real /2fa-verify call (see class Javadoc).
+        String value = redisTokenStore
+                .peek(LoginCompletionService.PENDING_2FA_PURPOSE, request.pendingToken())
+                .orElseThrow(TwoFactorLoginController::invalidPendingToken);
+        LoginCompletionService.PendingLogin pending = parsePendingLoginOrThrow(value, clientId);
+
+        User user =
+                userRepository.findById(pending.userId()).orElseThrow(TwoFactorLoginController::invalidPendingToken);
+
+        // Only OTP methods have anything to resend — TOTP's code already lives
+        // in the user's authenticator app. Defensive no-op otherwise, same
+        // criterion as verifyCode()'s NONE case: can't happen from a real
+        // flow (a pendingToken is never issued for TwoFactorMethod.NONE), not
+        // worth a special error for.
+        if (user.getTwoFactorMethod() == TwoFactorMethod.OTP_EMAIL || user.getTwoFactorMethod() == TwoFactorMethod.OTP_SMS) {
+            otpService.requestOtp(user);
+        }
+        return ResponseEntity.accepted().build();
+    }
+
+    /**
+     * Shared by {@code verify}/{@code resend}: parses a pending token's
+     * stored value and confirms the packed {@code clientId} matches the
+     * caller's {@code X-Client-Id} — both failure modes (malformed value,
+     * mismatched client) collapse into the same generic {@code
+     * invalid_token}, never revealing which part was wrong (same criterion
+     * {@code SocialExchangeController} applies to its own code exchange).
+     */
+    private static LoginCompletionService.PendingLogin parsePendingLoginOrThrow(String value, String clientId) {
+        LoginCompletionService.PendingLogin pending;
+        try {
+            pending = LoginCompletionService.parsePendingLogin(value);
+        } catch (RuntimeException _) {
+            // Malformed stored value — can't happen from a real flow, only from
+            // a tampered/corrupted Redis entry.
+            throw invalidPendingToken();
+        }
+        if (!pending.clientId().equals(clientId)) {
+            throw invalidPendingToken();
+        }
+        return pending;
     }
 
     private void verifyCode(User user, String code) {

@@ -220,6 +220,99 @@ const AuthCoreUi = (() => {
     };
   }
 
+  // Ticket 046: 5 minutes — must match LoginCompletionService.PENDING_2FA_TTL
+  // (ticket 045). Purely a client-side UX nicety (proactively tell the user
+  // their pendingToken is about to die instead of letting a submit fail
+  // first) — the real expiration is still enforced server-side by Redis's
+  // own TTL on the token, this can never make an already-expired token look
+  // valid or vice versa.
+  const PENDING_2FA_TTL_MS = 5 * 60 * 1000;
+
+  // Ticket 046: shared "segundo factor pendiente" step for /ui/login
+  // (password) and /ui/social-callback (social) — both call this the same
+  // way once their own POST comes back 202 twoFactorRequired (ticket 045).
+  // Wires the markup already rendered by fragments/two-factor-step.html
+  // (server-side, th:replace'd into each page) rather than building any DOM
+  // here — same "markup server-side, behavior in JS" split as every other
+  // page in this file.
+  //
+  // `statusEl` is that page's own existing #status element, reused for
+  // errors and the resend confirmation — no new status area introduced.
+  // `onVerified(result)` receives the same `{ user, tokens }` shape a plain
+  // 200 login/exchange already returns; each page decides what to do with
+  // it (save the session, redirect) exactly like it already did before this
+  // ticket for the no-2FA case.
+  function startTwoFactorStep(pendingToken, method, statusEl, onVerified) {
+    const section = document.getElementById("twofactor-step");
+    const hint = document.getElementById("twofactor-hint");
+    const form = document.getElementById("twofactor-form");
+    const resendBtn = document.getElementById("twofactor-resend-btn");
+    const expiryEl = document.getElementById("twofactor-expiry");
+
+    section.classList.remove("hidden");
+    hint.textContent =
+      method === "TOTP"
+        ? "Abre tu app autenticadora e ingresa el código actual."
+        : "Te enviamos un código por correo o SMS — ingrésalo abajo.";
+
+    // Ticket 046 (criterio de aceptación): reenvío solo tiene sentido para
+    // OTP_EMAIL/OTP_SMS — TOTP no envía nada, el código ya vive en la app
+    // autenticadora del usuario (mismo criterio que TwoFactorLoginController
+    // usa server-side para el propio endpoint de reenvío).
+    if (method === "OTP_EMAIL" || method === "OTP_SMS") {
+      resendBtn.classList.remove("hidden");
+    }
+
+    let dead = false;
+    // Ticket 046 (hallazgo real, encontrado probando en vivo, no solo
+    // supuesto): TwoFactorLoginController consume el pendingToken ANTES de
+    // validar el código (ticket 045) — cualquier intento fallido, sea por
+    // un código incorrecto o por un rate-limit, ya invalidó el token para
+    // siempre, exactamente igual que si hubiera expirado. Dejar el
+    // formulario abierto invitaría a un segundo intento condenado a fallar,
+    // esta vez con un error todavía más confuso ("invalid_token" en vez de
+    // "wrong code"). Por eso invalidate() es el único camino de salida del
+    // formulario, se llame por expiración real o por cualquier fallo de
+    // /2fa-verify — no dos mecanismos paralelos para la misma consecuencia.
+    function invalidate(message) {
+      dead = true;
+      clearTimeout(expiryTimer);
+      form.querySelector("button[type=submit]").disabled = true;
+      resendBtn.disabled = true;
+      expiryEl.textContent = message;
+      expiryEl.classList.remove("hidden");
+    }
+
+    const expiryTimer = setTimeout(() => invalidate("El código expiró. Vuelve a iniciar sesión."), PENDING_2FA_TTL_MS);
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (dead) return;
+      try {
+        await withBusy(e.submitter, async () => {
+          const result = await call("/api/v1/login/2fa-verify", { pendingToken, code: e.target.code.value });
+          clearTimeout(expiryTimer);
+          onVerified(result);
+        });
+      } catch (err) {
+        showStatus(statusEl, err.message, true);
+        invalidate("Ese intento ya invalidó el código. Vuelve a iniciar sesión.");
+      }
+    });
+
+    resendBtn.addEventListener("click", async () => {
+      if (dead) return;
+      try {
+        await withBusy(resendBtn, async () => {
+          await call("/api/v1/login/2fa-resend", { pendingToken });
+          showStatus(statusEl, "Código reenviado.", false);
+        });
+      } catch (err) {
+        showStatus(statusEl, err.message, true);
+      }
+    });
+  }
+
   // Ticket 041 (HU-5): called right after a successful "Establecer
   // contraseña" so the card hides without requiring a full re-login.
   function markHasPassword() {
@@ -269,5 +362,6 @@ const AuthCoreUi = (() => {
     markHasPassword,
     requireSession,
     requireAdminSession,
+    startTwoFactorStep,
   };
 })();

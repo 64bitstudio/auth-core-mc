@@ -51,6 +51,10 @@
       </a>
     </div>
 
+    <!-- Ticket 046: paso intermedio de 2FA, oculto hasta que /api/v1/login
+         responda 202 twoFactorRequired (ticket 045) — ver fragments/two-factor-step.html. -->
+    <div th:replace="~{fragments/two-factor-step :: step}"></div>
+
     <nav class="links">
       <a th:href="@{/ui/password-reset/request(client_id=${clientId})}">¿Olvidaste tu contraseña?</a><br />
       <a th:href="@{/ui/register(client_id=${clientId})}">¿No tienes cuenta? Regístrate</a>
@@ -67,6 +71,19 @@
       try {
         await AuthCoreUi.withBusy(e.submitter, async () => {
           const result = await AuthCoreUi.call("/api/v1/login", body);
+          // Ticket 046: el usuario tiene 2FA activo (ticket 045) — no hay
+          // tokens todavía, se completa el paso intermedio antes de seguir.
+          if (result.twoFactorRequired) {
+            form.classList.add("hidden");
+            const socialLogin = document.querySelector(".social-login");
+            if (socialLogin) socialLogin.classList.add("hidden");
+            AuthCoreUi.startTwoFactorStep(result.pendingToken, result.method, status, (verifyResult) => {
+              AuthCoreUi.saveSession(verifyResult.user, verifyResult.tokens);
+              AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
+              window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
+            });
+            return;
+          }
           AuthCoreUi.saveSession(result.user, result.tokens);
           AuthCoreUi.showStatus(status, "Sesión iniciada. Redirigiendo…", false);
           window.location.href = "/ui/cuenta?client_id=" + encodeURIComponent(AuthCoreUi.clientIdFromUrl());
