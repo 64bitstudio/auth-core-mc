@@ -15,3 +15,10 @@ Decidido explícitamente con el Product Owner: reutilizar el mismo mecanismo/pol
 - Documentar en `docs/ARQUITECTURA.md` (sección del ticket) que el hallazgo de seguridad reportado en el ticket 045 queda cerrado.
 
 ## Hecho
+- **`TotpService.verify` reutiliza `LoginRateLimiter` tal cual** — mismo mecanismo que ya usa `OtpService.verifyOtp`, sin componente ni política nueva. `checkAllowed` corre antes de cualquier otra cosa (un usuario ya bloqueado ni siquiera llega a desencriptar el secreto); `recordFailure` en los dos rechazos reales (código fuera de ventana, código ya usado); `recordSuccess` (resetea el contador) solo en verificación exitosa.
+- **Namespace de intentos propio** (`"totp:" + userId`, distinto de `"otp:" + userId` que ya usa `OtpService`) — un usuario con historial en ambos métodos tiene dos contadores independientes, cada superficie de adivinanza con su propio límite, sin interferir entre sí.
+- **La comprobación de "no enrolado" queda fuera del rate-limit a propósito** — no es parte de la superficie de adivinanza real (solo ocurre por estado tamperado/inconsistente, nunca desde un flujo real).
+- **Mismo límite en ambos puntos de entrada**, sin ningún cambio adicional de código: autoservicio (`/ui/cuenta`, ticket 005) y el flujo principal de login (`/api/v1/login/2fa-verify`, ticket 045/046) comparten el único `TotpService.verify` — un usuario que excede el límite en cualquiera de los dos ve el mismo `429 too_many_attempts` (reutilizando `GlobalExceptionHandler`, ya existente, sin cambios).
+- **2 tests nuevos, 360/360 del proyecto en verde**: bloqueo real tras 5 intentos fallidos (`LoginRateLimiter.MAX_ATTEMPTS`), y que una verificación exitosa resetea el contador (no se acumula a través de un éxito). Sin gaps encontrados — el diseño existente de `OtpService`/`LoginRateLimiter` se trasladó tal cual.
+- **Docs actualizadas**: `docs/API.md` (tabla de errores de `2fa-verify` corregida — el `429` ya no es "solo OTP"; nota de seguridad marcada como cerrada) y `docs/ARQUITECTURA.md` (sección "Ticket 047" + referencia cruzada desde la sección del ticket 045 + footer).
+- **Sin Postman** — el proyecto sigue sin ninguna colección.

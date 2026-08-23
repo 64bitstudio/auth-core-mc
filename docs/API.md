@@ -65,11 +65,11 @@ Cuando `/login` o `/social-exchange` resuelven un usuario con 2FA activo, respon
 | HTTP | `error` | Cuándo |
 |---|---|---|
 | 400 | `invalid_token` | `pendingToken` inexistente/expirado/ya usado, el `X-Client-Id` no coincide con el cliente empaquetado en el `pendingToken`, el usuario ya no existe, o el `code` es incorrecto — deliberadamente el mismo error genérico para los cuatro casos, mismo criterio que `/social-exchange` |
-| 429 | `too_many_attempts` | Solo para método OTP: más de 5 intentos de código incorrecto (reutiliza `LoginRateLimiter` vía `OtpService`, sin lógica nueva) |
+| 429 | `too_many_attempts` | Más de 5 intentos de código incorrecto — para OTP vía `OtpService`, para TOTP vía `TotpService` (ticket `047`), ambos reutilizando `LoginRateLimiter`, cada método con su propio contador |
 | 400 | `validation_error` | Falta `pendingToken`/`code` en el body |
 | 401 | `unknown_client` | El header `X-Client-Id` no corresponde a ningún cliente registrado |
 
-**Nota de seguridad conocida, no cerrada por este ticket:** a diferencia de `OtpService.verifyOtp` (que sí reutiliza `LoginRateLimiter`), `TotpService.verify` **no tiene ningún límite de intentos** propio — este ticket expone esa verificación, por primera vez, como parte del flujo principal de login (antes solo vivía detrás del uso autoservicio en `/ui/cuenta`). Flagged como hallazgo real para el Product Owner, no resuelto aquí — trackeado en el ticket `047`.
+**Hallazgo de seguridad del ticket `045`, cerrado por el ticket `047`:** `TotpService.verify` ya reutiliza `LoginRateLimiter` (mismo mecanismo que `OtpService.verifyOtp`, namespace de intentos propio — `"totp:"` en vez de `"otp:"`) — más de 5 intentos de código incorrecto bloquea con `429 too_many_attempts`, igual que OTP. Aplica por igual en `/ui/cuenta` (autoservicio) y en este endpoint.
 
 ### `POST /api/v1/login/2fa-resend` (ticket `046`)
 Reenvía el código OTP mientras un `pendingToken` (el mismo que emite `202 twoFactorRequired`) sigue vigente — pensado para la UI de `/ui/login`/`/ui/social-callback`, que necesita un botón "Reenviar código" sin obligar a un segundo login completo.
