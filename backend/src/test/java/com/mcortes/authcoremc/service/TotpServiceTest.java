@@ -10,6 +10,7 @@ import com.mcortes.authcoremc.TestcontainersConfiguration;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.repository.UserRepository;
+import com.mcortes.authcoremc.security.LoginRateLimiter;
 import com.mcortes.authcoremc.security.SecretEncryptor;
 import com.mcortes.authcoremc.security.Totp;
 import java.util.UUID;
@@ -21,7 +22,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @DataRedisTest
-@Import({TestcontainersConfiguration.class, SecretEncryptor.class, TotpService.class})
+@Import({TestcontainersConfiguration.class, SecretEncryptor.class, LoginRateLimiter.class, TotpService.class})
 class TotpServiceTest {
 
     @Autowired
@@ -80,5 +81,38 @@ class TotpServiceTest {
 
         assertThatThrownBy(() -> totpService.verify(user, "123456")).isInstanceOf(InvalidTokenException.class);
         verify(userRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    // Ticket 047: rate-limiting real, reutilizando LoginRateLimiter (mismo mecanismo que OtpService).
+
+    @Test
+    void blocksVerificationAfterTooManyWrongAttempts() {
+        User user = userFixture();
+        totpService.enroll(user);
+
+        for (int i = 0; i < LoginRateLimiter.MAX_ATTEMPTS; i++) {
+            org.assertj.core.api.Assertions.catchThrowable(() -> totpService.verify(user, "000000"));
+        }
+
+        assertThatThrownBy(() -> totpService.verify(user, "000000")).isInstanceOf(TooManyAttemptsException.class);
+    }
+
+    @Test
+    void aSuccessfulVerificationResetsTheAttemptCounter() {
+        User user = userFixture();
+        String secret = totpService.enroll(user);
+
+        // A few wrong guesses, then a real one — none of this should carry
+        // over and block the NEXT enrollment/verification cycle for this user.
+        org.assertj.core.api.Assertions.catchThrowable(() -> totpService.verify(user, "000000"));
+        org.assertj.core.api.Assertions.catchThrowable(() -> totpService.verify(user, "111111"));
+        totpService.verify(user, Totp.currentCode(secret));
+
+        for (int i = 0; i < LoginRateLimiter.MAX_ATTEMPTS - 1; i++) {
+            org.assertj.core.api.Assertions.catchThrowable(() -> totpService.verify(user, "000000"));
+        }
+        // Still within the limit — the counter was reset by the success above,
+        // not accumulated across it.
+        assertThatThrownBy(() -> totpService.verify(user, "000000")).isInstanceOf(InvalidTokenException.class);
     }
 }
