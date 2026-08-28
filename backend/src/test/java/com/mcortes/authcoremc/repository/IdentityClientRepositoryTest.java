@@ -48,4 +48,35 @@ class IdentityClientRepositoryTest {
         IdentityClient found = clientRepository.findByClientId("partner-app").orElseThrow();
         assertThat(found.isFirstParty()).isFalse();
     }
+
+    @Test
+    void aClientWithNoMachineFlagOrScopesDefaultsToRegularLoginScopes() {
+        // Prueba de la migración V9 (columnas nuevas, aditivas): un
+        // cliente creado con el constructor "de siempre" (5 args) debe
+        // persistir/leer is_machine_client=false y scopes=[openid,profile]
+        // por default, sin que el llamante tenga que saber que las
+        // columnas nuevas existen.
+        Tenant tenant =
+                tenantRepository.save(new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+
+        clientRepository.save(new IdentityClient(
+                tenant, "legacy-app", null, true, List.of("https://acme.example.com/callback")));
+
+        IdentityClient found = clientRepository.findByClientId("legacy-app").orElseThrow();
+        assertThat(found.isMachineClient()).isFalse();
+        assertThat(found.getScopes()).containsExactly("openid", "profile");
+    }
+
+    @Test
+    void savesAndReadsBackAMachineToMachineClientWithCustomScopes() {
+        Tenant tenant = tenantRepository.save(
+                new Tenant("Plataforma", "Plataforma", "#000000", 3_600, 3_600, 86_400, 3_600, 300));
+
+        clientRepository.save(new IdentityClient(
+                tenant, "mail-core-mc", "hashed-secret", false, List.of(), true, List.of("mail:send")));
+
+        IdentityClient found = clientRepository.findByClientId("mail-core-mc").orElseThrow();
+        assertThat(found.isMachineClient()).isTrue();
+        assertThat(found.getScopes()).containsExactly("mail:send");
+    }
 }

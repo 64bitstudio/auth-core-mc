@@ -154,10 +154,24 @@ Flujo estándar para clientes third-party (o first-party que prefieran no maneja
 | Método | Ruta | Qué hace |
 |---|---|---|
 | GET | `/oauth2/authorize` | Inicio del flujo Authorization Code + PKCE (estándar Spring Authorization Server). ⚠️ Redirige a un formulario de login por defecto de Spring — este proyecto no tiene todavía una UI propia detrás (llega con ticket `009`) |
-| POST | `/oauth2/token` | Intercambio de código por tokens, o refresh (grant `refresh_token` estándar) |
+| POST | `/oauth2/token` | Intercambio de código por tokens, refresh (`refresh_token`), o `client_credentials` (ticket `048`, ver abajo) |
 | POST | `/oauth2/revoke` | Revoca un token emitido por este flujo |
 | GET | `/oauth2/jwks` | Claves públicas (JWKS) para verificar la firma de los JWT emitidos |
 | GET | `/.well-known/openid-configuration` | Metadata de descubrimiento OIDC estándar |
+
+### `client_credentials` — clientes machine-to-machine (ticket `048`)
+Para apps del ecosistema que necesitan autenticarse entre sí sin un usuario humano de por medio (ej. `mail-core-mc`). Verificado en vivo end-to-end.
+
+```
+POST /oauth2/token
+Authorization: Basic base64(client_id:client_secret)
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&scope=mail:send
+```
+Responde `200` con `{ "access_token", "scope", "token_type": "Bearer", "expires_in" }` — sin `refresh_token` (no aplica a este grant). `400 invalid_scope` si se pide un scope no registrado para ese cliente; `400 invalid_request` si el secreto no coincide.
+
+Solo un `identity_client` con `is_machine_client=true` puede usar este grant — ver `docs/BASE_DE_DATOS.md`. No hay todavía un endpoint de alta de clientes machine-to-machine (mismo estado que la alta de tenants/clientes en general, ticket `008`) — se siembra a mano.
 
 ### ⚠️ La clave de firma RSA se regenera en cada arranque
 `AuthorizationServerConfig` genera un par de llaves RSA nuevo cada vez que la aplicación arranca — una simplificación deliberada y documentada (ver Javadoc de la clase y `README.md`). Consecuencia real: cualquier `accessToken` emitido antes de un reinicio deja de verificar después de uno. No es apto para producción sin una clave persistida y rotada.
