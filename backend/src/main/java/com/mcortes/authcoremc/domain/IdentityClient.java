@@ -52,8 +52,8 @@ public class IdentityClient {
 
     // Ticket 048: cliente machine-to-machine (grant client_credentials,
     // sin usuario humano) — ej. mail-core-mc llamando a este servicio
-    // para validar su propia identidad de app. false para todo lo
-    // existente (login interactivo, Authorization Code + PKCE).
+    // para validar su propia identidad de app. false para cualquier
+    // cliente existente (login interactivo, Authorization Code + PKCE).
     @Column(name = "is_machine_client", nullable = false)
     private boolean machineClient;
 
