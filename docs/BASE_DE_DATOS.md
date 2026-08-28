@@ -80,16 +80,20 @@ _Dos constraints UNIQUE: `external_identity_tenant_provider_unique` (`tenant_id`
 ## `identity_client`
 Una aplicación registrada que puede pedir tokens a este servicio (ver nota de nombres arriba: no se llama `oauth2_client` a propósito).
 
-**Ticket `007`**: no agregó columnas — `TenantAwareRegisteredClientRepository` adapta cada fila de esta tabla a un `RegisteredClient` de Spring Authorization Server en el momento de la consulta (no hay tabla espejo `oauth2_registered_client`). El scope (`openid profile`) y los grants (`authorization_code`, `refresh_token`) salen hardcodeados en el adaptador, no de columnas nuevas — parametrizarlos por cliente es una extensión futura, no necesaria para este ticket.
+**Ticket `007`**: no agregó columnas — `TenantAwareRegisteredClientRepository` adapta cada fila de esta tabla a un `RegisteredClient` de Spring Authorization Server en el momento de la consulta (no hay tabla espejo `oauth2_registered_client`). El scope (`openid profile`) y los grants (`authorization_code`, `refresh_token`) salían hardcodeados en el adaptador — parametrizarlos por cliente quedó anotado ahí mismo como extensión futura.
+
+**Ticket `048`** es esa extensión: agrega `is_machine_client`/`scopes` (migración `V9`, aditiva — todo cliente existente sigue viendo exactamente `openid`+`profile`+`authorization_code`+`refresh_token`, el default reproduce el comportamiento hardcodeado anterior). Un cliente machine-to-machine (`is_machine_client=true`, ej. `mail-core-mc`) usa en cambio el grant `client_credentials` con sus propios scopes (ej. `mail:send`) — pensado para llamadas app-a-app sin usuario humano, algo que no existía hasta ahora.
 
 | Campo | Tipo | Para qué sirve |
 |---|---|---|
 | `id` | UUID | Identificador único |
-| `tenant_id` | UUID (FK) | A qué proyecto pertenece este cliente |
+| `tenant_id` | UUID (FK) | A qué proyecto pertenece este cliente (los m2m cuelgan de un tenant "Plataforma" dedicado, no de uno de negocio) |
 | `client_id` | text | Identificador público del cliente OAuth2 |
 | `client_secret_hash` | text, nullable | Solo para clientes confidenciales |
 | `is_first_party` | boolean | Si puede usar el grant de login directo (ver ticket `007`) |
 | `redirect_uris` | text[] | URIs permitidas para el flujo Authorization Code |
+| `is_machine_client` | boolean | Ticket `048`. `true` → grant `client_credentials` en vez de `authorization_code`/`refresh_token` |
+| `scopes` | text[] | Ticket `048`. Scopes reales del cliente — default `{openid,profile}` para no cambiar nada existente |
 
 ## `refresh_token`
 | Campo | Tipo | Para qué sirve |

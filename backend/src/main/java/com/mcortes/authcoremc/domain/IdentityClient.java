@@ -50,17 +50,42 @@ public class IdentityClient {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private List<String> redirectUris;
 
+    // Ticket 048: cliente machine-to-machine (grant client_credentials,
+    // sin usuario humano) — ej. mail-core-mc llamando a este servicio
+    // para validar su propia identidad de app. false para cualquier
+    // cliente existente (login interactivo, Authorization Code + PKCE).
+    @Column(name = "is_machine_client", nullable = false)
+    private boolean machineClient;
+
+    @Column(name = "scopes", nullable = false)
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> scopes;
+
     protected IdentityClient() {
         // JPA
     }
 
+    /** Compatibilidad: clientes normales (login interactivo), scopes por defecto. */
     public IdentityClient(
             Tenant tenant, String clientId, String clientSecretHash, boolean firstParty, List<String> redirectUris) {
+        this(tenant, clientId, clientSecretHash, firstParty, redirectUris, false, List.of("openid", "profile"));
+    }
+
+    public IdentityClient(
+            Tenant tenant,
+            String clientId,
+            String clientSecretHash,
+            boolean firstParty,
+            List<String> redirectUris,
+            boolean machineClient,
+            List<String> scopes) {
         this.tenant = tenant;
         this.clientId = clientId;
         this.clientSecretHash = clientSecretHash;
         this.firstParty = firstParty;
         this.redirectUris = redirectUris;
+        this.machineClient = machineClient;
+        this.scopes = scopes;
     }
 
     public UUID getId() {
@@ -85,5 +110,13 @@ public class IdentityClient {
 
     public List<String> getRedirectUris() {
         return redirectUris;
+    }
+
+    public boolean isMachineClient() {
+        return machineClient;
+    }
+
+    public List<String> getScopes() {
+        return scopes;
     }
 }

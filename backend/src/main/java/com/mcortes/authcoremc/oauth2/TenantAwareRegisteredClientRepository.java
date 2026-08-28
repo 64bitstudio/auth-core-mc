@@ -70,12 +70,23 @@ public class TenantAwareRegisteredClientRepository implements RegisteredClientRe
         RegisteredClient.Builder builder = RegisteredClient.withId(entity.getId().toString())
                 .clientId(entity.getClientId())
                 .clientAuthenticationMethod(
-                        entity.isFirstParty() ? ClientAuthenticationMethod.NONE : ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
-                .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
-                .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
-                .scope("openid")
-                .scope("profile")
-                .clientSettings(ClientSettings.builder()
+                        entity.isFirstParty() ? ClientAuthenticationMethod.NONE : ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
+
+        // Ticket 048: un cliente machine-to-machine (mail-core-mc y
+        // futuros servicios app-a-app) usa client_credentials, no
+        // Authorization Code — no hay usuario humano completando un
+        // login. Sus scopes son los que el cliente pidió al registrarse
+        // (ej. "mail:send"), no el "openid"+"profile" de identidad de
+        // usuario, que no aplica cuando no hay usuario.
+        if (entity.isMachineClient()) {
+            builder.authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS);
+        } else {
+            builder.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                    .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN);
+        }
+        entity.getScopes().forEach(builder::scope);
+
+        builder.clientSettings(ClientSettings.builder()
                         .requireAuthorizationConsent(!entity.isFirstParty())
                         .build())
                 .tokenSettings(TokenSettings.builder()

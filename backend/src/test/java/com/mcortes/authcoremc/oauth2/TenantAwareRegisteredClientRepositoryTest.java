@@ -42,6 +42,13 @@ class TenantAwareRegisteredClientRepositoryTest {
         return client;
     }
 
+    private static IdentityClient machineClientFixture(Tenant tenant, List<String> scopes) {
+        IdentityClient client = new IdentityClient(
+                tenant, "mail-core-mc", "hashed-secret", false, List.of(), true, scopes);
+        ReflectionTestUtils.setField(client, "id", UUID.randomUUID());
+        return client;
+    }
+
     @Test
     void aFirstPartyClientIsPublicWithNoSecretRequired() {
         Tenant tenant = tenantFixture();
@@ -92,6 +99,40 @@ class TenantAwareRegisteredClientRepositoryTest {
 
         assertThat(registeredClient.getAuthorizationGrantTypes())
                 .contains(AuthorizationGrantType.AUTHORIZATION_CODE, AuthorizationGrantType.REFRESH_TOKEN);
+    }
+
+    @Test
+    void aNonMachineClientGetsExactlyOpenidAndProfileScopes() {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = clientFixture(tenant, true, null);
+        when(identityClientRepository.findByClientId("acme-web-app")).thenReturn(Optional.of(client));
+
+        RegisteredClient registeredClient = repository().findByClientId("acme-web-app");
+
+        assertThat(registeredClient.getScopes()).containsExactlyInAnyOrder("openid", "profile");
+    }
+
+    @Test
+    void aMachineClientOnlySupportsClientCredentialsGrant() {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = machineClientFixture(tenant, List.of("mail:send"));
+        when(identityClientRepository.findByClientId("mail-core-mc")).thenReturn(Optional.of(client));
+
+        RegisteredClient registeredClient = repository().findByClientId("mail-core-mc");
+
+        assertThat(registeredClient.getAuthorizationGrantTypes())
+                .containsExactly(AuthorizationGrantType.CLIENT_CREDENTIALS);
+    }
+
+    @Test
+    void aMachineClientsScopesComeFromTheClientNotTheHardcodedIdentityOnes() {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = machineClientFixture(tenant, List.of("mail:send", "mail:admin"));
+        when(identityClientRepository.findByClientId("mail-core-mc")).thenReturn(Optional.of(client));
+
+        RegisteredClient registeredClient = repository().findByClientId("mail-core-mc");
+
+        assertThat(registeredClient.getScopes()).containsExactlyInAnyOrder("mail:send", "mail:admin");
     }
 
     @Test
