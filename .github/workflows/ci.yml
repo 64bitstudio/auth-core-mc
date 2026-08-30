@@ -175,7 +175,7 @@ jobs:
 
       - name: Estado del stack TEST (docker compose ps)
         if: always()
-        run: docker compose -f deploy/docker-compose.test.yml ps
+        run: docker compose -f deploy/docker-compose.test.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.test ps
 
       - name: Limpieza de imágenes/recursos (retención TEST = 1)
         if: always()
@@ -280,7 +280,7 @@ jobs:
 
       - name: Estado del stack PROD (docker compose ps)
         if: always()
-        run: docker compose -f deploy/docker-compose.prod.yml ps
+        run: docker compose -f deploy/docker-compose.prod.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.prod ps
 
       - name: Limpieza de imágenes/recursos (retención PROD = 2)
         if: always()
