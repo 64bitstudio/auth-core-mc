@@ -776,13 +776,41 @@ proyecto en configurarlo, pero `mail-core-mc` debe reusar esta MISMA
 instancia (conectar su propio stack a la red externa `edge` con sus
 propias labels), no levantar un segundo Traefik.
 
-TLS vía Let's Encrypt, challenge **HTTP-01** (certResolver `le`) — no
-depende de un token de API de Cloudflare (no había ninguno disponible al
-montar esto). Esto requiere que los registros DNS apunten a la VM en modo
-"DNS only" (nube gris) — con el proxy de Cloudflare activado (nube
-naranja) el challenge HTTP-01 podría seguir funcionando según el modo
-SSL/TLS de Cloudflare, pero no se asumió ni se probó. Decisión pendiente
-de Marco si prefiere activar el proxy (ver "Bloqueos de esta fase").
+**Topología real (decisión de Marco, ajustada tras el primer intento):** el
+primer diseño tenía a Traefik publicando 80/443 directo y terminando TLS
+él mismo con Let's Encrypt (HTTP-01). Al levantarlo en vivo, el puerto 80
+ya estaba ocupado por **nginx** — paquete de fábrica de la imagen de
+Ubuntu de la VM, systemd habilitado, sirviendo solo la página default sin
+modificar (confirmado antes de tocar nada: contenido stock de
+`/etc/nginx/sites-available/default`, nada más en `sites-enabled`/
+`conf.d`, sin mención en el ticket 009 de `mail-core-mc`). La opción obvia
+(deshabilitarlo) se le planteó a Marco explícitamente antes de aplicarla
+— **decisión: NO deshabilitarlo**. En su lugar:
+
+- **nginx se queda como puerta de entrada pública** en 80/443 — vhost
+  nuevo (`deploy/vm-infra/nginx/auth-core-mc.conf`, instalado por el job
+  `sync-vm-infra` vía `sudo cp` + `sites-enabled` + `nginx -t` +
+  `systemctl reload`, nunca `disable`) que hace reverse proxy de los 3
+  subdominios de auth-core-mc hacia Traefik, preservando el header `Host`.
+- **Traefik queda puertas adentro**, publicado SOLO en
+  `127.0.0.1:8000` (loopback) — nunca alcanzable directo desde internet,
+  solo desde el propio nginx de la misma VM. Sigue resolviendo el ruteo
+  real por `Host()` hacia el contenedor correcto vía sus labels/red
+  `edge`, igual que antes.
+- **TLS lo termina nginx, no Traefik** — sin ACME/Let's Encrypt en la
+  config de Traefik (se quitó `certificatesResolvers` y el entrypoint
+  `websecure`; queda un único entrypoint `web` en `:8000`, HTTP plano
+  puertas adentro). El plan para el certificado real: una vez Marco cree
+  los 3 registros DNS, correr `sudo certbot --nginx -d auth.64bitstudio.com
+  -d auth-qa.64bitstudio.com -d auth-dev.64bitstudio.com` en la VM — el
+  plugin de nginx de certbot agrega el bloque `443 ssl` y el redirect
+  80→443 automáticamente, sin tener que volver a tocar el vhost a mano.
+  **Pendiente de ejecutar** — depende del DNS, que depende de Marco (ver
+  "Bloqueos de esta fase").
+- Se descartó la alternativa "nginx solo reenvía `/.well-known/acme-
+  challenge/` a Traefik y Traefik sigue emitiendo sus propios
+  certificados" — un solo punto de terminación TLS (nginx) es más simple
+  de operar y depurar que dos ACME clients coordinándose.
 
 Cada app (`docker-compose.{dev,qa,prod}.yml`) se conecta también a la red
 externa `edge` (además de su red privada con Postgres/Redis) y declara
@@ -865,39 +893,30 @@ tomada en el ticket): mismo host construye (`build-image`) y despliega
 
 ### Bloqueos de esta fase (rediseño), pendientes de una acción directa de Marco (no resueltos por asunción)
 
-Todos estos son acciones bloqueadas por el clasificador de permisos del
-harness al intentarlas desde esta sesión — no bloqueos de diseño, sino de
-qué puede ejecutar un agente vs. qué necesita la mano de Marco:
+**Ya resueltos por Marco** (quedan anotados como historia, no como
+pendiente):
+- `allow_auto_merge` del repo — habilitado por Marco directamente.
+- Desregistro del runner de la Mac de auth-core-mc (`marco-mac-auth-core-mc`,
+  id 2) — borrado del registro de GitHub vía API por Marco (estaba
+  offline localmente desde antes, ya no aparece en la lista de runners).
 
-1. **`allow_auto_merge` del repo** — necesario para que el merge
-   `feature/NNN → dev` sea automático como se pidió. Bloqueado al intentar
-   `gh api -X PATCH .../auth-core-mc --field allow_auto_merge=true`. Marco
-   puede habilitarlo en Settings → General → Pull Requests → "Allow
-   auto-merge", o correr ese mismo comando él mismo.
-2. **Desregistro final del runner de la Mac** — el servicio local
-   (`actions.runner.marco-cortes-auth-core-mc.marco-mac-auth-core-mc`) ya
-   está DETENIDO (`svc.sh stop`, confirmado), así que no puede tomar más
-   jobs. Pero `svc.sh uninstall` (borra el plist de launchd) y el
-   `DELETE /repos/.../actions/runners/<id>` (quita el registro del lado de
-   GitHub) quedaron bloqueados por el clasificador. El runner sigue
-   apareciendo como registrado (aunque offline en la práctica) hasta que
-   Marco corra alguno de los dos.
-3. **Runner de la Mac de `mail-core-mc`** (`marco-mac-mail-core-mc`) —
+**Siguen pendientes:**
+
+1. **Runner de la Mac de `mail-core-mc`** (`marco-mac-mail-core-mc`) —
    descubierto al revisar el estado de la Mac: existe un SEGUNDO runner
    repo-level para `mail-core-mc`, todavía activo. La instrucción de
    "la Mac queda dedicada solo a codificar" aplicaría igual ahí, pero ese
    runner es del ticket gemelo (011) de `mail-core-mc`, fuera del alcance
    de este ticket — se deja anotado, sin tocar, para que se decida
    explícitamente en ese proyecto.
-4. **3 registros DNS en Cloudflare** — `auth.64bitstudio.com`,
+2. **3 registros DNS en Cloudflare** — `auth.64bitstudio.com`,
    `auth-qa.64bitstudio.com`, `auth-dev.64bitstudio.com`, todos apuntando
    a `159.54.153.37`. No hay token de API de Cloudflare disponible en este
    entorno (buscado explícitamente, no asumido) — Marco tiene que
-   crearlos manualmente en el dashboard de Cloudflare. Modo recomendado:
-   "DNS only" (nube gris) — ver la sección de Traefik arriba para el
-   porqué.
-5. **Modo SSL/TLS de Cloudflare si se decide proxiar (nube naranja)** —
-   no evaluado, ver la sección de Traefik.
+   crearlos manualmente en el dashboard de Cloudflare.
+3. **Certificado real de Let's Encrypt vía certbot** — depende del punto
+   anterior (DNS). Comando exacto documentado en la sección de Traefik/
+   nginx de arriba.
 
 ### Recursos de la VM — atención continua, no una decisión de una sola vez
 

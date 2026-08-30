@@ -1,18 +1,13 @@
 # Ticket 049 (rediseño dev/qa/prod) — config estática de Traefik, ingress
-# compartido de la VM. Ver docker-compose.yml en este mismo directorio para
-# el porqué de cada decisión (TLS sin depender de Cloudflare, volumen
-# nombrado para acme.json, etc.).
+# compartido de la VM. Ver docker-compose.yml en este mismo directorio y
+# docs/ARQUITECTURA.md ticket 049 para el porqué de cada decisión —
+# en particular, por qué Traefik NO maneja TLS/ACME aquí (nginx lo hace,
+# por decisión de Marco de mantener nginx como puerta de entrada en vez de
+# deshabilitarlo).
 
 entryPoints:
   web:
-    address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: ":443"
+    address: ":8000"
 
 providers:
   docker:
@@ -25,18 +20,8 @@ providers:
     network: edge
     watch: true
 
-certificatesResolvers:
-  le:
-    acme:
-      email: marco.cortes@64bitstudio.com
-      storage: /letsencrypt/acme.json
-      httpChallenge:
-        entryPoint: web
-
-# Dashboard/API deliberadamente NO habilitado (sin "api: {dashboard: true,
-# insecure: true}") — no hay todavía una decisión de a qué hostname/auth
-# quedaría expuesto. Habilitarlo más adelante es un cambio de config, no de
-# arquitectura.
+# Dashboard/API deliberadamente NO habilitado — no hay todavía una
+# decisión de a qué hostname/auth quedaría expuesto.
 
 log:
   level: INFO

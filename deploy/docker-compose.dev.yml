@@ -66,8 +66,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=edge"
       - "traefik.http.routers.auth-core-mc-dev.rule=Host(`auth-dev.64bitstudio.com`)"
-      - "traefik.http.routers.auth-core-mc-dev.entrypoints=websecure"
-      - "traefik.http.routers.auth-core-mc-dev.tls.certresolver=le"
+      - "traefik.http.routers.auth-core-mc-dev.entrypoints=web"
       - "traefik.http.services.auth-core-mc-dev.loadbalancer.server.port=8080"
 
   postgres:

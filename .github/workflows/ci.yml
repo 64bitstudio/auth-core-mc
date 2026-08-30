@@ -139,8 +139,22 @@ jobs:
       - name: Red compartida "edge" (Traefik <-> stacks de cada proyecto)
         run: docker network inspect edge >/dev/null 2>&1 || docker network create edge
 
-      - name: Traefik (ingress compartido de la VM)
+      - name: Traefik (ingress compartido de la VM, puertas adentro)
         run: docker compose -f deploy/vm-infra/traefik/docker-compose.yml up -d
+
+      # Hallazgo real (primer intento de este rediseño): la VM ya traía
+      # nginx en el puerto 80/443 (paquete de fábrica de Ubuntu) —
+      # decisión de Marco: NO deshabilitarlo, se queda como puerta de
+      # entrada pública y le hace reverse proxy a Traefik (que por eso
+      # publica su entrypoint solo en 127.0.0.1:8000, nunca directo al
+      # mundo). Ver docs/ARQUITECTURA.md ticket 049 y
+      # deploy/vm-infra/nginx/auth-core-mc.conf para el detalle completo.
+      - name: nginx -> Traefik (vhost de auth-core-mc)
+        run: |
+          sudo cp deploy/vm-infra/nginx/auth-core-mc.conf /etc/nginx/sites-available/auth-core-mc.conf
+          sudo ln -sf /etc/nginx/sites-available/auth-core-mc.conf /etc/nginx/sites-enabled/auth-core-mc.conf
+          sudo nginx -t
+          sudo systemctl reload nginx
 
       - name: SonarQube (compartido de la VM)
         run: docker compose -f deploy/vm-infra/sonarqube/docker-compose.yml up -d

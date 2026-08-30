@@ -8,20 +8,20 @@
 # (agregar sus propias labels a su propio stack, conectarse a la misma red
 # `edge`) — no levantar un segundo Traefik.
 #
-# TLS: Let's Encrypt vía challenge HTTP-01 (certResolver "le", ver
-# traefik.yml) — NO depende de un token de API de Cloudflare (no había
-# ninguno disponible al montar esto). Requiere que los 3 registros DNS
-# (auth.64bitstudio.com, auth-qa.64bitstudio.com, auth-dev.64bitstudio.com)
-# apunten a esta VM (159.54.153.37) en modo "DNS only" (nube gris, sin
-# proxy de Cloudflare) — con proxy activado (nube naranja) el challenge
-# HTTP-01 puede seguir funcionando si el modo SSL/TLS de Cloudflare es
-# compatible, pero no se asumió ni se probó; queda pendiente de decisión
-# explícita si Marco prefiere activar el proxy de Cloudflare.
+# DECISIÓN DE MARCO: la VM ya traía nginx en el puerto 80/443 (paquete de
+# fábrica de Ubuntu) — en vez de deshabilitarlo, nginx se queda como puerta
+# de entrada pública y hace de reverse proxy hacia Traefik, que queda
+# puertas adentro. Ver docs/ARQUITECTURA.md ticket 049 para el porqué
+# completo de esta topología y de la alternativa descartada (Traefik
+# terminando TLS él mismo con Let's Encrypt).
 #
-# acme.json vive en un volumen NOMBRADO (no un bind mount dentro del
-# checkout de git): el runner self-hosted hace "git clean -ffdx" antes de
-# cada checkout, lo que borraría cualquier archivo dentro del workspace en
-# cada run — mismo motivo ya documentado para los secrets de deploy.
+# Por eso Traefik NO publica 80/443 al mundo: solo escucha en
+# 127.0.0.1:8000 (loopback), alcanzable únicamente por el nginx que corre
+# en la misma VM — nunca directo desde internet. Traefik tampoco maneja
+# certificados TLS (sin ACME/Let's Encrypt aquí): nginx los termina (ver
+# deploy/vm-infra/nginx/), y le pasa a Traefik tráfico HTTP plano
+# puertas adentro, con el header Host original intacto (para que Traefik
+# rutee por Host() igual que antes).
 name: vm-infra-traefik
 
 services:
@@ -32,18 +32,13 @@ services:
     command:
       - "--configFile=/etc/traefik/traefik.yml"
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
-      - traefik_letsencrypt:/letsencrypt
     networks:
       - edge
 
 networks:
   edge:
     external: true
-
-volumes:
-  traefik_letsencrypt:
