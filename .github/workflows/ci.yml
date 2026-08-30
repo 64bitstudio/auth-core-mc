@@ -194,6 +194,11 @@ jobs:
 
       - name: Estado del stack TEST (docker compose ps)
         if: always()
+        # IMAGE_TAG es una variable de entorno de este PASO (definida en
+        # "Deploy al stack TEST" más arriba), no del .env.test en disco —
+        # GitHub Actions no la hereda entre steps, hay que repetirla aquí.
+        env:
+          IMAGE_TAG: current
         run: docker compose -f deploy/docker-compose.test.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.test ps
 
       - name: Limpieza de imágenes/recursos (retención TEST = 1)
@@ -299,6 +304,12 @@ jobs:
 
       - name: Estado del stack PROD (docker compose ps)
         if: always()
+        # Mismo motivo que en deploy-test: IMAGE_TAG es una env var de
+        # PASO (definida en "Deploy al stack PROD" vía steps.resolve), no
+        # del .env.prod en disco — hay que repetirla en cada paso que
+        # invoque docker compose contra este archivo.
+        env:
+          IMAGE_TAG: ${{ steps.resolve.outputs.sha }}
         run: docker compose -f deploy/docker-compose.prod.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.prod ps
 
       - name: Limpieza de imágenes/recursos (retención PROD = 2)
