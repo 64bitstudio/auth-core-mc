@@ -31,6 +31,15 @@ services:
     restart: unless-stopped
     command:
       - "--configFile=/etc/traefik/traefik.yml"
+    # Hallazgo real: el cliente Docker embebido en esta imagen de Traefik
+    # negociaba por default a la API 1.24 — el Docker Engine real de la VM
+    # (1.55) rechaza cualquier cliente por debajo de 1.40 ("client version
+    # 1.24 is too old"). Resultado: el provider Docker de Traefik nunca
+    # pudo leer NINGÚN contenedor/label, así que enrutaba todo a 404 desde
+    # el día uno, sin ningún error visible fuera de sus propios logs. Fix:
+    # fijar una versión explícita dentro del rango que el daemon soporta.
+    environment:
+      - DOCKER_API_VERSION=1.47
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
