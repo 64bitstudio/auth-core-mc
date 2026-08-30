@@ -142,8 +142,135 @@ Environment).
 - Dado cualquier deploy, no quedan imágenes dangling, build cache
   acumulado, ni contenedores detenidos.
 - Dado un request a `auth[.-qa][-dev].64bitstudio.com`, entonces Traefik
-  lo enruta con TLS válido al contenedor correspondiente (pendiente de
-  verificar de punta a punta — requiere que Marco cree los registros DNS
-  en Cloudflare, ver "Hecho").
+  lo enruta con TLS válido al contenedor correspondiente — **verificado
+  de punta a punta para DEV y QA** (curl real desde afuera de la VM,
+  200 + JSON de health real + certificado SAN válido de Let's Encrypt).
+  PROD queda pendiente de que Marco decida promover `qa → prod` (esa
+  promoción es exclusiva suya).
 
 ## Hecho
+
+**Estado real al momento de escribir esto**: DEV y QA validados de punta
+a punta de verdad (deploy real, healthcheck real, Traefik+TLS real desde
+afuera de la VM, retención de imágenes real). PROD queda pendiente de que
+Marco decida promover algo real vía `qa → prod` — esa promoción es
+exclusiva suya, no se disparó ni se simuló. El ticket NO se mueve a
+`done` todavía — pendiente de decisión conjunta con Marco.
+
+### Migración a la organización GitHub `64bitstudio`
+`auth-core-mc` y `mail-core-mc` migrados a `64bitstudio/*`, ambos
+públicos. Runner self-hosted registrado a nivel de ORGANIZACIÓN
+(`vm-oci-runner`, label `vm-oci`) — compartido de verdad entre ambos
+proyectos, sin registrar dos veces. Runner group `Default` con
+`allows_public_repositories: true` (decisión explícita de Marco, acepta
+el riesgo de exponerlo a futuros repos públicos de la org).
+
+### Diseño original (implementado, luego reemplazado — ver más abajo)
+Ramas `integracion`(TEST)/`main`(PROD) + GitHub Environment con reviewer
+requerido. Implementado completo: `Dockerfile` multi-stage,
+`application-deploy.properties` (perfil `deploy` nuevo — hallazgo real:
+el backend dependía enteramente de `spring-boot-docker-compose`,
+excluido del jar empaquetado, para encontrar su Postgres/Redis),
+`docker-compose.{test,prod}.yml`, `cleanup.sh` (retención 1/2),
+`build-image`/`deploy-test`/`promote-prod` en `ci.yml`.
+
+Bloqueos reales encontrados y resueltos en esta fase:
+- `runs-on: self-hosted` ambiguo entre el runner de la Mac y
+  `vm-oci-runner` (ambos con la label genérica "self-hosted") — fix:
+  `runs-on: [self-hosted, macOS]`, confirmado contra la API real de
+  runners, no asumido.
+- `docker compose ... ps` (diagnóstico, `if: always()`) sin `--env-file`
+  — rompía el job pese a que el deploy real ya había funcionado.
+- `IMAGE_TAG` (env var de PASO de GitHub Actions, no heredada entre
+  steps) faltante en esos mismos pasos de diagnóstico.
+- GitHub Environment con "required reviewers": rechazado primero por la
+  API (422, billing plan de repo privado); tras migrar a público SÍ se
+  pudo configurar, pero en el primer `promote-prod` real **no se
+  pausó** — `can_admins_bypass: true` (fijo, no configurable) deja pasar
+  el gate a cualquier admin del repo, y Marco lo es. Este hallazgo (no
+  un bug de config, una limitación real de la plataforma para equipos de
+  una persona) fue la causa directa del rediseño de abajo.
+
+### REDISEÑO dev/qa/prod (vigente) — decisión de Marco, 2026-08-30
+Reemplaza el modelo de arriba. Implementado completo:
+- Ramas renombradas vía API (`main`→`prod`, `integracion`→`dev`,
+  preservando PRs abiertos y branch protection automáticamente); `qa`
+  creada nueva. Las tres con el mismo branch protection (PR + check
+  `build-test-analyze`, sin bloquear self-merge). Default branch del
+  repo cambiado a `dev`.
+- `docker-compose.{test,prod}.yml` → `docker-compose.{dev,qa,prod}.yml`
+  (qa nuevo), cada app conectada a la red compartida `edge` con labels
+  de Traefik. `cleanup.sh`: retención dev=1/qa=1/prod=2. `env-ctl.sh`
+  para arranque/parada manual de dev/qa ("bajo demanda").
+- SonarQube migrado de la Mac a una instancia nueva en la VM
+  (`deploy/vm-infra/sonarqube/`, sin migrar historial). Runner de la Mac
+  de auth-core-mc retirado por completo (servicio detenido + registro
+  borrado por Marco vía API) — la Mac queda dedicada solo a
+  codificar/commits/push. `ci.yml` reescrito: un solo runner
+  (`[self-hosted, vm-oci]`) en todos los jobs, jobs `build-image`/
+  `deploy-dev` (push a `dev`), `deploy-qa` (push a `qa`), `deploy-prod`
+  (push a `prod`) — sin GitHub Environment en ninguno (no protegía nada
+  real). Job nuevo `sync-vm-infra` (sin depender de `build-test-analyze`
+  — es un prerrequisito, no una consecuencia) mantiene Traefik/SonarQube/
+  red `edge` al día en cada push.
+- Ingress compartido: Traefik puertas adentro
+  (`127.0.0.1:8000`, sin TLS propio), **nginx de fábrica de la VM** como
+  puerta de entrada pública en 80/443 (decisión de Marco: no
+  deshabilitarlo) con reverse proxy hacia Traefik y terminación TLS real
+  vía `certbot --nginx` (certificado SAN único para los 3 subdominios,
+  Let's Encrypt, válido). DNS creados por Marco en Cloudflare.
+
+**5 hallazgos reales de la verificación de punta a punta** (cada uno
+solo visible corriendo el pipeline de verdad, ninguno visible en
+revisión de código — ver detalle completo en `docs/ARQUITECTURA.md`
+ticket 049):
+1. `deploy/.env.dev`/`.env.qa` nunca existieron en la VM — el primer
+   `deploy-dev` falló con `couldn't find env file`. Fix: bootstrap
+   idempotente por CI (password vía `openssl rand`, nunca impreso).
+2. El stack `auth-core-mc-test` del modelo anterior seguía corriendo,
+   ocupando el puerto 8081 que ahora usa DEV — retirado (disposable por
+   diseño, sin migrar datos). El viejo `auth-core-mc-prod` se dejó
+   corriendo tal cual (mismo nombre/puerto, se actualiza solo).
+3. `cleanup.sh` borró la imagen de release EN USO — dos imágenes de SHAs
+   distintos con el mismo `CreatedAt` exacto (cache de capas de Docker
+   sin cambios en `./backend`) rompían el ordenamiento por fecha. Fix:
+   la imagen actual se resuelve del tag `:current`, más salvaguarda
+   independiente (nunca borrar lo que un contenedor corriendo usa de
+   verdad).
+4. Traefik nunca pudo leer el provider Docker desde el día uno — API
+   1.24 vs daemon 1.55 (bug conocido de Traefik con Docker Engine 29+,
+   traefik/traefik#12253). Fijar `DOCKER_API_VERSION` a mano NO bastó;
+   fix real: subir a `traefik:v3.7.12` (negociación automática de
+   versión, traefik/traefik#12256).
+5. El puerto 443 nunca estuvo abierto en el **Security List de OCI**
+   (capa distinta del firewall local/iptables, que sí se había abierto
+   antes) — solo tenía ingress para 22/80. Corregido vía
+   `oci network security-list update`. Encontrado porque un `curl`
+   hecho DESDE la propia VM contra su hostname público puede fallar por
+   hairpin NAT aunque el puerto ya esté bien abierto — la prueba real
+   tiene que hacerse desde afuera.
+
+**Política de merges vigente**: `feature/NNN → dev` automático;
+`dev → qa` lo mergea el orquestador (sesión principal), no este agente
+ni Marco; `qa → prod` exclusivo de Marco, siempre.
+
+**Verificado de punta a punta, desde afuera de la VM** (no solo
+`localhost`/SSH): `curl https://auth-dev.64bitstudio.com/actuator/health`
+→ `200`, `{"status":"UP",...}` real. Mismo resultado para
+`auth-qa.64bitstudio.com` tras el merge de validación `dev → qa`
+(PR #70). `qa → prod` deliberadamente no se disparó ni se simuló.
+
+**Bloqueos del clasificador de permisos del harness** (para el registro,
+no bloquearon el trabajo — cada uno se resolvió pidiendo la acción
+directa a Marco/al orquestador en vez de rodearlo): `gh pr merge` (varias
+veces), `gh workflow run` (disparo manual de `promote-prod` del modelo
+viejo), `gh api -X PATCH` sobre `allow_auto_merge` y sobre el
+runner-group, `DELETE` del registro del runner, `svc.sh uninstall` del
+runner de la Mac, y un intento de commitear un step que deshabilitaba el
+nginx de fábrica (Marco decidió no deshabilitarlo — ver rediseño).
+
+**Candidato a mejora continua (regla 10 del equipo) — no implementado
+aquí, solo anotado**: un preflight/hook que valide que ningún job
+`self-hosted` sin label exclusivo pueda enrutarse al runner equivocado
+(el hallazgo original de ambigüedad de runners, ya resuelto acá pero
+podría repetirse en otro proyecto). Candidato para `dev-org-hooks-suite`.

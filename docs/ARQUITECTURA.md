@@ -637,7 +637,7 @@ Pedido externo: `mail-core-mc` (nuevo servicio del ecosistema) necesitaba autent
 - **Hallazgo de infra encontrado en el camino, no introducido por este ticket**: Testcontainers no podía hablar con Docker localmente — `/var/run/docker.sock` es un symlink roto (apunta al socket de una instalación vieja de Docker Desktop que ya no existe); el socket real de OrbStack vive en otra ruta. **Cualquier test con Testcontainers de este proyecto corrido localmente necesita `DOCKER_HOST=unix:///Users/marcocortes/.orbstack/run/docker.sock` explícito** hasta que alguien arregle el symlink (requiere `sudo`, fuera de alcance de este ticket). El self-hosted runner de CI no está afectado — confirmado, no asumido: `~/actions-runner-auth-core-mc/.env` ya trae `DOCKER_HOST` apuntando al socket correcto de OrbStack.
 - **Sin Postman** — el proyecto sigue sin ninguna colección.
 
-## Ticket 049: pipeline de CI/CD a la VM dedicada — EN CURSO (rediseñado en vivo, ver historia abajo)
+## Ticket 049: pipeline de CI/CD a la VM dedicada — DEV y QA validados de punta a punta, PROD pendiente (exclusivo de Marco)
 
 **Objetivo**: pasar de "CI solo en la Mac" a un despliegue real en la VM OCI
 Ampere A1.Flex compartida (`ampere-free`, 159.54.153.37, Ubuntu 24.04 ARM64
@@ -891,32 +891,105 @@ tomada en el ticket): mismo host construye (`build-image`) y despliega
   resuelto por este ticket** — se documenta aquí como hallazgo, no se
   asume una solución.
 
-### Bloqueos de esta fase (rediseño), pendientes de una acción directa de Marco (no resueltos por asunción)
+### Bloqueos de esta fase (rediseño) — TODOS resueltos salvo uno fuera de alcance
 
-**Ya resueltos por Marco** (quedan anotados como historia, no como
-pendiente):
+**Resueltos:**
 - `allow_auto_merge` del repo — habilitado por Marco directamente.
 - Desregistro del runner de la Mac de auth-core-mc (`marco-mac-auth-core-mc`,
   id 2) — borrado del registro de GitHub vía API por Marco (estaba
   offline localmente desde antes, ya no aparece en la lista de runners).
+- 3 registros DNS en Cloudflare (`auth`/`auth-qa`/`auth-dev`.64bitstudio.com
+  → 159.54.153.37) — creados por Marco.
+- Certificado real de Let's Encrypt — emitido por `certbot --nginx` una
+  vez el DNS resolvió (ver certificado SAN único para los 3 subdominios,
+  válido, en la sección de Traefik/nginx arriba).
 
-**Siguen pendientes:**
+**Sigue pendiente, fuera de alcance de este ticket:**
+- Runner de la Mac de `mail-core-mc` (`marco-mac-mail-core-mc`) — existe
+  un SEGUNDO runner repo-level para ese proyecto, todavía activo. La
+  misma decisión ("la Mac solo codifica") aplicaría ahí, pero es del
+  ticket gemelo (011) de `mail-core-mc` — se deja anotado, sin tocar.
 
-1. **Runner de la Mac de `mail-core-mc`** (`marco-mac-mail-core-mc`) —
-   descubierto al revisar el estado de la Mac: existe un SEGUNDO runner
-   repo-level para `mail-core-mc`, todavía activo. La instrucción de
-   "la Mac queda dedicada solo a codificar" aplicaría igual ahí, pero ese
-   runner es del ticket gemelo (011) de `mail-core-mc`, fuera del alcance
-   de este ticket — se deja anotado, sin tocar, para que se decida
-   explícitamente en ese proyecto.
-2. **3 registros DNS en Cloudflare** — `auth.64bitstudio.com`,
-   `auth-qa.64bitstudio.com`, `auth-dev.64bitstudio.com`, todos apuntando
-   a `159.54.153.37`. No hay token de API de Cloudflare disponible en este
-   entorno (buscado explícitamente, no asumido) — Marco tiene que
-   crearlos manualmente en el dashboard de Cloudflare.
-3. **Certificado real de Let's Encrypt vía certbot** — depende del punto
-   anterior (DNS). Comando exacto documentado en la sección de Traefik/
-   nginx de arriba.
+### Verificación de punta a punta — hallazgos reales encontrados y corregidos
+
+Tras el primer merge real a `dev` (feature/049-rediseno-dev-qa-prod →
+`dev`, disparando por primera vez el pipeline completo del rediseño),
+aparecieron 4 bugs reales más, cada uno solo visible al correr el
+pipeline de verdad contra la VM — ninguno se hubiera visto en revisión
+de código. Se documentan todos, en el orden en que aparecieron:
+
+1. **`deploy/.env.dev`/`deploy/.env.qa` nunca existieron en la VM** — el
+   primer `deploy-dev` falló con `couldn't find env file`. El `.env.test`
+   del modelo anterior no se había renombrado/migrado solo (obvio en
+   retrospectiva: nadie lo hace por uno). Fix: paso idempotente en
+   `deploy-dev`/`deploy-qa` que genera el archivo real desde su
+   `.example` (con `DB_PASSWORD` vía `openssl rand`, nunca impreso en el
+   log) si todavía no existe.
+2. **El stack `auth-core-mc-test` del modelo anterior seguía corriendo y
+   ocupaba el puerto 8081** — el mismo que ahora usa DEV. Se retira
+   (`docker compose -p auth-core-mc-test down`) antes del `up` del nuevo
+   stack — TEST/DEV siempre fue disposable por diseño, sin garantía de
+   rollback, así que no se migraron datos. El viejo `auth-core-mc-prod`
+   SÍ se dejó corriendo tal cual (mismo nombre de proyecto/puerto que el
+   PROD nuevo — se actualiza solo, sin conflicto, cuando corra el primer
+   `deploy-prod` real).
+3. **`cleanup.sh` borró la imagen de release QUE ESTABA EN USO** —
+   `deploy-dev` desplegó bien (3 contenedores healthy, healthcheck real
+   en verde), pero el paso de limpieza falló: `image is being used by
+   running container`. Causa confirmada en la VM: dos imágenes de SHAs
+   distintos con el **mismo `CreatedAt` exacto** (el código de
+   `./backend` no había cambiado entre esos commits, así que `docker
+   build` reutilizó el cache de capas completo). El script anterior
+   ordenaba solo por fecha para decidir cuál es "la actual" — con ese
+   empate real, el orden no estaba garantizado. Fix: la imagen actual se
+   resuelve del tag `:current` (no de la fecha), y además nunca se borra
+   una imagen que un contenedor corriendo esté usando de verdad
+   (`docker ps --filter ancestor=<id>`), sin importar qué diga el cálculo
+   de retención — salvaguarda independiente. Aplica a los 3 ambientes.
+4. **Traefik nunca pudo leer el provider Docker, desde el día uno** — con
+   el deploy y el certificado ya funcionando, `auth-dev.64bitstudio.com`
+   daba 404: cero routers registrados. Traefik reintentaba en loop
+   `client version 1.24 is too old` — el cliente Docker embebido en
+   `traefik:v3.1` negociaba API 1.24 contra el daemon real (1.55), que ya
+   rechaza clientes tan viejos (bug conocido,
+   [traefik/traefik#12253](https://github.com/traefik/traefik/issues/12253),
+   causado por Docker Engine 29+ subiendo su mínimo soportado). Primer
+   intento de fix (fijar `DOCKER_API_VERSION=1.47` a mano) **no
+   funcionó** — confirmado en vivo que el contenedor recreado seguía
+   fallando igual pese a tener la variable puesta. El fix real
+   ([traefik/traefik#12256](https://github.com/traefik/traefik/pull/12256))
+   es la negociación automática de versión, agregada en v3.6+ — se subió
+   la imagen a `traefik:v3.7.12`.
+5. **El puerto 443 nunca estuvo abierto en el Security List de OCI** —
+   distinto del firewall local (iptables) que ya se había abierto antes.
+   El VNIC de la VM no tiene NSGs; las reglas viven en el Security List
+   del subnet, que solo tenía ingress para 22 (SSH) y 80 (HTTP) — nadie
+   había necesitado 443 hasta ahora. Verificado con `oci network
+   security-list get` y corregido con `oci network security-list
+   update` (agregando la regla ingress 443/tcp desde 0.0.0.0/0, mismo
+   patrón que usa `oci_a1_grab.sh`). **Importante para no repetir el
+   error de diagnóstico**: un `curl` hecho DESDE la propia VM contra su
+   propio hostname/IP público puede fallar por "hairpin NAT" del cloud
+   incluso con el puerto ya bien abierto — la prueba real tiene que
+   hacerse desde AFUERA de la VM (o con `curl --resolve host:puerto:127.0.0.1`
+   para probar el servicio local sin depender del enrutamiento externo).
+
+Verificado desde afuera de la VM, de punta a punta, tras estos 5 fixes:
+`curl https://auth-dev.64bitstudio.com/actuator/health` → `200`,
+`{"status":"UP",...}` real. Mismo resultado para
+`auth-qa.64bitstudio.com` tras el merge de validación `dev → qa`.
+
+### Política de merges por rama (vigente)
+
+- `feature/NNN → dev`: automático (`allow_auto_merge` + el pipeline en
+  verde), sin acción humana por commit.
+- `dev → qa`: lo mergea el **orquestador** (la sesión principal de
+  Claude Code), no este agente ni Marco directamente — se abre el PR y
+  se avisa para que lo mergeen desde ahí.
+- `qa → prod`: **exclusivo de Marco**, siempre, sin excepción — ni este
+  agente ni el orquestador lo tocan nunca, ni siquiera "para probar el
+  mecanismo". Se abre el PR y se espera a que Marco decida y ejecute el
+  merge él mismo.
 
 ### Recursos de la VM — atención continua, no una decisión de una sola vez
 
@@ -930,9 +1003,14 @@ levantar todo esto se acerca al límite, se reporta con números concretos
 memoria, sin que Marco lo confirme primero).
 
 ## Estado de este documento
-_Última actualización: durante la implementación del ticket `049`
-(pipeline CI/CD a la VM dedicada) — ver la sección de arriba para los tres
-bloqueos reales todavía sin decisión del Product Owner. Antes de eso, al
+_Última actualización: ticket `049` (pipeline CI/CD a la VM dedicada) con
+DEV y QA validados de punta a punta de verdad (deploy real, healthcheck
+real, Traefik+TLS real, retención de imágenes real) tras el rediseño
+dev/qa/prod — ver la sección del ticket 049 arriba para la historia
+completa (diseño original reemplazado, y los 5 hallazgos reales de la
+verificación de punta a punta). PROD queda pendiente de que Marco decida
+promover algo real vía `qa → prod` — esa promoción es exclusiva suya, no
+se dispara ni se simula desde ningún agente. Antes de este ticket, al
 cerrar la tarea `048` (grant `client_credentials` para clientes
 machine-to-machine). La fase 2 del rediseño de UI (tickets 024-030,
 `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034
