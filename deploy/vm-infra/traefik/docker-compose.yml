@@ -1,0 +1,44 @@
+# Ticket 049 (rediseño dev/qa/prod): ingress compartido de TODA la VM, no
+# solo de auth-core-mc — Traefik enruta por Host() hacia cualquier stack
+# que se conecte a la red externa `edge` con las labels correctas. Vive en
+# el repo de auth-core-mc por ser el primer proyecto en configurarlo (mismo
+# patrón ya usado para el runner self-hosted de la VM: se documenta y
+# versiona aquí, pero es infraestructura de la VM, no de este proyecto en
+# particular). El ticket gemelo de mail-core-mc debe REUSAR esta instancia
+# (agregar sus propias labels a su propio stack, conectarse a la misma red
+# `edge`) — no levantar un segundo Traefik.
+#
+# DECISIÓN DE MARCO: la VM ya traía nginx en el puerto 80/443 (paquete de
+# fábrica de Ubuntu) — en vez de deshabilitarlo, nginx se queda como puerta
+# de entrada pública y hace de reverse proxy hacia Traefik, que queda
+# puertas adentro. Ver docs/ARQUITECTURA.md ticket 049 para el porqué
+# completo de esta topología y de la alternativa descartada (Traefik
+# terminando TLS él mismo con Let's Encrypt).
+#
+# Por eso Traefik NO publica 80/443 al mundo: solo escucha en
+# 127.0.0.1:8000 (loopback), alcanzable únicamente por el nginx que corre
+# en la misma VM — nunca directo desde internet. Traefik tampoco maneja
+# certificados TLS (sin ACME/Let's Encrypt aquí): nginx los termina (ver
+# deploy/vm-infra/nginx/), y le pasa a Traefik tráfico HTTP plano
+# puertas adentro, con el header Host original intacto (para que Traefik
+# rutee por Host() igual que antes).
+name: vm-infra-traefik
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true
