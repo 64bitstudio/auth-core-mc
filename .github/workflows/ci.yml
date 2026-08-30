@@ -156,6 +156,26 @@ jobs:
           sudo nginx -t
           sudo systemctl reload nginx
 
+      # Certificado real de Let's Encrypt para los 3 subdominios, vía el
+      # plugin de nginx de certbot (edita el vhost solo, agrega el bloque
+      # 443/ssl + redirect 80->443 — no hace falta versionar esa parte a
+      # mano). Idempotente: certbot no reemite si el certificado ya es
+      # válido, así que es seguro correr esto en cada push. Requiere que
+      # los 3 registros DNS ya resuelvan a esta VM (confirmados por Marco
+      # antes de este paso).
+      - name: Certificado Let's Encrypt (certbot + nginx)
+        run: |
+          if ! command -v certbot >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y certbot python3-certbot-nginx
+          fi
+          sudo certbot --nginx --non-interactive --agree-tos \
+            -m marco.cortes@64bitstudio.com \
+            -d auth.64bitstudio.com \
+            -d auth-qa.64bitstudio.com \
+            -d auth-dev.64bitstudio.com \
+            --redirect
+
       - name: SonarQube (compartido de la VM)
         run: docker compose -f deploy/vm-infra/sonarqube/docker-compose.yml up -d
 
