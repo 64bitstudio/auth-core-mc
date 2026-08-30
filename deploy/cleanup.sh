@@ -28,7 +28,13 @@ echo "== Retención de imágenes de release para $REPO (conservar $KEEP) =="
 
 # IDs de imágenes de este repositorio, más nuevas primero (por fecha de
 # creación real de la imagen, no por el orden en que Docker las lista).
-mapfile -t IMAGE_IDS < <(
+# `while read` en vez de `mapfile` (bash4+) a propósito: el bash 3.2 que
+# trae macOS de fábrica (sin `mapfile`) también debe poder correr/probar
+# este script sin depender de qué bash termine ejecutándolo.
+IMAGE_IDS=()
+while IFS= read -r id; do
+  IMAGE_IDS+=("$id")
+done < <(
   docker images "$REPO" --format '{{.CreatedAt}}|{{.ID}}' \
     | sort -r \
     | awk -F'|' '{print $2}' \
