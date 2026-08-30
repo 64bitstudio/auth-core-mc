@@ -1,0 +1,104 @@
+# Ticket 049 (rediseño dev/qa/prod): stack DEV en la VM — primer ambiente
+# real tras cada merge automático de un feature/NNN a `dev`. Antes se
+# llamaba "TEST" (docker-compose.test.yml); mismo propósito (efímero,
+# retención de 1 imagen, sin garantía de rollback), renombrado para
+# alinear con el nuevo flujo de ramas dev -> qa -> prod. Ver
+# docs/ARQUITECTURA.md ticket 049.
+#
+# "Bajo demanda": DEV no tiene que estar corriendo todo el tiempo (VM de
+# capa gratuita, 2 OCPU/12GB compartidos con QA/PROD/SonarQube/Traefik/el
+# runner). deploy/env-ctl.sh permite pararlo manualmente entre deploys;
+# el propio job deploy-dev del pipeline lo vuelve a levantar en cada push
+# a `dev` con "docker compose up -d" (idempotente, lo crea si no existe).
+#
+# Nombre de proyecto explícito (auth-core-mc-dev) — mismo motivo que
+# siempre: sin esto, Docker Compose podría chocar con QA/PROD o con el
+# stack de mail-core-mc en esta misma VM.
+name: auth-core-mc-dev
+
+services:
+  app:
+    image: auth-core-mc-dev:${IMAGE_TAG:?falta IMAGE_TAG (sha del commit a desplegar)}
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: deploy
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: auth_core_mc
+      DB_USER: auth_core_mc
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.dev}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      APP_BASE_URL: ${APP_BASE_URL:-https://auth-dev.64bitstudio.com}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_ADDRESS: ${RESEND_FROM_ADDRESS:-noreply@example.com}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      VAULT_ADDR: ${VAULT_ADDR:-}
+      VAULT_ROOT_TOKEN: ${VAULT_ROOT_TOKEN:-}
+      VAULT_TRANSIT_KEY_NAME: ${VAULT_TRANSIT_KEY_NAME:-auth-core-mc-tenant-keys}
+      BREAKGLASS_SECRET: ${BREAKGLASS_SECRET:-}
+      BREAKGLASS_TOTP_SECRET: ${BREAKGLASS_TOTP_SECRET:-}
+      BREAKGLASS_ALLOWED_IPS: ${BREAKGLASS_ALLOWED_IPS:-}
+    ports:
+      - "8081:8080"
+    networks:
+      - default
+      - edge
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    # Ingress compartido de la VM (Traefik, ver deploy/vm-infra/traefik) —
+    # enruta auth-dev.64bitstudio.com hacia este contenedor. El puerto de
+    # host (8081) sigue publicado además, sin Traefik de por medio, porque
+    # el propio pipeline (healthcheck del job deploy-dev) le pega a
+    # localhost:8081 directo desde el runner que vive en esta misma VM.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.auth-core-mc-dev.rule=Host(`auth-dev.64bitstudio.com`)"
+      - "traefik.http.routers.auth-core-mc-dev.entrypoints=web"
+      - "traefik.http.services.auth-core-mc-dev.loadbalancer.server.port=8080"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth_core_mc
+      POSTGRES_USER: auth_core_mc
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.dev}
+    volumes:
+      - auth_core_mc_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_core_mc -d auth_core_mc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - auth_core_mc_dev_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  edge:
+    external: true
+
+volumes:
+  auth_core_mc_dev_pgdata:
+  auth_core_mc_dev_redisdata:

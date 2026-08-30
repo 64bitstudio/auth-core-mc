@@ -1,18 +1,18 @@
-# Ticket 049: stack TEST en la VM — distinto del compose.yaml efímero que
-# usa CI para tests unitarios (backend/compose.yaml, Postgres/Redis
-# desechables). Este stack persiste entre deploys (volúmenes nombrados) y es
-# lo que corre de verdad tras cada merge a `integracion`. Ver
-# docs/ARQUITECTURA.md ticket 049.
+# Ticket 049 (rediseño dev/qa/prod): stack QA en la VM — segundo ambiente,
+# alcanzado por el merge MANUAL de Marco de `dev` a `qa` (nunca
+# automático). Recibe la MISMA imagen ya validada en DEV, nunca
+# reconstruida (mismo mecanismo de "resolver el SHA real vía el label
+# org.opencontainers.image.revision" que ya usaba promote-prod en el
+# diseño anterior). Ver docs/ARQUITECTURA.md ticket 049.
 #
-# Nombre de proyecto explícito (auth-core-mc-test) — mismo motivo que
-# backend/compose.yaml: sin esto, Docker Compose usaría el nombre de la
-# carpeta contenedora como identificador y podría chocar con el stack PROD
-# (docker-compose.prod.yml) o con el stack de mail-core-mc en esta misma VM.
-name: auth-core-mc-test
+# "Bajo demanda" igual que DEV — ver deploy/env-ctl.sh.
+#
+# Nombre de proyecto explícito (auth-core-mc-qa).
+name: auth-core-mc-qa
 
 services:
   app:
-    image: auth-core-mc-test:${IMAGE_TAG:?falta IMAGE_TAG (sha del commit a desplegar)}
+    image: auth-core-mc-qa:${IMAGE_TAG:?falta IMAGE_TAG (sha del commit a promover)}
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: deploy
@@ -20,10 +20,10 @@ services:
       DB_PORT: "5432"
       DB_NAME: auth_core_mc
       DB_USER: auth_core_mc
-      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.test}
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.qa}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8081}
+      APP_BASE_URL: ${APP_BASE_URL:-https://auth-qa.64bitstudio.com}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_ADDRESS: ${RESEND_FROM_ADDRESS:-noreply@example.com}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
@@ -36,7 +36,10 @@ services:
       BREAKGLASS_TOTP_SECRET: ${BREAKGLASS_TOTP_SECRET:-}
       BREAKGLASS_ALLOWED_IPS: ${BREAKGLASS_ALLOWED_IPS:-}
     ports:
-      - "8081:8080"
+      - "8082:8080"
+    networks:
+      - default
+      - edge
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +51,12 @@ services:
       timeout: 5s
       retries: 12
       start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.auth-core-mc-qa.rule=Host(`auth-qa.64bitstudio.com`)"
+      - "traefik.http.routers.auth-core-mc-qa.entrypoints=web"
+      - "traefik.http.services.auth-core-mc-qa.loadbalancer.server.port=8080"
 
   postgres:
     image: postgres:16-alpine
@@ -55,9 +64,9 @@ services:
     environment:
       POSTGRES_DB: auth_core_mc
       POSTGRES_USER: auth_core_mc
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.test}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.qa}
     volumes:
-      - auth_core_mc_test_pgdata:/var/lib/postgresql/data
+      - auth_core_mc_qa_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U auth_core_mc -d auth_core_mc"]
       interval: 5s
@@ -68,13 +77,17 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
-      - auth_core_mc_test_redisdata:/data
+      - auth_core_mc_qa_redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+networks:
+  edge:
+    external: true
+
 volumes:
-  auth_core_mc_test_pgdata:
-  auth_core_mc_test_redisdata:
+  auth_core_mc_qa_pgdata:
+  auth_core_mc_qa_redisdata:
