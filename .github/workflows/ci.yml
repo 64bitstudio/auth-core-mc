@@ -116,12 +116,22 @@ jobs:
             > /dev/null
 
   # Ticket 049 (rediseño) — asegura la infra compartida de la VM (red
-  # `edge`, Traefik, SonarQube) en cada push a `dev`. Idempotente
-  # ("docker compose up -d"/"docker network create" no hacen nada si ya
-  # existen) — seguro de correr en cada push, no solo la primera vez.
+  # `edge`, Traefik, SonarQube) en CUALQUIER push, a cualquier rama.
+  # Idempotente ("docker compose up -d"/"docker network create" no hacen
+  # nada si ya existen) — seguro de correr en cada push, no solo la
+  # primera vez.
+  #
+  # Deliberadamente SIN "needs: build-test-analyze" ni "if" por rama: es
+  # justo lo contrario, un prerrequisito de ese job, no una consecuencia —
+  # build-test-analyze necesita SonarQube ya arriba en localhost:9000
+  # para poder correr el análisis. Si dependiera de build-test-analyze en
+  # verde, nunca podría levantar Sonar la primera vez (bloqueo circular
+  # real, encontrado en el primer intento de este rediseño: build-test-
+  # analyze fallaba porque Sonar no existía todavía en la VM, y Sonar
+  # nunca se levantaba porque ese job dependía de build-test-analyze en
+  # verde).
   sync-vm-infra:
-    needs: build-test-analyze
-    if: github.event_name == 'push' && github.ref_name == 'dev'
+    if: github.event_name == 'push'
     runs-on: [self-hosted, vm-oci]
     steps:
       - uses: actions/checkout@v4
