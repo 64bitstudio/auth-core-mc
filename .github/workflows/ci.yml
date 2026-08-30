@@ -12,16 +12,32 @@
 #
 # Ticket 049: se agregan los jobs `build-image` → `deploy-test` →
 # `promote-prod`, que corren en un SEGUNDO runner self-hosted nuevo — la VM
-# OCI dedicada, label `vm-oci` (distinto del runner de la Mac, que sigue
-# siendo solo `self-hosted` sin ese label) — ver docs/ARQUITECTURA.md ticket
-# 049 para el diseño completo (flujo de ramas `integracion`/`main`, por qué
-# sin registry externo, retención de imágenes, y el gate manual de PROD).
+# OCI dedicada, label `vm-oci` (distinto del runner de la Mac) — ver
+# docs/ARQUITECTURA.md ticket 049 para el diseño completo (flujo de ramas
+# `integracion`/`main`, por qué sin registry externo, retención de
+# imágenes, y el gate manual de PROD).
+#
+# Hallazgo real (ticket 049, tras migrar a la organización 64bitstudio):
+# `runs-on: self-hosted` a secas es AMBIGUO en cuanto existe más de un
+# runner self-hosted visible para este repo — el de la Mac
+# (`marco-mac-auth-core-mc`, repo-level) y `vm-oci-runner` (org-level,
+# compartido con mail-core-mc), porque TODO runner self-hosted trae la
+# etiqueta genérica "self-hosted" además de la suya propia, y GitHub
+# empareja por subconjunto de labels, no por runner exacto. Un run real
+# (push a la rama del fix del propio hallazgo del --env-file, ver más abajo)
+# lo probó: `build-test-analyze` aterrizó en `vm-oci-runner` y falló —
+# SonarQube en `localhost:9000` y `~/dev-infra/scripts/notify.sh` solo
+# existen en la Mac. Se cierra el hueco escopeando el job al label
+# EXCLUSIVO de la Mac (`macOS`, confirmado vía
+# `gh api repos/64bitstudio/auth-core-mc/actions/runners` — el runner de la
+# VM es Linux/ARM64 y nunca tendrá ese label), en vez de asumir un nombre.
 #
 # `promote-prod` se dispara por `workflow_dispatch` (manual), NO
 # automáticamente al hacer push a `main` — ver la nota "GATE MANUAL DE PROD"
 # más abajo, junto al job, para el porqué (excepción documentada, no un
 # parche silencioso: el diseño original pedía un GitHub Environment con
-# reviewer requerido, que este repo privado no puede habilitar todavía).
+# reviewer requerido; el repo es público, así que si el billing plan lo
+# permite ahora se puede agregar el reviewer requerido sin tocar código).
 name: CI
 
 on:
@@ -32,7 +48,10 @@ on:
 
 jobs:
   build-test-analyze:
-    runs-on: self-hosted
+    # Label exclusivo de la Mac — nunca matchea al runner self-hosted de la
+    # VM (vm-oci-runner es Linux/ARM64, sin label "macOS"). Ver la nota del
+    # hallazgo arriba.
+    runs-on: [self-hosted, macOS]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -175,7 +194,7 @@ jobs:
 
       - name: Estado del stack TEST (docker compose ps)
         if: always()
-        run: docker compose -f deploy/docker-compose.test.yml ps
+        run: docker compose -f deploy/docker-compose.test.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.test ps
 
       - name: Limpieza de imágenes/recursos (retención TEST = 1)
         if: always()
@@ -280,7 +299,7 @@ jobs:
 
       - name: Estado del stack PROD (docker compose ps)
         if: always()
-        run: docker compose -f deploy/docker-compose.prod.yml ps
+        run: docker compose -f deploy/docker-compose.prod.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.prod ps
 
       - name: Limpieza de imágenes/recursos (retención PROD = 2)
         if: always()
