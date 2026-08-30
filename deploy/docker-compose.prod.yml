@@ -1,0 +1,77 @@
+# Ticket 049: stack PROD en la VM — recibe la MISMA imagen ya validada en
+# TEST (promovida por el job `promote-prod`, nunca reconstruida). Ver
+# docs/ARQUITECTURA.md ticket 049.
+#
+# Nombre de proyecto explícito (auth-core-mc-prod) — mismo motivo que
+# docker-compose.test.yml: aísla este stack del de TEST y del de
+# mail-core-mc en la misma VM.
+name: auth-core-mc-prod
+
+services:
+  app:
+    image: auth-core-mc-prod:${IMAGE_TAG:?falta IMAGE_TAG (sha del commit a promover)}
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: deploy
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: auth_core_mc
+      DB_USER: auth_core_mc
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.prod}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_ADDRESS: ${RESEND_FROM_ADDRESS:-noreply@example.com}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      VAULT_ADDR: ${VAULT_ADDR:-}
+      VAULT_ROOT_TOKEN: ${VAULT_ROOT_TOKEN:-}
+      VAULT_TRANSIT_KEY_NAME: ${VAULT_TRANSIT_KEY_NAME:-auth-core-mc-tenant-keys}
+      BREAKGLASS_SECRET: ${BREAKGLASS_SECRET:-}
+      BREAKGLASS_TOTP_SECRET: ${BREAKGLASS_TOTP_SECRET:-}
+      BREAKGLASS_ALLOWED_IPS: ${BREAKGLASS_ALLOWED_IPS:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth_core_mc
+      POSTGRES_USER: auth_core_mc
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.prod}
+    volumes:
+      - auth_core_mc_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_core_mc -d auth_core_mc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - auth_core_mc_prod_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  auth_core_mc_prod_pgdata:
+  auth_core_mc_prod_redisdata:

@@ -88,6 +88,20 @@ Si hay que registrarlo desde cero (otra máquina, o se perdió el registro), gen
 
 Los secretos del workflow (`SONAR_TOKEN`, `SONAR_HOST_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) viven en GitHub (Settings → Secrets → Actions de este repo), no en el código. `SONAR_TOKEN` se generó vía la API de SonarQube y también se guardó en `~/dev-infra/.env` para reusarse en futuros proyectos.
 
+## Deploy a la VM: `build-image` → `deploy-test` → `promote-prod` (ticket `049`, EN CURSO)
+
+Los mismos push/PR a `integracion`/`main` disparan además el despliegue real a la VM compartida (`ampere-free`, ver `~/.ssh/config`) — jobs nuevos en el mismo `.github/workflows/ci.yml`. Ver `docs/ARQUITECTURA.md` (ticket `049`) para el diseño completo, incluyendo **tres bloqueos reales todavía sin decisión del Product Owner** (billing plan de GitHub para el reviewer requerido y para branch protection, y la topología del runner en una cuenta personal) — no asumas que ya están resueltos solo porque el código ya existe.
+
+Corren en un **segundo runner self-hosted, en la VM, no en esta Mac** — label `vm-oci` (pendiente de registrar, ver el bloqueo #3 en `ARQUITECTURA.md`). Cuando se registre, seguirá el mismo patrón que el runner de la Mac:
+```bash
+# En la VM (ssh ampere-free):
+cd ~/actions-runner-auth-core-mc
+./svc.sh status / stop / start
+```
+Token de registro nuevo: `gh api -X POST repos/marco-cortes/auth-core-mc/actions/runners/registration-token --jq '.token'` — al configurar (`./config.sh`), agrega `--labels vm-oci` para distinguirlo del runner de la Mac.
+
+Los `.env` reales de TEST/PROD (`deploy/.env.test`, `deploy/.env.prod` — con `DB_PASSWORD` y, cuando existan, las credenciales reales de Resend/Twilio/Vault) viven **solo en la VM**, en `/home/ubuntu/secrets/auth-core-mc/`, fuera del checkout de git (un runner self-hosted limpia el workspace en cada run). Las plantillas versionadas están en `deploy/.env.test.example` / `deploy/.env.prod.example`.
+
 ## Probar la UI web manualmente (ticket `009`)
 Con el tenant/cliente `acme-local-dev` ya sembrado (ver arriba) y la app corriendo, abre en el navegador:
 ```
