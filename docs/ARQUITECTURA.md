@@ -637,57 +637,185 @@ Pedido externo: `mail-core-mc` (nuevo servicio del ecosistema) necesitaba autent
 - **Hallazgo de infra encontrado en el camino, no introducido por este ticket**: Testcontainers no podía hablar con Docker localmente — `/var/run/docker.sock` es un symlink roto (apunta al socket de una instalación vieja de Docker Desktop que ya no existe); el socket real de OrbStack vive en otra ruta. **Cualquier test con Testcontainers de este proyecto corrido localmente necesita `DOCKER_HOST=unix:///Users/marcocortes/.orbstack/run/docker.sock` explícito** hasta que alguien arregle el symlink (requiere `sudo`, fuera de alcance de este ticket). El self-hosted runner de CI no está afectado — confirmado, no asumido: `~/actions-runner-auth-core-mc/.env` ya trae `DOCKER_HOST` apuntando al socket correcto de OrbStack.
 - **Sin Postman** — el proyecto sigue sin ninguna colección.
 
-## Ticket 049: pipeline de CI/CD a la VM dedicada — EN CURSO, con bloqueos reales pendientes de decisión del Product Owner
+## Ticket 049: pipeline de CI/CD a la VM dedicada — EN CURSO (rediseñado en vivo, ver historia abajo)
 
 **Objetivo**: pasar de "CI solo en la Mac" a un despliegue real en la VM OCI
 Ampere A1.Flex compartida (`ampere-free`, 159.54.153.37, Ubuntu 24.04 ARM64
-— ver `~/.ssh/config`), con stacks TEST y PROD aislados en Docker Compose.
-Ticket gemelo en `mail-core-mc` (011) reutiliza la misma VM y las mismas
-convenciones documentadas aquí — **no vuelvas a derivarlas, ver la sección
-"Convenciones de la VM (compartidas con mail-core-mc)" más abajo.**
+— ver `~/.ssh/config`), con ambientes aislados en Docker Compose. Ticket
+gemelo en `mail-core-mc` (011) reutiliza la misma VM y las mismas
+convenciones documentadas aquí — **no vuelvas a derivarlas.**
 
-### Flujo de ramas nuevo: `integracion` (cambio de proceso, VoBo explícito del PO, sesión 2026-08-29)
+Este ticket pasó por DOS diseños reales, no uno. Se documenta la historia
+completa a propósito (regla del equipo: no silenciar un cambio de
+dirección) — el diseño **vigente hoy es la sección "Diseño vigente
+(rediseño dev/qa/prod)"**; la sección "Diseño original (histórico,
+reemplazado)" se conserva como registro de qué se intentó, qué bloqueos
+reales aparecieron y por qué se abandonó, no como algo a mantener.
 
-`feature/NNN → integracion → main` reemplaza el `feature/NNN → main`
-directo de todos los tickets anteriores:
-- PR mergeado a `integracion` → `build-test-analyze` (ya existente) →
-  `build-image` (construye `auth-core-mc:<sha>`, con
-  `LABEL org.opencontainers.image.revision=<sha>`) → `deploy-test` (retagea
-  como `auth-core-mc-test:<sha>` + `auth-core-mc-test:current`, `docker
-  compose up` del stack TEST, healthcheck real contra `/actuator/health`,
-  limpieza).
-- `integracion → main` → `promote-prod`, gate manual (ver más abajo),
-  promueve la MISMA imagen ya corriendo en TEST — nunca reconstruye.
+### Diseño original (histórico, reemplazado 2026-08-30)
 
-**Por qué "promover lo que está corriendo en TEST" y no "reconstruir el SHA
-que disparó el push a main"**: la estrategia de merge de GitHub
-(merge commit / squash / rebase) puede dejar en `main` un SHA distinto al
-que `integracion` tenía en el momento de construir la imagen. `promote-prod`
-resuelve el SHA real leyendo el label `org.opencontainers.image.revision`
-de `auth-core-mc-test:current` en vez de confiar en `github.sha` del evento
-de `main` — así "la misma imagen validada en TEST" es literal, sin importar
-la estrategia de merge usada.
+Primera versión: dos ramas persistentes, `integracion` (ambiente TEST) →
+`main` (ambiente PROD, gate manual). Migración a la organización GitHub
+`64bitstudio` a mitad de este ticket (repos públicos, runner self-hosted a
+nivel de organización).
 
-**Riesgo aceptado, documentado, no oculto**: este mecanismo asume que
-`main` solo avanza vía merges de `integracion` (nunca un push directo). Sin
-esa disciplina, `promote-prod` promovería igual "lo último que hay en
-TEST", que podría no corresponder al contenido real de `main`. La forma
-correcta de cerrar este hueco es branch protection en `main` — ver el
-bloqueo de plan de GitHub más abajo, todavía sin resolver.
+**Bloqueos reales encontrados y su resolución, en orden:**
+
+1. `runs-on: self-hosted` a secas resultó ambiguo en cuanto existió más de
+   un runner self-hosted visible para el repo (el de la Mac, repo-level, y
+   `vm-oci-runner`, org-level) — todo runner self-hosted trae también la
+   etiqueta genérica `self-hosted`, y GitHub empareja por subconjunto de
+   labels, no por runner exacto. Un run real lo probó: `build-test-analyze`
+   aterrizó en `vm-oci-runner` y falló (SonarQube en `localhost:9000` y
+   `~/dev-infra/scripts/notify.sh` solo existían en la Mac). Fix aplicado
+   entonces: `runs-on: [self-hosted, macOS]` (label exclusivo de la Mac,
+   confirmado vía API, no asumido).
+2. El paso de diagnóstico `docker compose ... ps` (tras el deploy real, con
+   `if: always()`) fallaba con `required variable DB_PASSWORD/IMAGE_TAG is
+   missing a value` — no llevaba `--env-file`, a diferencia del paso
+   `up -d` de al lado. El job quedaba en rojo pese a que el deploy real ya
+   había funcionado (contenedores healthy, healthcheck real en verde).
+3. Con `--env-file` agregado, el mismo paso de diagnóstico seguía fallando
+   solo para `IMAGE_TAG` — esa variable se define como env var de PASO
+   (`env: IMAGE_TAG: ...` en el step "Deploy al stack ..."), y GitHub
+   Actions no la hereda al step siguiente; nunca vivía en el `.env.*` en
+   disco (por diseño: la asigna el workflow, no un valor fijo). Fix:
+   repetir el mismo `env: IMAGE_TAG: ...` en cada paso que invoque
+   `docker compose` contra ese archivo.
+4. El diseño pedía un GitHub Environment `prod` con "required reviewers"
+   para pausar `promote-prod` hasta aprobación manual. La API lo rechazó
+   primero con `422` (billing plan no lo soporta en repo privado); tras
+   migrar el repo a público SÍ se pudo configurar — pero en el primer
+   `promote-prod` real (disparado manualmente por Marco vía
+   `workflow_dispatch`, el gate interino mientras tanto), el job **no se
+   pausó**: desplegó a PROD de verdad sin pedir aprobación. Causa
+   confirmada vía API: `can_admins_bypass: true` en el Environment (valor
+   fijo de GitHub, no configurable) — cualquier admin del repositorio salta
+   el gate de reviewer automáticamente, y Marco es admin. El mecanismo no
+   protegía nada real para un equipo donde el único humano con acceso de
+   escritura es también admin.
+
+Este último punto (no un bug de configuración, sino una limitación real de
+la plataforma para equipos de una sola persona) fue la razón directa del
+rediseño: Marco vio que el modelo generaba fricción manual real (2 PRs +
+2 merges + 1 `workflow_dispatch` por cada cambio, incluyendo arreglar un
+typo de CI) a cambio de una protección que no protegía nada. Ver el
+rediseño abajo.
+
+### Diseño vigente (rediseño dev/qa/prod, decisión de Marco, 2026-08-30)
+
+**Flujo de ramas**: `feature/NNN` → PR → `dev` (merge **automático** en
+cuanto el pipeline completo queda verde) → `qa` (merge **siempre manual**
+de Marco) → `prod` (merge **siempre manual** de Marco). `main`/`integracion`
+se renombraron a `prod`/`dev` respectivamente vía la API de rename de
+GitHub (preserva PRs abiertos y branch protection automáticamente); `qa`
+es una rama nueva, creada desde la punta de `prod` en el momento del
+rediseño. Los tres tienen el mismo branch protection: PR obligatorio +
+status check `build-test-analyze`, `required_approving_review_count: 0`
+(self-merge permitido, igual que siempre).
+
+**Sin GitHub Environment** — se retiró por completo (no `environment: qa`
+ni `environment: prod` en ningún job). No protegía nada real (ver el punto
+4 de arriba); el gate real ahora es literalmente que Marco tenga que hacer
+el merge a `qa`/`prod` con sus propias manos. `dev` en cambio SÍ se
+automatiza: en cuanto `build-test-analyze` + el resto del pipeline de `dev`
+queda verde, el PR de `feature/NNN` se auto-mergea solo (ver "Bloqueos de
+esta fase" — `allow_auto_merge` del repo quedó pendiente de que Marco lo
+habilite, el clasificador de permisos del harness lo bloqueó).
+
+**Cada etapa promueve, nunca reconstruye**: mismo mecanismo que el diseño
+original (resolver el SHA real vía el label
+`org.opencontainers.image.revision` del tag `:current` de la etapa
+anterior — `auth-core-mc-dev:current` para promover a QA,
+`auth-core-mc-qa:current` para promover a PROD), por la misma razón (la
+estrategia de merge de GitHub puede dejar un SHA distinto en la rama
+destino al que realmente se construyó).
+
+**SonarQube se muda de la Mac a la VM** (`deploy/vm-infra/sonarqube/`,
+instancia NUEVA — decisión explícita de Marco de no migrar historial, más
+simple). Consecuencia directa: **el runner self-hosted de la Mac se retira
+por completo** — la Mac queda dedicada solo a codificar/commits/push, todo
+el pipeline (tests, Sonar, build, deploy) corre en el runner de la VM
+(`vm-oci`). Esto además resuelve de raíz el bloqueo #1 del diseño anterior
+(la ambigüedad de labels): con un solo runner self-hosted visible para el
+repo, `runs-on: [self-hosted, vm-oci]` ya no es ambiguo, y
+`runs-on: [self-hosted, macOS]` deja de tener sentido.
+
+**Bootstrap circular real, encontrado y resuelto en el primer intento del
+rediseño**: el job que levanta SonarQube en la VM (`sync-vm-infra`) tenía
+originalmente `needs: build-test-analyze` — pero `build-test-analyze`
+(ahora corriendo en la VM) necesita que SonarQube YA esté arriba para
+poder analizar. Con esa dependencia, SonarQube nunca podía levantarse la
+primera vez. Fix: `sync-vm-infra` corre en TODO push, sin depender de
+ningún otro job — es un prerrequisito, no una consecuencia.
+
+**Ambientes**: DEV y QA corren "bajo demanda" (`deploy/env-ctl.sh
+<dev|qa> <up|down|status>` — la VM es de capa gratuita, 2 OCPU/12GB
+compartidos con Postfix de mail-core-mc, SonarQube, Traefik y el runner).
+PROD siempre activo. El propio pipeline hace `docker compose up -d` en
+cada deploy (idempotente — los levanta si estaban parados), así que
+"bajo demanda" solo afecta cuánto tiempo quedan corriendo ENTRE deploys,
+no bloquea ningún deploy.
+
+**Retención (`deploy/cleanup.sh`)**: DEV conserva 1 imagen de release, QA
+conserva 1, PROD conserva 2 (rollback manual). Mismo mecanismo que antes
+(borra por nombre de repositorio más allá del límite, nunca
+`docker system prune -af`, luego los prune genéricos siempre seguros).
+
+### Ingress compartido: Traefik (`deploy/vm-infra/traefik/`)
+
+Dominio `64bitstudio.com` (Cloudflare gestiona su DNS). Subdominios por
+ambiente: `auth.64bitstudio.com` (prod), `auth-qa.64bitstudio.com` (qa),
+`auth-dev.64bitstudio.com` (dev). **Cuidado**: `mail.64bitstudio.com` YA es
+el hostname del MTA de `mail-core-mc` (ticket 009) — no reutilizar; ese
+proyecto debe usar algo como `api-mail.64bitstudio.com` para su propia app.
+
+Compartido por TODA la VM, no específico de auth-core-mc — igual criterio
+que el runner self-hosted: se versiona en este repo por ser el primer
+proyecto en configurarlo, pero `mail-core-mc` debe reusar esta MISMA
+instancia (conectar su propio stack a la red externa `edge` con sus
+propias labels), no levantar un segundo Traefik.
+
+TLS vía Let's Encrypt, challenge **HTTP-01** (certResolver `le`) — no
+depende de un token de API de Cloudflare (no había ninguno disponible al
+montar esto). Esto requiere que los registros DNS apunten a la VM en modo
+"DNS only" (nube gris) — con el proxy de Cloudflare activado (nube
+naranja) el challenge HTTP-01 podría seguir funcionando según el modo
+SSL/TLS de Cloudflare, pero no se asumió ni se probó. Decisión pendiente
+de Marco si prefiere activar el proxy (ver "Bloqueos de esta fase").
+
+Cada app (`docker-compose.{dev,qa,prod}.yml`) se conecta también a la red
+externa `edge` (además de su red privada con Postgres/Redis) y declara
+labels de Traefik — sigue publicando su puerto de host además, sin
+Traefik de por medio, porque el healthcheck del propio pipeline le pega a
+`localhost:<puerto>` directo desde el runner que vive en la misma VM.
+
+Dashboard/API de Traefik deliberadamente NO habilitado — sin decisión
+todavía de a qué hostname/auth quedaría expuesto.
+
+**Bootstrap desde este repo, no manual por SSH**: todos los cambios de
+infra de la VM (Traefik, SonarQube, ambientes) se aplican vía un job de CI
+(`sync-vm-infra`/los propios `deploy-*`) que corre en el runner self-hosted
+que YA vive en la VM — nunca por SSH directo desde una sesión de agente.
+Un `mkdir`/`docker compose up` corrido directo por SSH está bloqueado por
+el clasificador de permisos del harness (correcto: es una escritura de
+infra sin pasar por el pipeline versionado). Solo lectura (`docker ps`,
+`cat`, `free`, etc.) está permitida por SSH para verificar estado.
 
 ### `application-deploy.properties` (perfil nuevo, `SPRING_PROFILES_ACTIVE=deploy`)
 
-Hallazgo real al intentar dockerizar: el backend **no tenía ninguna
-configuración explícita de `spring.datasource.*`/`spring.data.redis.*`** —
-todo el tiempo dependió de `spring-boot-docker-compose` (`developmentOnly`
-en `build.gradle`) auto-detectando `backend/compose.yaml` en desarrollo
-local. Esa dependencia se excluye automáticamente del jar empaquetado
-(`bootJar`) — el jar que corre dentro del contenedor Docker no tenía
-ninguna otra forma de encontrar su base de datos y habría fallado al
-arrancar en cualquier despliegue real. Se resolvió con un perfil Spring
-nuevo (`application-deploy.properties`, activado solo por
-`docker-compose.{test,prod}.yml` vía `SPRING_PROFILES_ACTIVE=deploy`), no
-tocando `application.properties` — cero riesgo de regresión en
+Hallazgo real al intentar dockerizar (sigue vigente, no cambió con el
+rediseño): el backend **no tenía ninguna configuración explícita de
+`spring.datasource.*`/`spring.data.redis.*`** — todo el tiempo dependió de
+`spring-boot-docker-compose` (`developmentOnly` en `build.gradle`)
+auto-detectando `backend/compose.yaml` en desarrollo local. Esa
+dependencia se excluye automáticamente del jar empaquetado (`bootJar`) —
+el jar que corre dentro del contenedor Docker no tenía ninguna otra forma
+de encontrar su base de datos y habría fallado al arrancar en cualquier
+despliegue real. Se resolvió con un perfil Spring nuevo
+(`application-deploy.properties`, activado solo por
+`docker-compose.{dev,qa,prod}.yml` vía `SPRING_PROFILES_ACTIVE=deploy`),
+no tocando `application.properties` — cero riesgo de regresión en
 `bootRun`/tests locales, que nunca activan ese perfil. `DB_PASSWORD` sin
 default (falla ruidoso si falta, misma filosofía que `ResendEmailSender`).
 
@@ -702,86 +830,85 @@ sirve igual en la VM (ARM64) sin flags de plataforma.
 
 Sin registry externo (GHCR/Docker Hub descartados a propósito, decisión ya
 tomada en el ticket): mismo host construye (`build-image`) y despliega
-(`deploy-test`/`promote-prod`) — la promoción a PROD es un `docker tag`
-local, no un push/pull.
-
-### Retención y limpieza (`deploy/cleanup.sh`)
-
-TEST conserva 1 imagen de release (`auth-core-mc-test`), PROD conserva 2
-(`auth-core-mc-prod`, para rollback manual). Borra por nombre de
-repositorio más allá del límite (no `docker system prune -af`, que
-borraría también la imagen anterior de PROD que sí queremos conservar),
-luego corre `docker image/builder/container prune -f` (siempre seguros).
-Corre al final de `deploy-test` y `promote-prod`, con `if: always()` —
-limpia incluso si el healthcheck falló.
+(`deploy-dev`/`deploy-qa`/`deploy-prod`) — cada promoción es un
+`docker tag` local, no un push/pull.
 
 ### Convenciones de la VM (compartidas con `mail-core-mc` — reusar, no reinventar)
 
 - **Secrets de despliegue fuera del checkout de git**:
-  `/home/ubuntu/secrets/<repo>/.env.test` y `.env.prod` en la VM — NUNCA
-  dentro de la carpeta donde `actions/checkout` clona el repo. Un runner
-  self-hosted limpia el workspace (`git clean`) antes de cada checkout;
-  un archivo gitignored ahí adentro se borraría en cada run. Plantillas
-  committeadas: `deploy/.env.test.example` / `deploy/.env.prod.example`.
+  `/home/ubuntu/secrets/<repo>/.env.{dev,qa,prod}` en la VM — NUNCA dentro
+  de la carpeta donde `actions/checkout` clona el repo. Un runner
+  self-hosted limpia el workspace (`git clean`) antes de cada checkout; un
+  archivo gitignored ahí adentro se borraría en cada run. Plantillas
+  committeadas: `deploy/.env.{dev,qa,prod}.example`.
 - **Nombres de proyecto de Compose explícitos** (`name:` en cada
   `docker-compose.*.yml`) — mismo motivo que `backend/compose.yaml`
   (ticket 007): sin esto, dos proyectos en la misma VM con servicios del
   mismo nombre genérico (`postgres`, `redis`, `app`) podrían chocar.
-- **Puertos de host reservados por este proyecto en la VM**: TEST → 8081,
-  PROD → 8080. `mail-core-mc` (ticket gemelo 011) debe reservar puertos
-  distintos — coordinar antes de registrar su stack.
-- **Runner self-hosted de la VM, label `vm-oci`**: distingue estos jobs
-  del runner de la Mac (`self-hosted` a secas, ticket 010, usado solo para
-  `build-test-analyze` por el acceso a SonarQube local). Ver el bloqueo de
-  topología del runner más abajo — todavía sin resolver con el PO.
+- **Puertos de host reservados por este proyecto en la VM**: DEV → 8081,
+  QA → 8082, PROD → 8080. `mail-core-mc` (ticket gemelo 011) debe reservar
+  puertos distintos — coordinar antes de registrar su stack.
+- **Runner self-hosted único de la VM, label `vm-oci`**: desde el
+  rediseño, es el ÚNICO runner self-hosted del proyecto — el de la Mac fue
+  retirado. `mail-core-mc` reusa este mismo runner (registrado a nivel de
+  organización), no registra uno nuevo.
+- **SonarQube y Traefik son infra COMPARTIDA de la VM**, no de este
+  proyecto — ver sus secciones arriba. `mail-core-mc` reusa ambos.
 - **Vault Transit** (cifrado de secretos de tenant, ticket 017) sigue
   corriendo solo en `~/dev-infra` en la Mac — la VM no tiene Vault propio
   todavía. `VAULT_ADDR`/`VAULT_ROOT_TOKEN` quedan vacíos por defecto en
-  `deploy/.env.{test,prod}.example`: cualquier tenant que intente
-  configurar un secreto de proveedor social en TEST/PROD fallará
-  ruidosamente (por diseño) hasta que se decida cómo la VM alcanza un
-  Vault real. **No resuelto por este ticket** — se documenta aquí como
-  hallazgo, no se asume una solución.
+  `deploy/.env.{dev,qa,prod}.example`: cualquier tenant que intente
+  configurar un secreto de proveedor social fallará ruidosamente (por
+  diseño) hasta que se decida cómo la VM alcanza un Vault real. **No
+  resuelto por este ticket** — se documenta aquí como hallazgo, no se
+  asume una solución.
 
-### Bloqueos reales encontrados, pendientes de decisión del Product Owner (no resueltos por asunción)
+### Bloqueos de esta fase (rediseño), pendientes de una acción directa de Marco (no resueltos por asunción)
 
-1. **GitHub Environments con "required reviewers" no funciona en este
-   repo**: la API respondió `422 — Please ensure the billing plan supports
-   the required reviewers protection rule` al intentar configurarlo. Ese
-   gate (el mecanismo de aprobación manual que el ticket pedía
-   literalmente) requiere GitHub Pro/Team/Enterprise, o que el repositorio
-   sea público — confirmado probando contra la API real, no asumido.
-   Interino implementado mientras se decide: `promote-prod` se dispara por
-   `workflow_dispatch` (100% manual, nunca automático en push a `main`) —
-   cumple la intención de seguridad ("PROD nunca se despliega solo") pero
-   no es literalmente el mecanismo acordado. `environment: prod` queda
-   declarado en el job de todos modos, listo para el reviewer requerido en
-   cuanto se resuelva el plan, sin tocar código.
-2. **Branch protection (clásica y "rulesets") tampoco funciona en este
-   repo**: mismo mensaje 403 ("Upgrade to GitHub Pro or make this
-   repository public"). El criterio de aceptación "Configuración de branch
-   protection para `integracion` y `main`" queda sin poder cumplirse tal
-   cual hasta que se resuelva el mismo punto del billing plan.
-3. **Topología del runner self-hosted en una cuenta personal**:
-   `marco-cortes` es una cuenta de usuario, no una organización — GitHub
-   solo permite runners a nivel de organización compartir un único proceso
-   entre repos; a nivel de repositorio personal, cada repo necesita su
-   propio registro de runner. Un runner físico no puede registrarse
-   simultáneamente contra `auth-core-mc` y `mail-core-mc`. Sin decidir
-   todavía: (a) registrar dos procesos de runner independientes en la
-   misma VM — mismo patrón/convención documentado aquí, un directorio y un
-   servicio systemd por repo, reusando este mismo documento en vez de
-   re-derivarlo — o (b) migrar ambos repos a una organización de GitHub
-   para habilitar un runner compartido de verdad, lo cual es un cambio de
-   arquitectura/ownership fuera del alcance de este ticket.
+Todos estos son acciones bloqueadas por el clasificador de permisos del
+harness al intentarlas desde esta sesión — no bloqueos de diseño, sino de
+qué puede ejecutar un agente vs. qué necesita la mano de Marco:
 
-**Ninguno de estos tres puntos se resolvió por asunción** — quedan
-abiertos explícitamente para que el Product Owner decida (ver la
-conversación del ticket 049), consistente con la regla de "cero
-suposiciones" del equipo. El resto del pipeline (Dockerfile, compose de
-TEST/PROD, `build-image`/`deploy-test` automáticos, script de limpieza,
-perfil `deploy` de Spring) no depende de estas tres decisiones y ya está
-implementado.
+1. **`allow_auto_merge` del repo** — necesario para que el merge
+   `feature/NNN → dev` sea automático como se pidió. Bloqueado al intentar
+   `gh api -X PATCH .../auth-core-mc --field allow_auto_merge=true`. Marco
+   puede habilitarlo en Settings → General → Pull Requests → "Allow
+   auto-merge", o correr ese mismo comando él mismo.
+2. **Desregistro final del runner de la Mac** — el servicio local
+   (`actions.runner.marco-cortes-auth-core-mc.marco-mac-auth-core-mc`) ya
+   está DETENIDO (`svc.sh stop`, confirmado), así que no puede tomar más
+   jobs. Pero `svc.sh uninstall` (borra el plist de launchd) y el
+   `DELETE /repos/.../actions/runners/<id>` (quita el registro del lado de
+   GitHub) quedaron bloqueados por el clasificador. El runner sigue
+   apareciendo como registrado (aunque offline en la práctica) hasta que
+   Marco corra alguno de los dos.
+3. **Runner de la Mac de `mail-core-mc`** (`marco-mac-mail-core-mc`) —
+   descubierto al revisar el estado de la Mac: existe un SEGUNDO runner
+   repo-level para `mail-core-mc`, todavía activo. La instrucción de
+   "la Mac queda dedicada solo a codificar" aplicaría igual ahí, pero ese
+   runner es del ticket gemelo (011) de `mail-core-mc`, fuera del alcance
+   de este ticket — se deja anotado, sin tocar, para que se decida
+   explícitamente en ese proyecto.
+4. **3 registros DNS en Cloudflare** — `auth.64bitstudio.com`,
+   `auth-qa.64bitstudio.com`, `auth-dev.64bitstudio.com`, todos apuntando
+   a `159.54.153.37`. No hay token de API de Cloudflare disponible en este
+   entorno (buscado explícitamente, no asumido) — Marco tiene que
+   crearlos manualmente en el dashboard de Cloudflare. Modo recomendado:
+   "DNS only" (nube gris) — ver la sección de Traefik arriba para el
+   porqué.
+5. **Modo SSL/TLS de Cloudflare si se decide proxiar (nube naranja)** —
+   no evaluado, ver la sección de Traefik.
+
+### Recursos de la VM — atención continua, no una decisión de una sola vez
+
+2 OCPU/12GB compartidos entre Postfix (mail-core-mc), SonarQube+su
+Postgres, los stacks dev/qa/prod (cada uno con su propio Postgres+Redis),
+Traefik y el runner. Medido antes de levantar SonarQube en la VM: 1.7GB en
+uso, ~9GB disponibles (`free -h` real, no estimado). "Bajo demanda" en
+dev/qa ya es la mitigación decidida por Marco — si el uso real después de
+levantar todo esto se acerca al límite, se reporta con números concretos
+(no se decide nada por asunción, como apagar algo o cambiar límites de
+memoria, sin que Marco lo confirme primero).
 
 ## Estado de este documento
 _Última actualización: durante la implementación del ticket `049`
