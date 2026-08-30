@@ -255,6 +255,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Hallazgo real (primer deploy-dev del rediseño): deploy/.env.dev
+      # nunca se creó en la VM -- el .env.test del esquema anterior no se
+      # renombró/migró solo. Idempotente: si ya existe, no lo toca (nunca
+      # pisa un password real ya generado). El password se genera EN la
+      # VM con openssl y nunca se imprime en el log.
+      - name: Asegurar deploy/.env.dev real en la VM (si falta)
+        run: |
+          ENVFILE=/home/ubuntu/secrets/auth-core-mc/.env.dev
+          if [ ! -f "$ENVFILE" ]; then
+            PW=$(openssl rand -base64 24 | tr -d '=+/\n')
+            sed "s#^DB_PASSWORD=.*#DB_PASSWORD=${PW}#" deploy/.env.dev.example > "$ENVFILE"
+            chmod 600 "$ENVFILE"
+            echo "Creado $ENVFILE (password generado, no impreso)."
+          fi
+
+      # Hallazgo real: el stack "test" del modelo anterior (auth-core-mc-
+      # test, mismo puerto de host 8081 que ahora usa DEV) seguía
+      # corriendo y le ganaba el puerto al "docker compose up -d" de
+      # abajo. TEST/DEV siempre fue disposable por diseño (sin garantía
+      # de rollback, ver docs/ARQUITECTURA.md ticket 049) -- se retira sin
+      # migrar datos. Idempotente (no-op una vez que ya no existe).
+      - name: Retirar el stack "test" del modelo anterior (puerto 8081 en conflicto)
+        run: docker compose -p auth-core-mc-test down 2>/dev/null || true
+
       - name: Tag de release para DEV
         run: |
           docker tag "auth-core-mc:${{ github.sha }}" "auth-core-mc-dev:${{ github.sha }}"
@@ -343,6 +367,18 @@ jobs:
     runs-on: [self-hosted, vm-oci]
     steps:
       - uses: actions/checkout@v4
+
+      # Mismo hallazgo que deploy-dev: deploy/.env.qa no existía en la VM
+      # (ambiente nuevo, nunca se creó a mano). Idempotente.
+      - name: Asegurar deploy/.env.qa real en la VM (si falta)
+        run: |
+          ENVFILE=/home/ubuntu/secrets/auth-core-mc/.env.qa
+          if [ ! -f "$ENVFILE" ]; then
+            PW=$(openssl rand -base64 24 | tr -d '=+/\n')
+            sed "s#^DB_PASSWORD=.*#DB_PASSWORD=${PW}#" deploy/.env.qa.example > "$ENVFILE"
+            chmod 600 "$ENVFILE"
+            echo "Creado $ENVFILE (password generado, no impreso)."
+          fi
 
       - name: Resolver el SHA actualmente validado en DEV
         id: resolve
