@@ -139,6 +139,12 @@ jobs:
       - name: Red compartida "edge" (Traefik <-> stacks de cada proyecto)
         run: docker network inspect edge >/dev/null 2>&1 || docker network create edge
 
+      # Ticket 049 (pivote GH Actions -> Jenkins): red interna, SIN
+      # tráfico público -- solo para que Jenkins alcance a SonarQube por
+      # nombre de contenedor ("sonarqube:9000"), no vía Traefik.
+      - name: Red compartida "vm-infra" (Jenkins <-> SonarQube)
+        run: docker network inspect vm-infra >/dev/null 2>&1 || docker network create vm-infra
+
       - name: Traefik (ingress compartido de la VM, puertas adentro)
         run: docker compose -f deploy/vm-infra/traefik/docker-compose.yml up -d
 
@@ -153,6 +159,15 @@ jobs:
         run: |
           sudo cp deploy/vm-infra/nginx/auth-core-mc.conf /etc/nginx/sites-available/auth-core-mc.conf
           sudo ln -sf /etc/nginx/sites-available/auth-core-mc.conf /etc/nginx/sites-enabled/auth-core-mc.conf
+          sudo nginx -t
+          sudo systemctl reload nginx
+
+      # Ticket 049 (pivote GH Actions -> Jenkins) — mismo patrón que el
+      # vhost de arriba, para jenkins.64bitstudio.com.
+      - name: nginx -> Traefik (vhost de Jenkins)
+        run: |
+          sudo cp deploy/vm-infra/nginx/jenkins.conf /etc/nginx/sites-available/jenkins.conf
+          sudo ln -sf /etc/nginx/sites-available/jenkins.conf /etc/nginx/sites-enabled/jenkins.conf
           sudo nginx -t
           sudo systemctl reload nginx
 
@@ -192,8 +207,72 @@ jobs:
             -d auth-dev.64bitstudio.com \
             --redirect
 
+      # Ticket 049 (pivote GH Actions -> Jenkins) — certificado aparte
+      # (no se puede meter en el -d de arriba: certbot exige que TODOS los
+      # SAN de una misma petición resuelvan, y jenkins.64bitstudio.com
+      # todavía no tiene el registro DNS creado por Marco). continue-on-
+      # error a propósito: mientras el DNS no exista, este paso falla
+      # solo, sin tumbar el resto del job — en cuanto el DNS resuelva,
+      # el próximo push lo emite solo, sin tocar nada más.
+      - name: Certificado Let's Encrypt para Jenkins (depende de DNS pendiente)
+        continue-on-error: true
+        run: |
+          sudo certbot --nginx --non-interactive --agree-tos \
+            -m marco.cortes@64bitstudio.com \
+            -d jenkins.64bitstudio.com \
+            --redirect
+
       - name: SonarQube (compartido de la VM)
         run: docker compose -f deploy/vm-infra/sonarqube/docker-compose.yml up -d
+
+      # Ticket 049 (pivote GH Actions -> Jenkins): bootstrap idempotente
+      # de /home/ubuntu/secrets/jenkins/.env (nunca lo pisa si ya existe
+      # con un password real puesto por Marco) — mismo patrón que
+      # deploy/.env.{dev,qa}.
+      - name: Asegurar /home/ubuntu/secrets/jenkins/.env (si falta)
+        run: |
+          mkdir -p /home/ubuntu/secrets/jenkins
+          ENVFILE=/home/ubuntu/secrets/jenkins/.env
+          if [ ! -f "$ENVFILE" ]; then
+            PW=$(openssl rand -base64 24 | tr -d '=+/\n')
+            sed "s#^JENKINS_ADMIN_PASSWORD=.*#JENKINS_ADMIN_PASSWORD=${PW}#" deploy/vm-infra/jenkins/.env.example > "$ENVFILE"
+            chmod 600 "$ENVFILE"
+            echo "Creado $ENVFILE (password generado, no impreso). GITHUB_PAT queda vacío -- Marco debe llenarlo a mano."
+          fi
+
+      # Jenkins: necesita construir su propia imagen (Dockerfile con el
+      # CLI de docker) y el GID real del grupo dueño de docker.sock EN
+      # ESTA VM (puede variar entre hosts, nunca hardcodeado) para que el
+      # usuario "jenkins" adentro del contenedor pueda usarlo sin sudo.
+      - name: Jenkins (orquestador del pipeline, compartido de la VM)
+        run: |
+          set -a
+          . /home/ubuntu/secrets/jenkins/.env
+          set +a
+          export DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+          docker compose -f deploy/vm-infra/jenkins/docker-compose.yml up -d --build
+
+      # Ticket 049 (pivote GH Actions -> Jenkins): el step "Quality Gate"
+      # del Jenkinsfile (waitForQualityGate()) necesita que SonarQube avise
+      # a Jenkins cuando termina un análisis -- eso es un webhook
+      # configurado DEL LADO DE SONAR, no del lado de Jenkins. Idempotente
+      # (busca por nombre antes de crear). Usa el mismo SONAR_TOKEN que ya
+      # está en el .env de Jenkins (con permiso de administrar el sistema).
+      - name: Webhook de SonarQube -> Jenkins (para el Quality Gate)
+        run: |
+          set -a
+          . /home/ubuntu/secrets/jenkins/.env
+          set +a
+          if [ -z "${SONAR_TOKEN:-}" ]; then
+            echo "SONAR_TOKEN vacío en el .env de Jenkins -- se omite (Marco todavía no lo llenó)." >&2
+            exit 0
+          fi
+          EXISTS=$(curl -s -u "${SONAR_TOKEN}:" "${SONAR_HOST_URL}/api/webhooks/list" | grep -c '"name":"jenkins"' || true)
+          if [ "$EXISTS" = "0" ]; then
+            curl -s -u "${SONAR_TOKEN}:" -X POST "${SONAR_HOST_URL}/api/webhooks/create" \
+              --data-urlencode "name=jenkins" \
+              --data-urlencode "url=http://jenkins:8080/sonarqube-webhook/"
+          fi
 
   # Construye la imagen Docker UNA vez, tras tests+Sonar en verde, solo
   # para pushes a `dev` (el merge feature/NNN -> dev es automático cuando

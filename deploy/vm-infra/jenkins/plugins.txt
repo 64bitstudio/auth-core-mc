@@ -1,0 +1,11 @@
+configuration-as-code
+git
+github
+github-branch-source
+workflow-aggregator
+docker-workflow
+credentials-binding
+role-strategy
+ws-cleanup
+timestamper
+sonar

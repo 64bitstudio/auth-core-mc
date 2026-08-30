@@ -16,6 +16,12 @@
 # app de auth-core-mc, nada necesita alcanzar SonarQube desde fuera de la
 # VM; el runner que corre el análisis vive en esta misma máquina.
 #
+# Ticket 049 (pivote GH Actions -> Jenkins): además conectado a la red
+# COMPARTIDA "vm-infra" (distinta de "edge", que es solo para tráfico
+# público vía Traefik) — Jenkins corre en un contenedor propio y necesita
+# alcanzar a SonarQube por nombre de servicio ("sonarqube:9000"), no por
+# localhost (cada contenedor tiene su propio loopback).
+#
 # Memoria acotada a propósito (heaps de Web/CE moderados, Search — el
 # Elasticsearch embebido — en el mínimo recomendado por Sonar) — la VM
 # comparte 2 OCPU/12GB con Postfix, los stacks dev/qa/prod, Traefik y el
@@ -59,6 +65,13 @@ services:
         soft: 65536
         hard: 65536
       nproc: 8192
+    networks:
+      - default
+      - vm-infra
+
+networks:
+  vm-infra:
+    external: true
 
 volumes:
   sonarqube_db_data:
