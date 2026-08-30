@@ -16,9 +16,10 @@ out/
 .env
 .env.*
 !.env.example
-# Ticket 049: los .env reales de TEST/PROD viven SOLO en la VM (nunca en
+# Ticket 049: los .env reales de DEV/QA/PROD viven SOLO en la VM (nunca en
 # git); solo sus plantillas se versionan.
-!deploy/.env.test.example
+!deploy/.env.dev.example
+!deploy/.env.qa.example
 !deploy/.env.prod.example
 
 # OS

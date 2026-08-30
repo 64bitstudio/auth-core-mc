@@ -1,0 +1,27 @@
+# Ticket 049 (rediseño dev/qa/prod) — config estática de Traefik, ingress
+# compartido de la VM. Ver docker-compose.yml en este mismo directorio y
+# docs/ARQUITECTURA.md ticket 049 para el porqué de cada decisión —
+# en particular, por qué Traefik NO maneja TLS/ACME aquí (nginx lo hace,
+# por decisión de Marco de mantener nginx como puerta de entrada en vez de
+# deshabilitarlo).
+
+entryPoints:
+  web:
+    address: ":8000"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    # Nada se expone por default con solo conectarse a la red `edge` — cada
+    # servicio tiene que declarar "traefik.enable=true" explícitamente (ver
+    # las labels en deploy/docker-compose.{dev,qa,prod}.yml). Evita que un
+    # contenedor futuro quede enrutado por accidente.
+    exposedByDefault: false
+    network: edge
+    watch: true
+
+# Dashboard/API deliberadamente NO habilitado — no hay todavía una
+# decisión de a qué hostname/auth quedaría expuesto.
+
+log:
+  level: INFO
