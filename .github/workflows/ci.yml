@@ -156,6 +156,22 @@ jobs:
           sudo nginx -t
           sudo systemctl reload nginx
 
+      # Hallazgo real: el firewall local de la VM (iptables, persistido con
+      # iptables-persistent/netfilter-persistent) solo tenía reglas ACCEPT
+      # explícitas para 22 (SSH), 25 (SMTP de mail-core-mc) y 80 (HTTP) —
+      # con un REJECT catch-all al final. 443 nunca estuvo abierto (nadie
+      # lo había necesitado hasta ahora). Se agrega la regla justo antes
+      # del REJECT (nunca al final, quedaría después del catch-all y no
+      # serviría de nada) y se persiste para que sobreviva un reinicio.
+      # Idempotente: no duplica la regla si ya existe.
+      - name: Abrir 443/tcp en el firewall de la VM (para Traefik/nginx HTTPS)
+        run: |
+          if ! sudo iptables -C INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null; then
+            REJECT_LINE=$(sudo iptables -L INPUT --line-numbers | awk '/REJECT/{print $1; exit}')
+            sudo iptables -I INPUT "$REJECT_LINE" -p tcp --dport 443 -j ACCEPT
+            sudo netfilter-persistent save
+          fi
+
       # Certificado real de Let's Encrypt para los 3 subdominios, vía el
       # plugin de nginx de certbot (edita el vhost solo, agrega el bloque
       # 443/ssl + redirect 80->443 — no hace falta versionar esa parte a
