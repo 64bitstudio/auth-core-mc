@@ -4,22 +4,25 @@
 # docs/ARQUITECTURA.md ticket 049 para el porqué de cada retención.
 #
 # Uso:
-#   ./cleanup.sh test     # conserva solo 1 imagen de release (la actual)
-#   ./cleanup.sh prod     # conserva 2 (la actual + la anterior, rollback)
+#   ./cleanup.sh dev     # conserva solo 1 imagen de release (la actual)
+#   ./cleanup.sh qa      # conserva solo 1 imagen de release (la actual)
+#   ./cleanup.sh prod    # conserva 2 (la actual + la anterior, rollback)
 #
 # Deliberadamente NO usa "docker system prune -af" (que borraría CUALQUIER
 # imagen no usada por un contenedor corriendo, incluida la anterior de PROD
 # que sí queremos conservar para rollback) — en su lugar, borra por nombre
-# de repositorio ("auth-core-mc-test"/"auth-core-mc-prod") más allá del
-# límite de retención, y solo entonces corre los prune genéricos (dangling,
-# build cache, contenedores detenidos) que son siempre seguros de limpiar.
+# de repositorio ("auth-core-mc-dev"/"auth-core-mc-qa"/"auth-core-mc-prod")
+# más allá del límite de retención, y solo entonces corre los prune
+# genéricos (dangling, build cache, contenedores detenidos) que son siempre
+# seguros de limpiar.
 set -euo pipefail
 
-ENV="${1:?uso: cleanup.sh <test|prod>}"
+ENV="${1:?uso: cleanup.sh <dev|qa|prod>}"
 case "$ENV" in
-  test) KEEP=1 ;;
+  dev) KEEP=1 ;;
+  qa) KEEP=1 ;;
   prod) KEEP=2 ;;
-  *) echo "❌ ambiente desconocido: $ENV (usar 'test' o 'prod')" >&2; exit 1 ;;
+  *) echo "❌ ambiente desconocido: $ENV (usar 'dev', 'qa' o 'prod')" >&2; exit 1 ;;
 esac
 
 REPO="auth-core-mc-$ENV"
