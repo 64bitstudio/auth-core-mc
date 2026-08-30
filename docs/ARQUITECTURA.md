@@ -637,5 +637,163 @@ Pedido externo: `mail-core-mc` (nuevo servicio del ecosistema) necesitaba autent
 - **Hallazgo de infra encontrado en el camino, no introducido por este ticket**: Testcontainers no podía hablar con Docker localmente — `/var/run/docker.sock` es un symlink roto (apunta al socket de una instalación vieja de Docker Desktop que ya no existe); el socket real de OrbStack vive en otra ruta. **Cualquier test con Testcontainers de este proyecto corrido localmente necesita `DOCKER_HOST=unix:///Users/marcocortes/.orbstack/run/docker.sock` explícito** hasta que alguien arregle el symlink (requiere `sudo`, fuera de alcance de este ticket). El self-hosted runner de CI no está afectado — confirmado, no asumido: `~/actions-runner-auth-core-mc/.env` ya trae `DOCKER_HOST` apuntando al socket correcto de OrbStack.
 - **Sin Postman** — el proyecto sigue sin ninguna colección.
 
+## Ticket 049: pipeline de CI/CD a la VM dedicada — EN CURSO, con bloqueos reales pendientes de decisión del Product Owner
+
+**Objetivo**: pasar de "CI solo en la Mac" a un despliegue real en la VM OCI
+Ampere A1.Flex compartida (`ampere-free`, 159.54.153.37, Ubuntu 24.04 ARM64
+— ver `~/.ssh/config`), con stacks TEST y PROD aislados en Docker Compose.
+Ticket gemelo en `mail-core-mc` (011) reutiliza la misma VM y las mismas
+convenciones documentadas aquí — **no vuelvas a derivarlas, ver la sección
+"Convenciones de la VM (compartidas con mail-core-mc)" más abajo.**
+
+### Flujo de ramas nuevo: `integracion` (cambio de proceso, VoBo explícito del PO, sesión 2026-08-29)
+
+`feature/NNN → integracion → main` reemplaza el `feature/NNN → main`
+directo de todos los tickets anteriores:
+- PR mergeado a `integracion` → `build-test-analyze` (ya existente) →
+  `build-image` (construye `auth-core-mc:<sha>`, con
+  `LABEL org.opencontainers.image.revision=<sha>`) → `deploy-test` (retagea
+  como `auth-core-mc-test:<sha>` + `auth-core-mc-test:current`, `docker
+  compose up` del stack TEST, healthcheck real contra `/actuator/health`,
+  limpieza).
+- `integracion → main` → `promote-prod`, gate manual (ver más abajo),
+  promueve la MISMA imagen ya corriendo en TEST — nunca reconstruye.
+
+**Por qué "promover lo que está corriendo en TEST" y no "reconstruir el SHA
+que disparó el push a main"**: la estrategia de merge de GitHub
+(merge commit / squash / rebase) puede dejar en `main` un SHA distinto al
+que `integracion` tenía en el momento de construir la imagen. `promote-prod`
+resuelve el SHA real leyendo el label `org.opencontainers.image.revision`
+de `auth-core-mc-test:current` en vez de confiar en `github.sha` del evento
+de `main` — así "la misma imagen validada en TEST" es literal, sin importar
+la estrategia de merge usada.
+
+**Riesgo aceptado, documentado, no oculto**: este mecanismo asume que
+`main` solo avanza vía merges de `integracion` (nunca un push directo). Sin
+esa disciplina, `promote-prod` promovería igual "lo último que hay en
+TEST", que podría no corresponder al contenido real de `main`. La forma
+correcta de cerrar este hueco es branch protection en `main` — ver el
+bloqueo de plan de GitHub más abajo, todavía sin resolver.
+
+### `application-deploy.properties` (perfil nuevo, `SPRING_PROFILES_ACTIVE=deploy`)
+
+Hallazgo real al intentar dockerizar: el backend **no tenía ninguna
+configuración explícita de `spring.datasource.*`/`spring.data.redis.*`** —
+todo el tiempo dependió de `spring-boot-docker-compose` (`developmentOnly`
+en `build.gradle`) auto-detectando `backend/compose.yaml` en desarrollo
+local. Esa dependencia se excluye automáticamente del jar empaquetado
+(`bootJar`) — el jar que corre dentro del contenedor Docker no tenía
+ninguna otra forma de encontrar su base de datos y habría fallado al
+arrancar en cualquier despliegue real. Se resolvió con un perfil Spring
+nuevo (`application-deploy.properties`, activado solo por
+`docker-compose.{test,prod}.yml` vía `SPRING_PROFILES_ACTIVE=deploy`), no
+tocando `application.properties` — cero riesgo de regresión en
+`bootRun`/tests locales, que nunca activan ese perfil. `DB_PASSWORD` sin
+default (falla ruidoso si falta, misma filosofía que `ResendEmailSender`).
+
+### Imagen Docker: `backend/Dockerfile`, multi-stage, sin registry externo
+
+`eclipse-temurin:25-jdk-noble` (build) → `eclipse-temurin:25-jre-noble`
+(runtime, usuario no-root, `curl` instalado solo para el healthcheck de
+compose). Build sin tests (`-x test -x sonar`, ya corridos en
+`build-test-analyze` antes de este job) — evita Docker-in-Docker para
+Testcontainers. Multi-arch de fábrica (amd64/arm64): el mismo Dockerfile
+sirve igual en la VM (ARM64) sin flags de plataforma.
+
+Sin registry externo (GHCR/Docker Hub descartados a propósito, decisión ya
+tomada en el ticket): mismo host construye (`build-image`) y despliega
+(`deploy-test`/`promote-prod`) — la promoción a PROD es un `docker tag`
+local, no un push/pull.
+
+### Retención y limpieza (`deploy/cleanup.sh`)
+
+TEST conserva 1 imagen de release (`auth-core-mc-test`), PROD conserva 2
+(`auth-core-mc-prod`, para rollback manual). Borra por nombre de
+repositorio más allá del límite (no `docker system prune -af`, que
+borraría también la imagen anterior de PROD que sí queremos conservar),
+luego corre `docker image/builder/container prune -f` (siempre seguros).
+Corre al final de `deploy-test` y `promote-prod`, con `if: always()` —
+limpia incluso si el healthcheck falló.
+
+### Convenciones de la VM (compartidas con `mail-core-mc` — reusar, no reinventar)
+
+- **Secrets de despliegue fuera del checkout de git**:
+  `/home/ubuntu/secrets/<repo>/.env.test` y `.env.prod` en la VM — NUNCA
+  dentro de la carpeta donde `actions/checkout` clona el repo. Un runner
+  self-hosted limpia el workspace (`git clean`) antes de cada checkout;
+  un archivo gitignored ahí adentro se borraría en cada run. Plantillas
+  committeadas: `deploy/.env.test.example` / `deploy/.env.prod.example`.
+- **Nombres de proyecto de Compose explícitos** (`name:` en cada
+  `docker-compose.*.yml`) — mismo motivo que `backend/compose.yaml`
+  (ticket 007): sin esto, dos proyectos en la misma VM con servicios del
+  mismo nombre genérico (`postgres`, `redis`, `app`) podrían chocar.
+- **Puertos de host reservados por este proyecto en la VM**: TEST → 8081,
+  PROD → 8080. `mail-core-mc` (ticket gemelo 011) debe reservar puertos
+  distintos — coordinar antes de registrar su stack.
+- **Runner self-hosted de la VM, label `vm-oci`**: distingue estos jobs
+  del runner de la Mac (`self-hosted` a secas, ticket 010, usado solo para
+  `build-test-analyze` por el acceso a SonarQube local). Ver el bloqueo de
+  topología del runner más abajo — todavía sin resolver con el PO.
+- **Vault Transit** (cifrado de secretos de tenant, ticket 017) sigue
+  corriendo solo en `~/dev-infra` en la Mac — la VM no tiene Vault propio
+  todavía. `VAULT_ADDR`/`VAULT_ROOT_TOKEN` quedan vacíos por defecto en
+  `deploy/.env.{test,prod}.example`: cualquier tenant que intente
+  configurar un secreto de proveedor social en TEST/PROD fallará
+  ruidosamente (por diseño) hasta que se decida cómo la VM alcanza un
+  Vault real. **No resuelto por este ticket** — se documenta aquí como
+  hallazgo, no se asume una solución.
+
+### Bloqueos reales encontrados, pendientes de decisión del Product Owner (no resueltos por asunción)
+
+1. **GitHub Environments con "required reviewers" no funciona en este
+   repo**: la API respondió `422 — Please ensure the billing plan supports
+   the required reviewers protection rule` al intentar configurarlo. Ese
+   gate (el mecanismo de aprobación manual que el ticket pedía
+   literalmente) requiere GitHub Pro/Team/Enterprise, o que el repositorio
+   sea público — confirmado probando contra la API real, no asumido.
+   Interino implementado mientras se decide: `promote-prod` se dispara por
+   `workflow_dispatch` (100% manual, nunca automático en push a `main`) —
+   cumple la intención de seguridad ("PROD nunca se despliega solo") pero
+   no es literalmente el mecanismo acordado. `environment: prod` queda
+   declarado en el job de todos modos, listo para el reviewer requerido en
+   cuanto se resuelva el plan, sin tocar código.
+2. **Branch protection (clásica y "rulesets") tampoco funciona en este
+   repo**: mismo mensaje 403 ("Upgrade to GitHub Pro or make this
+   repository public"). El criterio de aceptación "Configuración de branch
+   protection para `integracion` y `main`" queda sin poder cumplirse tal
+   cual hasta que se resuelva el mismo punto del billing plan.
+3. **Topología del runner self-hosted en una cuenta personal**:
+   `marco-cortes` es una cuenta de usuario, no una organización — GitHub
+   solo permite runners a nivel de organización compartir un único proceso
+   entre repos; a nivel de repositorio personal, cada repo necesita su
+   propio registro de runner. Un runner físico no puede registrarse
+   simultáneamente contra `auth-core-mc` y `mail-core-mc`. Sin decidir
+   todavía: (a) registrar dos procesos de runner independientes en la
+   misma VM — mismo patrón/convención documentado aquí, un directorio y un
+   servicio systemd por repo, reusando este mismo documento en vez de
+   re-derivarlo — o (b) migrar ambos repos a una organización de GitHub
+   para habilitar un runner compartido de verdad, lo cual es un cambio de
+   arquitectura/ownership fuera del alcance de este ticket.
+
+**Ninguno de estos tres puntos se resolvió por asunción** — quedan
+abiertos explícitamente para que el Product Owner decida (ver la
+conversación del ticket 049), consistente con la regla de "cero
+suposiciones" del equipo. El resto del pipeline (Dockerfile, compose de
+TEST/PROD, `build-image`/`deploy-test` automáticos, script de limpieza,
+perfil `deploy` de Spring) no depende de estas tres decisiones y ya está
+implementado.
+
 ## Estado de este documento
-_Última actualización: al cerrar la tarea `048` (grant `client_credentials` para clientes machine-to-machine). La fase 2 del rediseño de UI (tickets 024-030, `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034 son ajustes puntuales posteriores; 035 a 047 son la épica de login social real (`docs/definiciones/login-social-real.md`), cerrada sin tickets de seguimiento pendientes. El 048 es trabajo nuevo fuera de esa épica, pedido por un servicio externo (`mail-core-mc`) — deja pendiente, fuera de este proyecto, arreglar el symlink roto de Docker en esta máquina (nota arriba) y, del lado de `mail-core-mc`, terminar su propio ticket 005 (resource server) contra este grant ya funcional._
+_Última actualización: durante la implementación del ticket `049`
+(pipeline CI/CD a la VM dedicada) — ver la sección de arriba para los tres
+bloqueos reales todavía sin decisión del Product Owner. Antes de eso, al
+cerrar la tarea `048` (grant `client_credentials` para clientes
+machine-to-machine). La fase 2 del rediseño de UI (tickets 024-030,
+`docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034
+son ajustes puntuales posteriores; 035 a 047 son la épica de login social
+real (`docs/definiciones/login-social-real.md`), cerrada sin tickets de
+seguimiento pendientes. El 048 es trabajo nuevo fuera de esa épica, pedido
+por un servicio externo (`mail-core-mc`) — deja pendiente, fuera de este
+proyecto, arreglar el symlink roto de Docker en esta máquina (nota arriba)
+y, del lado de `mail-core-mc`, terminar su propio ticket 005 (resource
+server) contra este grant ya funcional._

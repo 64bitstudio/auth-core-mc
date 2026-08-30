@@ -1,0 +1,80 @@
+# Ticket 049: stack TEST en la VM — distinto del compose.yaml efímero que
+# usa CI para tests unitarios (backend/compose.yaml, Postgres/Redis
+# desechables). Este stack persiste entre deploys (volúmenes nombrados) y es
+# lo que corre de verdad tras cada merge a `integracion`. Ver
+# docs/ARQUITECTURA.md ticket 049.
+#
+# Nombre de proyecto explícito (auth-core-mc-test) — mismo motivo que
+# backend/compose.yaml: sin esto, Docker Compose usaría el nombre de la
+# carpeta contenedora como identificador y podría chocar con el stack PROD
+# (docker-compose.prod.yml) o con el stack de mail-core-mc en esta misma VM.
+name: auth-core-mc-test
+
+services:
+  app:
+    image: auth-core-mc-test:${IMAGE_TAG:?falta IMAGE_TAG (sha del commit a desplegar)}
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: deploy
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: auth_core_mc
+      DB_USER: auth_core_mc
+      DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.test}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8081}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_ADDRESS: ${RESEND_FROM_ADDRESS:-noreply@example.com}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      VAULT_ADDR: ${VAULT_ADDR:-}
+      VAULT_ROOT_TOKEN: ${VAULT_ROOT_TOKEN:-}
+      VAULT_TRANSIT_KEY_NAME: ${VAULT_TRANSIT_KEY_NAME:-auth-core-mc-tenant-keys}
+      BREAKGLASS_SECRET: ${BREAKGLASS_SECRET:-}
+      BREAKGLASS_TOTP_SECRET: ${BREAKGLASS_TOTP_SECRET:-}
+      BREAKGLASS_ALLOWED_IPS: ${BREAKGLASS_ALLOWED_IPS:-}
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth_core_mc
+      POSTGRES_USER: auth_core_mc
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en deploy/.env.test}
+    volumes:
+      - auth_core_mc_test_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_core_mc -d auth_core_mc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - auth_core_mc_test_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  auth_core_mc_test_pgdata:
+  auth_core_mc_test_redisdata:
