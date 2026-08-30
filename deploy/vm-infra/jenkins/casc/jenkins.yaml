@@ -1,0 +1,74 @@
+# Ticket 049 (pivote GH Actions -> Jenkins): configuración de Jenkins
+# como código (plugin configuration-as-code) — evita dejar el setup
+# "hecho a mano" sin rastro. Solo cubre seguridad/plugins/credenciales
+# (la parte 100% reproducible sin intervención humana); el job
+# Multibranch Pipeline en sí se crea una vez, a mano, desde la UI de
+# Jenkins (2-3 minutos, ver docs/ARQUITECTURA.md ticket 049 para los
+# campos exactos) — hacerlo vía Job DSL aquí era frágil de verificar sin
+# poder iterar en vivo contra la UI real, y el riesgo de romper el
+# arranque completo de Jenkins por un error de sintaxis en el DSL no
+# valía la pena por algo que Marco hace una sola vez.
+#
+# JENKINS_ADMIN_USER/JENKINS_ADMIN_PASSWORD/GITHUB_PAT vienen del
+# entorno del contenedor (ver docker-compose.yml, que los toma de
+# /home/ubuntu/secrets/jenkins/.env — NUNCA hardcodeados aquí).
+jenkins:
+  systemMessage: >
+    auth-core-mc / mail-core-mc CI-CD -- gestionado como código
+    (deploy/vm-infra/jenkins en el repo de auth-core-mc). Ver
+    docs/ARQUITECTURA.md ticket 049.
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    roleBased:
+      roles:
+        global:
+          - name: "admin"
+            description: "Control total -- solo Marco."
+            permissions:
+              - "Overall/Administer"
+            assignments:
+              - "${JENKINS_ADMIN_USER}"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github-pat"
+              username: "marco-cortes"
+              password: "${GITHUB_PAT:-}"
+              description: >
+                PAT de GitHub para checkout/webhook/push de Jenkins
+                (auth-core-mc + mail-core-mc). Generado por Marco,
+                nunca en git -- ver docs/ARQUITECTURA.md ticket 049.
+          - string:
+              scope: GLOBAL
+              id: "sonar-token"
+              secret: "${SONAR_TOKEN:-}"
+              description: "Token de SonarQube (misma instancia de la VM que ya usaba ci.yml)."
+          - string:
+              scope: GLOBAL
+              id: "telegram-bot-token"
+              secret: "${TELEGRAM_BOT_TOKEN:-}"
+              description: "Bot de Telegram para notificaciones (opcional)."
+          - string:
+              scope: GLOBAL
+              id: "telegram-chat-id"
+              secret: "${TELEGRAM_CHAT_ID:-}"
+              description: "Chat de Telegram para notificaciones (opcional)."
+
+unclassified:
+  location:
+    url: "https://jenkins.64bitstudio.com/"
+  sonarGlobalConfiguration:
+    installations:
+      - name: "sonarqube-vm"
+        serverUrl: "${SONAR_HOST_URL:-http://sonarqube:9000}"
+        credentialsId: "sonar-token"

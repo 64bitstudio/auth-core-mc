@@ -21,6 +21,9 @@ out/
 !deploy/.env.dev.example
 !deploy/.env.qa.example
 !deploy/.env.prod.example
+# Ticket 049 (pivote GH Actions -> Jenkins): idem para el .env de Jenkins
+# (infra compartida de la VM, /home/ubuntu/secrets/jenkins/.env real).
+!deploy/vm-infra/jenkins/.env.example
 
 # OS
 .DS_Store

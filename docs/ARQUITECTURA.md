@@ -637,7 +637,7 @@ Pedido externo: `mail-core-mc` (nuevo servicio del ecosistema) necesitaba autent
 - **Hallazgo de infra encontrado en el camino, no introducido por este ticket**: Testcontainers no podía hablar con Docker localmente — `/var/run/docker.sock` es un symlink roto (apunta al socket de una instalación vieja de Docker Desktop que ya no existe); el socket real de OrbStack vive en otra ruta. **Cualquier test con Testcontainers de este proyecto corrido localmente necesita `DOCKER_HOST=unix:///Users/marcocortes/.orbstack/run/docker.sock` explícito** hasta que alguien arregle el symlink (requiere `sudo`, fuera de alcance de este ticket). El self-hosted runner de CI no está afectado — confirmado, no asumido: `~/actions-runner-auth-core-mc/.env` ya trae `DOCKER_HOST` apuntando al socket correcto de OrbStack.
 - **Sin Postman** — el proyecto sigue sin ninguna colección.
 
-## Ticket 049: pipeline de CI/CD a la VM dedicada — DEV y QA validados de punta a punta, PROD pendiente (exclusivo de Marco)
+## Ticket 049: pipeline de CI/CD a la VM dedicada — EN CURSO (pivote a Jenkins, ver sección al final)
 
 **Objetivo**: pasar de "CI solo en la Mac" a un despliegue real en la VM OCI
 Ampere A1.Flex compartida (`ampere-free`, 159.54.153.37, Ubuntu 24.04 ARM64
@@ -1002,10 +1002,134 @@ levantar todo esto se acerca al límite, se reporta con números concretos
 (no se decide nada por asunción, como apagar algo o cambiar límites de
 memoria, sin que Marco lo confirme primero).
 
+### SEGUNDO PIVOTE: de GitHub Actions a Jenkins (2026-08-30, decisión deliberada de Marco)
+
+Con DEV y QA ya validados de punta a punta sobre GitHub Actions, Marco
+pidió migrar la ORQUESTACIÓN del pipeline a Jenkins — no por indecisión,
+sino por una necesidad real de UX que GitHub Actions no cubre: ver desde
+un frontend qué cambios llegaron a QA y cuándo, con un botón real para
+promoverlos a PROD, el pipeline visualizado, y enlaces a SonarQube/
+Traefik. Jenkins cubre esto nativo (steps `input` con botón real,
+vista de pipeline, historial de builds) — no se construye ningún
+frontend nuevo.
+
+**Se conserva TODO lo ya construido** — Dockerfiles, `docker-compose.
+{dev,qa,prod}.yml`, `cleanup.sh`, Traefik, SonarQube en la VM, la
+convención de secrets fuera del checkout, las 3 ramas dev/qa/prod como
+fuente de verdad en git. Lo que cambia es solo QUIÉN orquesta: Jenkins
+en vez de `.github/workflows/ci.yml` — que **se mantiene corriendo en
+paralelo** hasta confirmar que Jenkins funciona de punta a punta (no se
+retira todavía, para no dejar el pipeline sin ninguna forma de
+desplegar durante la migración).
+
+**Medición de recursos ANTES de instalar nada** (pedida explícitamente
+por Marco antes de proceder): con SonarQube+Traefik+dev/qa/prod ya
+corriendo, `free -h` real mostró 11Gi totales, 5.0Gi en uso, **6.6Gi
+disponibles**. Desglose por contenedor (`docker stats --no-stream`):
+SonarQube solo, 2.75GB (el consumidor más grande con diferencia); cada
+stack de la app (dev/qa/prod), ~400-435MB; postgres de cada ambiente,
+~42MB; Traefik, 44MB. CPU: **solo 2 vCPU** — señalado como el punto real
+a vigilar (no bloqueante): SonarQube, el controller de Jenkins y los
+builds de Gradle son todos JVMs que compiten por los mismos 2 cores
+durante un build real, aunque en reposo el uso de CPU es prácticamente
+nulo. Marco confirmó proceder con estos números.
+
+**Diseño e implementación**:
+- **Jenkins como contenedor Docker** (`deploy/vm-infra/jenkins/`),
+  infra COMPARTIDA de la VM igual que Traefik/SonarQube (mail-core-mc
+  debe reusar esta misma instancia, no levantar una segunda). Imagen
+  propia (`Dockerfile` sobre `jenkins/jenkins:lts-jdk21`) porque la
+  oficial no trae el CLI de Docker.
+- **docker.sock montado, NO Docker-in-Docker** — Jenkins necesita
+  construir/desplegar contra el MISMO daemon Docker de la VM que ya
+  usan los compose files y la red `edge`; un daemon anidado rompería
+  esa continuidad (habría que reconstruir imágenes/redes otra vez
+  adentro). Riesgo aceptado y documentado: monta docker.sock le da a
+  cualquier job de Jenkins acceso equivalente a root en el host — pero
+  es EXACTAMENTE el mismo nivel de acceso que ya tiene el runner
+  self-hosted de GitHub Actions (usuario `ubuntu`, grupo `docker`, sin
+  sandboxing extra), no una categoría de riesgo nueva. Mitigación real:
+  solo Marco tiene login de administrador en Jenkins.
+- **Hallazgo real de docker.sock** (gotcha clásico, encontrado antes de
+  desplegar, no en producción): cuando el CLI de Docker corre DENTRO de
+  un contenedor pero habla con el daemon del HOST vía el socket, un
+  flag como `--env-file /home/ubuntu/secrets/...` lo resuelve el propio
+  proceso del CLI (adentro del contenedor), no el host. Sin ese mismo
+  path también disponible ADENTRO del contenedor de Jenkins, el
+  `--env-file` habría fallado con "no such file" pese a que el archivo
+  sí existe en la VM. Se monta `/home/ubuntu/secrets` 1:1 (solo
+  lectura) en el contenedor de Jenkins para que ambos "vean" la misma
+  ruta.
+- **Configuration as Code (plugin `configuration-as-code`)** —
+  seguridad, plugins y credenciales se declaran en
+  `deploy/vm-infra/jenkins/casc/jenkins.yaml`, versionado, no "hecho a
+  mano" sin rastro. El único usuario administrador (`marco`, password
+  generado la primera vez, que Marco debe cambiar de inmediato al
+  entrar) y las credenciales (PAT de GitHub, token de Sonar, Telegram)
+  se inyectan vía variables de entorno del contenedor, leídas de
+  `/home/ubuntu/secrets/jenkins/.env` — nunca hardcodeadas en ningún
+  archivo del repo. El job Multibranch Pipeline en sí (el que de verdad
+  lee el `Jenkinsfile` de cada rama) se crea a mano, una sola vez, desde
+  la UI — se evaluó automatizarlo también vía Job DSL en el mismo
+  `jenkins.yaml`, pero el riesgo de tumbar el arranque completo de
+  Jenkins por un error de sintaxis en el DSL (sin poder iterar en vivo
+  contra la UI real) no valía la pena por un setup de 2-3 minutos que
+  Marco hace una sola vez.
+- **Red compartida nueva `vm-infra`** (distinta de `edge`, que es solo
+  para tráfico público vía Traefik) — Jenkins necesita alcanzar a
+  SonarQube por nombre de contenedor (`sonarqube:9000`), no por
+  `localhost` (cada contenedor tiene su propio loopback). SonarQube se
+  conectó también a esta red nueva.
+- **Ingress**: mismo patrón que auth-core-mc — nginx (puerta pública)
+  reenvía `jenkins.64bitstudio.com` a Traefik, que rutea al contenedor
+  de Jenkins por label. **Pendiente de Marco**: el registro DNS de
+  `jenkins.64bitstudio.com` (mismo patrón que los subdominios de
+  auth-core-mc) — hasta que exista, el certificado real de Let's
+  Encrypt para Jenkins queda con `continue-on-error` en el pipeline (no
+  tumba el resto del job mientras tanto, se emite solo en cuanto el DNS
+  resuelva).
+- **`Jenkinsfile`** (raíz del repo) reemplaza a `ci.yml` como
+  orquestador: mismas etapas (Sonar con Quality Gate real vía el plugin
+  oficial `sonar` + un webhook Sonar→Jenkins configurado por API →
+  build de imagen → deploy). `feature/NNN`/`dev` construyen y despliegan
+  a DEV automático; `qa` promueve (sin rebuild) la imagen validada en
+  DEV a QA automático, y termina en un stage `input` — el botón real que
+  pidió Marco — con `submitter: 'marco'` (solo él puede aprobarlo). Al
+  aprobar: promueve (sin rebuild) la misma imagen a PROD, corre
+  `cleanup.sh prod`, y actualiza la rama `prod` en git (push directo,
+  vía el PAT) para que el historial de ramas siga reflejando qué hay
+  realmente en producción — ya no es un merge de PR lo que dispara ese
+  despliegue, así que el registro en git pasa a ser una consecuencia del
+  pipeline, no su disparador.
+- **Duplicación temporal aceptada, no oculta**: mientras ambos pipelines
+  corren en paralelo, el mismo commit se analiza dos veces en Sonar (una
+  vez por `ci.yml`, otra por el Jenkinsfile). Se resuelve al retirar
+  `ci.yml`, una vez Jenkins esté confirmado funcionando de punta a
+  punta — todavía no.
+
+**Pendiente de una acción directa de Marco** para terminar de cerrar
+este pivote:
+1. Completar el setup wizard de Jenkins con el usuario/password inicial
+   (generado, entregado por separado) y cambiar el password de
+   inmediato.
+2. Generar un PAT de GitHub (scope `repo`) y ponerlo en
+   `/home/ubuntu/secrets/jenkins/.env` (`GITHUB_PAT=`) — GitHub no tiene
+   API para crear PATs, tiene que hacerlo él.
+3. Crear el registro DNS de `jenkins.64bitstudio.com` → `159.54.153.37`.
+4. Crear el job Multibranch Pipeline desde la UI de Jenkins (apuntando
+   al repo, con la credencial `github-pat`) y configurar el webhook de
+   GitHub hacia Jenkins.
+5. Confirmar de punta a punta que el Jenkinsfile despliega igual que
+   `ci.yml` antes de retirar este último.
+
 ## Estado de este documento
-_Última actualización: ticket `049` (pipeline CI/CD a la VM dedicada) con
-DEV y QA validados de punta a punta de verdad (deploy real, healthcheck
-real, Traefik+TLS real, retención de imágenes real) tras el rediseño
+_Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
+Jenkins como orquestador (Marco, 2026-08-30), con el diseño y la infra de
+Jenkins ya implementados (contenedor, JCasC, Jenkinsfile, redes) pero
+`ci.yml` todavía activo en paralelo y varios pasos manuales pendientes de
+Marco (ver la sección del pivote arriba). Antes de esto: DEV y QA
+validados de punta a punta de verdad (deploy real, healthcheck real,
+Traefik+TLS real, retención de imágenes real) tras el PRIMER rediseño
 dev/qa/prod — ver la sección del ticket 049 arriba para la historia
 completa (diseño original reemplazado, y los 5 hallazgos reales de la
 verificación de punta a punta). PROD queda pendiente de que Marco decida
