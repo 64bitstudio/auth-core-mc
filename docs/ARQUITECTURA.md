@@ -1393,10 +1393,76 @@ gestiona 100% a mano desde `Manage Jenkins -> Security`, no vía JCasC**
 — es la única parte de la configuración de Jenkins que queda fuera del
 "configuration as code" de este repo, y es una decisión deliberada,
 no un descuido: JCasC sigue cubriendo plugins, credenciales y el
-mensaje del sistema como siempre. La causa raíz original del 403
-sigue sin resolverse — este cambio la vuelve irrelevante para la
-operación normal (la seguridad ya no depende de que JCasC la
-reconstruya bien en cada boot), no la explica.
+mensaje del sistema como siempre.
+
+**Cierre (PR #78 — el break-glass funcionó, causa raíz mejor
+evidenciada de las 6 investigadas)**: Marco reactivó la seguridad
+directo desde la UI (`/manage/configureSecurity/`, Matrix-based con
+`marco: Overall/Administer`, submit normal del formulario — no vía
+JCasC) y confirmó dos cosas de punta a punta: (1) el "Save" del job
+`auth-core-mc` (Branch Sources → Discover branches → All branches, la
+Opción A que llevábamos varios hallazgos intentando aplicar) por fin
+guardó sin 403, y (2) `https://jenkins.64bitstudio.com` volvió a pedir
+login (la seguridad quedó reactivada de verdad, no abierta). Causa raíz
+**mejor evidenciada** (no probada a nivel de bytecode, pero la
+explicación con más respaldo de las 6 investigadas — ver hallazgo real
+#5): el objeto `AuthorizationStrategy` que JCasC construye/aplica en
+caliente al arrancar el contenedor (invocando setters internos sobre
+un objeto ya vivo del proceso) parece quedar en un estado que resuelve
+mal `Item.Configure`, pese a que el `config.xml` serializado se veía
+correcto — mientras que el MISMO grant, escrito a través del submit
+normal del formulario de `/manage/configureSecurity/` (que reconstruye
+el objeto desde cero por el flujo estándar de Jenkins, no por
+reconciliación de JCasC), sí funciona. Esto es consistente con la
+decisión ya tomada arriba de sacar `securityRealm`/`authorizationStrategy`
+de `jenkins.yaml` de forma permanente, no como parche temporal:
+mientras esa combinación de versiones (Jenkins 2.568.2 + matrix-auth
+3.3 + Spring Security 7.1 + `configuration-as-code`) exista, aplicar
+seguridad vía JCasC en caliente queda en la lista de cosas a evitar
+para este proyecto.
+
+Verificación de punta a punta tras el break-glass: el build #2 de la
+rama `fix/049-jenkins-secrets-permission` (commit `21463e5`, disparado
+por el reindexado que la propia UI ya no bloqueaba) consiguió
+`executor`, hizo checkout con el PAT, y corrió el `./gradlew build
+sonar` real hasta la mitad de la tarea `:test` — la prueba definitiva
+de que el 403 histórico de este PR quedó resuelto (ninguno de esos
+pasos ocurría antes; el build simplemente no se programaba). Ese build
+en particular terminó en `ABORTED`, no en verde — colateral de que,
+al mismo tiempo, se abortaron manualmente dos builds "zombie" de otras
+ramas de este mismo ticket (ver más abajo) que llevaban varios minutos
+con executors ocupados sin liberar pese a que sus propios logs ya
+mostraban `Finished: FAILURE`. No es un fallo del pipeline ni de la
+causa raíz del 403 -- se resuelve con un re-trigger normal.
+
+**Hallazgo real #8 (no bloqueante, pendiente de arreglar en otro
+momento — PAT de GitHub sin permiso para notificar el commit status)**:
+en el log de la rama `docs/049-jenkins-webhook-created` (build #1,
+parte del mismo backlog de ramas que el reindexado post-break-glass
+disparó de una vez) apareció, al final del pipeline:
+```
+Could not update commit status. Message: {"message":"Resource not
+accessible by personal access token","documentation_url":"https://
+docs.github.com/rest/commits/statuses#create-a-commit-status",
+"status":"403"}
+```
+El PAT fine-grained de Jenkins (ver el punto "Generar un PAT de
+GitHub" más arriba en este documento) se generó con los scopes
+`Contents read/write` + `Metadata read` + `Webhooks read/write` —
+**sin ningún scope de "Commit statuses"/"Checks"**, que es justo lo que
+la API `POST /repos/.../statuses/:sha` (usada para postear el check
+`continuous-integration/jenkins/branch`) requiere. Curiosamente, el
+build #2 de `fix/049-jenkins-secrets-permission` (este mismo PR) SÍ
+logró notificar el status sin error ("GitHub has been notified of this
+commit's build result", sin ningún 403 en su log) — así que el fallo
+parece intermitente o dependiente de algún otro factor todavía no
+identificado (¿reintentos de GitHub Branch Source con un token
+distinto o refrescado?, ¿un límite de rate en el momento?), no un
+bloqueo sistemático. Queda pendiente: (a) confirmar si el PAT
+realmente necesita un scope de "Commit statuses" agregado (probable,
+dado el mensaje de error), y (b) entender por qué no falla siempre.
+No se tocó el PAT ni se investigó más a fondo en este PR — se deja
+consignado con la evidencia real para retomarlo aparte.
 
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
