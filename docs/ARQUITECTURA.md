@@ -1258,6 +1258,32 @@ confirmar el mecanismo exacto sin depurar el JVM en vivo. Fix: migrar
 admin real, `Overall/Administer` para `${JENKINS_ADMIN_USER}`), sin la
 ambigüedad de tipo del formato viejo.
 
+**Hallazgo real #4 (PR #78 — el `docker compose up -d` para recoger el
+fix del hallazgo #3 no tuvo efecto)**: tras el push del commit con el
+`jenkins.yaml` corregido, Marco corrió `git pull` + `docker compose
+up -d` en la VM (mismo comando que ya recreaba Jenkins en corridas
+anteriores). Confirmado con `docker inspect jenkins` que el contenedor
+NO se reinició (`StartedAt`/`RestartCount` idénticos a antes del
+comando) — y con `docker exec jenkins cat /var/jenkins_casc/
+jenkins.yaml` que el bind-mount SÍ reflejaba ya el `entries:` nuevo
+(el archivo en disco estaba correcto). Causa: a diferencia del
+hallazgo #1 de más arriba (que necesitaba una RECREACIÓN para tomar un
+`UBUNTU_GID` nuevo en el `docker-compose.yml`), acá lo único que
+cambió fue el CONTENIDO de un archivo bind-montado
+(`./casc:/var/jenkins_casc:ro`) — `docker compose up -d` decide si
+recrea comparando la config RESUELTA del servicio (imagen, variables de
+entorno, definición de volúmenes/puertos), no el contenido de los
+archivos montados; como nada de eso cambió, fue un no-op total, ni
+siquiera un restart. JCasC solo relee `jenkins.yaml` al arrancar el
+proceso de Jenkins, así que el fix del hallazgo #3 nunca llegó a
+aplicarse. Corrección: para este caso (env/volúmenes sin cambios, solo
+contenido de un archivo montado) alcanza con reiniciar el PROCESO —
+`docker restart jenkins` — sin necesidad de recrear el contenedor;
+un restart sí relee archivos bind-montados frescos del disco en cada
+arranque, es solo a las variables de entorno (congeladas desde la
+creación del contenedor) a las que no afecta, que es el caso distinto
+que documenta el hallazgo #1.
+
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
 Jenkins como orquestador (Marco, 2026-08-30), con el diseño y la infra de
