@@ -240,6 +240,36 @@ jobs:
             echo "Creado $ENVFILE (password generado, no impreso). GITHUB_PAT queda vacío -- Marco debe llenarlo a mano."
           fi
 
+      # Hallazgo real (primer build real de dev vía Jenkins): dejé
+      # SONAR_TOKEN vacío en la plantilla de Jenkins (mismo patrón que
+      # GITHUB_PAT, pensado para que Marco lo llenara) pero NUNCA lo
+      # agregué a la lista de "pendiente de Marco" -- se me olvidó, y el
+      # build falló con 401 al analizar. A diferencia del PAT de GitHub
+      # (que Jenkins solo puede generar Marco a mano), esto SÍ se puede
+      # resolver solo: ya existe un SONAR_TOKEN de admin funcionando
+      # (secret de este mismo repo, usado por build-test-analyze arriba)
+      # -- se usa para generar un token NUEVO y dedicado para Jenkins
+      # (mejor práctica: credenciales separadas por consumidor,
+      # revocables independientemente) vía la propia API de SonarQube,
+      # sin volver a pedirle nada a Marco. Idempotente: no reemplaza un
+      # token ya puesto.
+      - name: Asegurar SONAR_TOKEN de Jenkins en /home/ubuntu/secrets/jenkins/.env (si falta)
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          ENVFILE=/home/ubuntu/secrets/jenkins/.env
+          if ! grep -q '^SONAR_TOKEN=.\+' "$ENVFILE"; then
+            NEW_TOKEN=$(curl -sS -u "${SONAR_TOKEN}:" -X POST "${SONAR_HOST_URL}/api/user_tokens/generate" \
+              --data-urlencode "name=jenkins-ci-$(date +%s)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+            if [ -z "$NEW_TOKEN" ]; then
+              echo "No se pudo generar un token nuevo de SonarQube para Jenkins." >&2
+              exit 1
+            fi
+            sed -i "s#^SONAR_TOKEN=.*#SONAR_TOKEN=${NEW_TOKEN}#" "$ENVFILE"
+            echo "SONAR_TOKEN de Jenkins generado y puesto (no impreso)."
+          fi
+
       # Jenkins: necesita construir su propia imagen (Dockerfile con el
       # CLI de docker) y el GID real del grupo dueño de docker.sock EN
       # ESTA VM (puede variar entre hosts, nunca hardcodeado) para que el
@@ -258,18 +288,30 @@ jobs:
       # configurado DEL LADO DE SONAR, no del lado de Jenkins. Idempotente
       # (busca por nombre antes de crear). Usa el mismo SONAR_TOKEN que ya
       # está en el .env de Jenkins (con permiso de administrar el sistema).
+      #
+      # Hallazgo real (expuesto por el fix del SONAR_TOKEN de este mismo
+      # PR -- antes, con el token vacío, este step salía por el "exit 0"
+      # de abajo sin llegar nunca a fallar): este step corre DIRECTO en el
+      # shell del runner de la VM (el host), no dentro de un contenedor de
+      # la red "vm-infra" -- usar ${SONAR_HOST_URL} (que vale
+      # "http://sonarqube:9000", el nombre de host interno de Docker,
+      # correcto para Jenkins) fallaba aquí con "curl: (6) Could not
+      # resolve host: sonarqube", porque ese nombre solo es resoluble
+      # DESDE containers conectados a esa red, no desde el host. Fix:
+      # usar el puerto publicado al host (127.0.0.1:9000, confirmado con
+      # "docker port sonarqube", no asumido) en vez de reusar la variable
+      # pensada para Jenkins.
       - name: Webhook de SonarQube -> Jenkins (para el Quality Gate)
         run: |
-          set -a
-          . /home/ubuntu/secrets/jenkins/.env
-          set +a
+          SONAR_HOST_URL_LOCAL="http://127.0.0.1:9000"
+          SONAR_TOKEN=$(grep '^SONAR_TOKEN=' /home/ubuntu/secrets/jenkins/.env | cut -d= -f2-)
           if [ -z "${SONAR_TOKEN:-}" ]; then
             echo "SONAR_TOKEN vacío en el .env de Jenkins -- se omite (Marco todavía no lo llenó)." >&2
             exit 0
           fi
-          EXISTS=$(curl -s -u "${SONAR_TOKEN}:" "${SONAR_HOST_URL}/api/webhooks/list" | grep -c '"name":"jenkins"' || true)
+          EXISTS=$(curl -s -u "${SONAR_TOKEN}:" "${SONAR_HOST_URL_LOCAL}/api/webhooks/list" | grep -c '"name":"jenkins"' || true)
           if [ "$EXISTS" = "0" ]; then
-            curl -s -u "${SONAR_TOKEN}:" -X POST "${SONAR_HOST_URL}/api/webhooks/create" \
+            curl -s -u "${SONAR_TOKEN}:" -X POST "${SONAR_HOST_URL_LOCAL}/api/webhooks/create" \
               --data-urlencode "name=jenkins" \
               --data-urlencode "url=http://jenkins:8080/sonarqube-webhook/"
           fi
