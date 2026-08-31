@@ -240,6 +240,36 @@ jobs:
             echo "Creado $ENVFILE (password generado, no impreso). GITHUB_PAT queda vacío -- Marco debe llenarlo a mano."
           fi
 
+      # Hallazgo real (primer build real de dev vía Jenkins): dejé
+      # SONAR_TOKEN vacío en la plantilla de Jenkins (mismo patrón que
+      # GITHUB_PAT, pensado para que Marco lo llenara) pero NUNCA lo
+      # agregué a la lista de "pendiente de Marco" -- se me olvidó, y el
+      # build falló con 401 al analizar. A diferencia del PAT de GitHub
+      # (que Jenkins solo puede generar Marco a mano), esto SÍ se puede
+      # resolver solo: ya existe un SONAR_TOKEN de admin funcionando
+      # (secret de este mismo repo, usado por build-test-analyze arriba)
+      # -- se usa para generar un token NUEVO y dedicado para Jenkins
+      # (mejor práctica: credenciales separadas por consumidor,
+      # revocables independientemente) vía la propia API de SonarQube,
+      # sin volver a pedirle nada a Marco. Idempotente: no reemplaza un
+      # token ya puesto.
+      - name: Asegurar SONAR_TOKEN de Jenkins en /home/ubuntu/secrets/jenkins/.env (si falta)
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          ENVFILE=/home/ubuntu/secrets/jenkins/.env
+          if ! grep -q '^SONAR_TOKEN=.\+' "$ENVFILE"; then
+            NEW_TOKEN=$(curl -sS -u "${SONAR_TOKEN}:" -X POST "${SONAR_HOST_URL}/api/user_tokens/generate" \
+              --data-urlencode "name=jenkins-ci-$(date +%s)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+            if [ -z "$NEW_TOKEN" ]; then
+              echo "No se pudo generar un token nuevo de SonarQube para Jenkins." >&2
+              exit 1
+            fi
+            sed -i "s#^SONAR_TOKEN=.*#SONAR_TOKEN=${NEW_TOKEN}#" "$ENVFILE"
+            echo "SONAR_TOKEN de Jenkins generado y puesto (no impreso)."
+          fi
+
       # Jenkins: necesita construir su propia imagen (Dockerfile con el
       # CLI de docker) y el GID real del grupo dueño de docker.sock EN
       # ESTA VM (puede variar entre hosts, nunca hardcodeado) para que el
