@@ -30,6 +30,27 @@ RUN apt-get update \
 # (group_add: ["${DOCKER_GID}"], no hardcodeado aquí porque el GID real
 # de "docker" puede variar entre hosts).
 
+# Hallazgo real (primer build real de dev vía Jenkins): "./gradlew build
+# sonar" fallo -- "Cannot find a Java installation ... matching:
+# {languageVersion=25...}. Toolchain download repositories have not been
+# configured." La imagen base (jenkins/jenkins:lts-jdk21) solo trae JDK 21
+# para correr JENKINS MISMO -- el backend requiere el toolchain Java 25
+# (mismo que ci.yml provisionaba vía actions/setup-java). Se instala
+# Temurin 25 aparte (Adoptium, mismo distribuidor que usaba
+# actions/setup-java) SIN tocar el JDK 21 que Jenkins usa para si mismo --
+# el Jenkinsfile activa este JAVA_HOME solo para el stage de build/Sonar
+# (ver withEnv en Jenkinsfile), nunca a nivel de contenedor completo.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg \
+    && chmod a+r /etc/apt/keyrings/adoptium.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+       > /etc/apt/sources.list.d/adoptium.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends temurin-25-jdk \
+    && rm -rf /var/lib/apt/lists/*
+
 USER jenkins
 
 COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
