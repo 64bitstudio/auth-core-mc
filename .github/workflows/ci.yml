@@ -281,11 +281,57 @@ jobs:
       # -- "permission denied" al leerlos desde dentro del contenedor.
       # Se vuelven legibles por grupo (640) -- Jenkins se une al grupo de
       # "ubuntu" como grupo suplementario (ver UBUNTU_GID abajo).
-      # Idempotente (chmod no falla si ya estaba en 640).
+      # Idempotente (chmod no falla si ya estaba en 640/750/710).
+      #
+      # Hallazgo real #2 (ticket 049, PR #78 -- el primer chmod, solo a los
+      # ARCHIVOS, no bastaba): "leer un archivo por permiso de grupo"
+      # también exige permiso de TRAVERSAL (bit x) en cada directorio del
+      # camino, no solo en el archivo final. /home/ubuntu/secrets/ y
+      # /home/ubuntu/secrets/auth-core-mc/ quedaron en 700 (rwx------,
+      # sin ningún acceso de grupo) -- confirmado con
+      # "docker exec jenkins test -r .../.env.dev" -> NOT_READABLE pese a
+      # que jenkins SÍ es miembro del grupo "ubuntu" (ver UBUNTU_GID) y los
+      # archivos SÍ estaban en 640. Se agrega +x de grupo al directorio
+      # compartido /home/ubuntu/secrets (710: solo traversal, no listado --
+      # ahí viven también los secrets de Jenkins y de futuros proyectos, no
+      # hace falta que el grupo pueda enumerar cuáles existen) y +rx de
+      # grupo al directorio propio del proyecto (750: listar+entrar es
+      # inocuo aquí, el contenido de cada archivo ya es legible por grupo).
       - name: Permisos de grupo en los secrets de cada proyecto (para Jenkins)
         run: |
+          chmod 710 /home/ubuntu/secrets 2>/dev/null || true
+          chmod 750 /home/ubuntu/secrets/auth-core-mc 2>/dev/null || true
           chmod 640 /home/ubuntu/secrets/auth-core-mc/.env.* 2>/dev/null || true
 
+      # Hallazgo real (ticket 049, PR #78): este step corría "--build" SIN
+      # condición, en TODO push a CUALQUIER rama (el job entero no filtra
+      # por rama -- ver el comentario de sync-vm-infra más arriba). Un
+      # rebuild de imagen sin --build --no-cache "de referencia" previa aun
+      # así produce casi siempre un image ID nuevo (jenkins-plugin-cli
+      # resuelve versiones de plugins contra el índice remoto en cada
+      # build), así que "docker compose up -d --build" terminaba recreando
+      # (reiniciando) el contenedor de Jenkins en casi cada push -- justo
+      # cuando ese MISMO push ya había disparado, en paralelo, un build de
+      # Jenkins vía webhook para esa rama. Evidencia real cruzada (mismo
+      # push, misma corrida): el log de este job muestra "Container
+      # jenkins Recreated" a las 06:16:26Z; el log del build de Jenkins
+      # para esa rama muestra "Pausing (shutting down)" justo después de
+      # las 06:16:09Z y "Resuming build ... after Jenkins restart" a las
+      # 06:17:00Z, seguido 10 minutos después de un timeout del
+      # durable-task ("wrapper script does not seem to be touching the log
+      # file ... may occur if the durable task process was terminated
+      # externally") -> stage de Sonar marcado FAILURE, todo lo demás
+      # "skipped due to earlier failure(s)", check de GitHub en ERROR.
+      # Se corrige quitando el "--build" incondicional: solo se
+      # reconstruye la imagen (y por lo tanto solo se recrea/reinicia el
+      # contenedor) cuando algo que de verdad define la imagen cambió
+      # (Dockerfile o plugins.txt), comparando contra un hash guardado
+      # fuera del checkout (persiste entre corridas pese al "git clean" del
+      # runner). Sin --build, "docker compose up -d" sigue recreando el
+      # contenedor cuando corresponde por diseño (p.ej. UBUNTU_GID nuevo,
+      # como en este mismo PR) -- eso es intencional y necesario, no parte
+      # del bug; solo se elimina la recreación INNECESARIA en pushes que no
+      # tocan nada de Jenkins, que era la inmensa mayoría de los casos.
       - name: Jenkins (orquestador del pipeline, compartido de la VM)
         run: |
           set -a
@@ -293,7 +339,17 @@ jobs:
           set +a
           export DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
           export UBUNTU_GID=$(id -g ubuntu)
-          docker compose -f deploy/vm-infra/jenkins/docker-compose.yml up -d --build
+
+          HASH_FILE=/home/ubuntu/secrets/jenkins/.image-inputs-hash
+          NEW_HASH=$(sha256sum deploy/vm-infra/jenkins/Dockerfile deploy/vm-infra/jenkins/plugins.txt | sha256sum | cut -d' ' -f1)
+          if [ -f "$HASH_FILE" ] && [ "$(cat "$HASH_FILE")" = "$NEW_HASH" ]; then
+            echo "Dockerfile/plugins.txt de Jenkins sin cambios -- 'up -d' sin --build (evita recrear/reiniciar Jenkins en cada push; docker compose igual recrea el contenedor si algo de su config SÍ cambió, p.ej. un GID o un secret nuevo)."
+            docker compose -f deploy/vm-infra/jenkins/docker-compose.yml up -d
+          else
+            echo "Dockerfile/plugins.txt de Jenkins cambiaron (o es la primera corrida) -- reconstruyendo imagen."
+            docker compose -f deploy/vm-infra/jenkins/docker-compose.yml up -d --build
+            echo "$NEW_HASH" > "$HASH_FILE"
+          fi
 
       # Ticket 049 (pivote GH Actions -> Jenkins): el step "Quality Gate"
       # del Jenkinsfile (waitForQualityGate()) necesita que SonarQube avise

@@ -1151,7 +1151,74 @@ compara la config resuelta contra la que corre y recrea si difiere) —
 exactamente lo que ya hace el paso "Jenkins (orquestador del pipeline)"
 de `sync-vm-infra` en cada push a `dev`. Se corrige disparando ese job
 de nuevo (este mismo commit de docs lo dispara), sin necesitar tocar la
-VM a mano.
+VM a mano. (Nota corregida más abajo: `sync-vm-infra` en realidad corre
+en TODO push, a cualquier rama — `if: github.event_name == 'push'`, sin
+filtro de rama — no solo a `dev`; ese detalle es justo la causa del
+hallazgo siguiente.)
+
+**Hallazgo real (PR #78 — causa raíz real del check
+`continuous-integration/jenkins/branch` en ERROR, confirmada con log
+completo del build de Jenkins vía SSH, no asumida)**: el commit
+`40cc81b` ("Jenkins no podía leer los secrets del proyecto") pasó
+`build-test-analyze` de GitHub Actions en verde pero el check de Jenkins
+quedó en ERROR. El log real del build #1 de esa rama en Jenkins
+(`docker exec jenkins cat .../branches/.../builds/1/log`) mostró que el
+stage de Sonar murió a mitad del `./gradlew build sonar`, en plena tarea
+`:test`, con: `Pausing (shutting down)` → `Resuming build ... after
+Jenkins restart` → 10 minutos después,
+`wrapper script does not seem to be touching the log file ... may occur
+if the durable task process was terminated externally` (JENKINS-48300)
+→ el resto de los stages "skipped due to earlier failure(s)" → pipeline
+FAILURE. Es decir: **no era el bug de permisos que el PR dice arreglar**
+— el build murió mucho antes de llegar a ningún stage de deploy que
+leyera esos `.env.*`. Cruzando el timestamp con el log de la MISMA
+corrida de `sync-vm-infra` (mismo push, mismo commit): el paso "Jenkins
+(orquestador del pipeline)" corría `docker compose ... up -d --build`
+**sin condición, en cualquier push a cualquier rama** (el job
+`sync-vm-infra` no filtra por rama ni por paths) y mostró
+`Container jenkins Recreated` a las 06:16:26Z — exactamente en la
+ventana entre el `Pausing` y el `Resuming` del build de Jenkins para esa
+misma rama. Causa raíz real: el mismo push dispara en paralelo (a) el
+webhook de GitHub hacia Jenkins, que arranca un build para esa rama, y
+(b) el job `sync-vm-infra`, cuyo `--build` incondicional casi siempre
+produce un image ID nuevo (`jenkins-plugin-cli` resuelve versiones de
+plugins contra el índice remoto en cada build, no hay garantía de cache
+hit) y por lo tanto casi siempre fuerza un "Recreate" del contenedor —
+matando cualquier build de Jenkins que estuviera corriendo en ese
+instante, incluido el disparado por el propio push que lo causó. Fix
+(este mismo commit): se quita el `--build` incondicional; se calcula un
+hash de `Dockerfile` + `plugins.txt` guardado fuera del checkout
+(`/home/ubuntu/secrets/jenkins/.image-inputs-hash`, sobrevive al `git
+clean` del runner) y solo se reconstruye la imagen (y por lo tanto solo
+se puede recrear el contenedor) cuando esos archivos cambiaron de
+verdad. `docker compose up -d` sin `--build` sigue recreando el
+contenedor cuando su config SÍ cambia (un GID nuevo, un secret nuevo) —
+eso sigue siendo necesario y correcto, solo se elimina la recreación
+innecesaria en pushes que no tocan nada de Jenkins (la inmensa mayoría).
+No se resuelve la colisión de fondo para el caso raro de un push que
+SÍ cambia la config de Jenkins (como este mismo PR) — ahí una
+recreación real es inevitable y puede seguir matando el build de esa
+misma rama; se acepta como caso conocido, no bloqueante, resuelto
+re-disparando el build a mano cuando ocurre (documentado, no oculto).
+
+**Hallazgo real #2 (PR #78 — el bug de permisos original SÍ existía,
+pero el fix del primer commit era incompleto)**: confirmado por SSH
+(`docker exec jenkins id` → `jenkins` sí es miembro del grupo de
+`ubuntu`; `docker exec jenkins test -r
+/home/ubuntu/secrets/auth-core-mc/.env.dev` → `NOT_READABLE` aun así).
+Causa: leer un archivo por permiso de GRUPO también exige permiso de
+traversal (bit `x`) en cada directorio del camino, no solo en el
+archivo final — `chmod 640` a los `.env.*` (commit `40cc81b`) no
+alcanzaba porque `/home/ubuntu/secrets/` y
+`/home/ubuntu/secrets/auth-core-mc/` seguían en `700`
+(`drwx------`, cero acceso de grupo), confirmado con `stat`. Fix (este
+mismo commit): `chmod 710` en `/home/ubuntu/secrets` (solo traversal de
+grupo, sin listar — ahí conviven los secrets de Jenkins y de futuros
+proyectos) y `chmod 750` en `/home/ubuntu/secrets/auth-core-mc` (listar
++ entrar es inocuo ahí: el contenido de cada archivo ya es legible por
+grupo desde el commit anterior). Sin este fix de directorios, el bug que
+el PR #78 dice cerrar seguía sin cerrarse en ningún ambiente (dev, qa,
+prod) pese al `chmod` de los archivos.
 
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
