@@ -1,137 +1,43 @@
-# Ticket 010: build + tests + análisis de calidad (SonarQube) + notificación
-# a Telegram en cada push a cualquier rama.
+# Ticket 010 (origen): build + tests + análisis de calidad (SonarQube) +
+# notificación a Telegram en cada push a cualquier rama.
+# Ticket 049: pipeline de CI/CD a la VM dedicada. Historia completa del
+# rediseño de ramas (dev/qa/prod) y del pivote de orquestador (GitHub
+# Actions -> Jenkins) en docs/ARQUITECTURA.md — no se repite aquí.
 #
-# Ticket 049 — REDISEÑO (2026-08-30, decisión de Marco tras ver la fricción
-# real del modelo anterior integracion/main + reviewer): reemplaza el
-# modelo anterior de dos ramas (integracion/main) por tres — dev -> qa ->
-# prod — y retira el runner self-hosted de la Mac por completo. Se deja
-# constancia de la historia (no se borra):
+# RETIRO DE LA DUPLICACIÓN (ticket 049, tras confirmar el Jenkinsfile
+# funcionando de punta a punta — PR #78 ya mergeado a dev): mientras se
+# validaba el pivote a Jenkins, este workflow corrió EN PARALELO con el
+# Jenkinsfile — cada push a dev/qa/prod disparaba Sonar+build+deploy DOS
+# veces (una por sistema), en una VM de solo 2 vCPU. Con Jenkins ya
+# confirmado, se retiran de aquí los jobs que duplicaban lo que el
+# Jenkinsfile ya hace: `build-test-analyze` (Sonar), `build-image`,
+# `deploy-dev`, `deploy-qa`, `deploy-prod`. El Jenkinsfile es ahora el
+# ÚNICO orquestador de build+test+Sonar+deploy.
 #
-#   1) Modelo original (ticket 049, primera versión): integracion (TEST) ->
-#      main (PROD con gate manual). Bloqueos reales encontrados y resueltos
-#      en el camino: runs-on: self-hosted ambiguo entre el runner de la Mac
-#      y vm-oci-runner (fix: runs-on: [self-hosted, macOS]); docker compose
-#      ps sin --env-file rompiendo el job de diagnóstico pese a que el
-#      deploy real ya había funcionado; IMAGE_TAG (env var de PASO, no del
-#      .env.* en disco) faltando en esos mismos pasos de diagnóstico;
-#      GitHub Environment con "required reviewers" rechazado por la API
-#      (billing plan) y sustituido por workflow_dispatch como gate interino
-#      — y una vez el repo pasó a ser público, el mismo Environment SÍ se
-#      pudo configurar, pero resultó no proteger nada real: GitHub deja
-#      pasar el gate automáticamente a cualquier admin del repo
-#      (can_admins_bypass, no configurable) — descubierto en el primer
-#      promote-prod real, disparado por Marco, que es admin.
-#   2) Este rediseño (segunda versión, la vigente): tres ramas en vez de
-#      dos, ningún GitHub Environment (no protegía nada real — el merge
-#      manual de Marco a qa/prod ES el gate real ahora), SonarQube se muda
-#      de la Mac a esta VM (instancia nueva, sin migrar historial) y el
-#      runner de la Mac se retira — con un solo runner (vm-oci) ya no
-#      existe la ambigüedad de labels del punto anterior, así que
-#      runs-on: [self-hosted, macOS] deja de tener sentido y se simplifica
-#      de vuelta a un solo runner en todos los jobs.
+# Lo que SÍ se queda, y por qué: `sync-vm-infra` no es parte de la
+# duplicación — es la infra compartida de la VM (Traefik, SonarQube, el
+# propio contenedor de Jenkins, certificados, firewall) y nada del lado
+# de Jenkins la reemplaza. Se renombra el workflow (antes "CI") para
+# reflejar que su único propósito ahora es ese, no "build+test".
 #
-# Ver docs/ARQUITECTURA.md ticket 049 para el diseño completo y el detalle
-# de cada hallazgo.
-name: CI
+# Consecuencia de este retiro: la branch protection de dev/qa/prod dejó
+# de requerir el check `build-test-analyze` (que ya no existe) y pasó a
+# requerir `continuous-integration/jenkins/branch` (el check que publica
+# el Jenkinsfile) — actualizado vía API en el mismo cambio que retiró
+# estos jobs, para no dejar el auto-merge de feature -> dev roto.
+name: Infra Sync (VM)
 
 on:
   push:
     branches: ["**"]
-  pull_request:
 
 jobs:
-  build-test-analyze:
-    # Runner único de la VM — el de la Mac (marco-mac-auth-core-mc) fue
-    # retirado (ver la nota de rediseño arriba). SonarQube también vive
-    # ahora en esta VM (deploy/vm-infra/sonarqube), alcanzable en
-    # localhost:9000 desde este mismo runner.
-    runs-on: [self-hosted, vm-oci]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # SonarQube necesita el historial completo (no un shallow clone)
-          # para el análisis de "new code"/blame.
-          fetch-depth: 0
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "25"
-
-      - name: Build y tests
-        working-directory: backend
-        run: ./gradlew build
-
-      - name: Análisis SonarQube
-        working-directory: backend
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        run: ./gradlew sonar
-
-      # Falla el job (y por lo tanto el pipeline) si el Quality Gate de
-      # SonarQube queda en rojo — sonar.gradle solo ENVÍA el análisis, no
-      # espera el resultado del gate por sí mismo. Acción oficial de
-      # SonarSource, fijada a un tag de release (no @master) por higiene de
-      # cadena de suministro.
-      - name: Quality Gate de SonarQube
-        uses: sonarsource/sonarqube-quality-gate-action@v1.2.1
-        timeout-minutes: 5
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          scanMetadataReportFile: backend/build/sonar/report-task.txt
-
-      # Ticket 049 (rediseño): este runner ya no es la Mac, así que
-      # ~/dev-infra/scripts/notify.sh (que solo existe ahí) ya no sirve acá
-      # — se cambia al mismo curl directo a la API de Telegram que ya usan
-      # build-image/deploy-*, usando los secrets del repo/org.
-      - name: Notify success (Telegram)
-        if: success()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*✅ [auth-core-mc] CI OK*\nBuild + tests + Quality Gate OK en %s (%s).\n%s' "${{ github.ref_name }}" "${{ github.sha }}" "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-      - name: Notify failure (Telegram)
-        if: failure()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*🔴 [auth-core-mc] CI FALLÓ*\nFalló en %s (%s).\n%s' "${{ github.ref_name }}" "${{ github.sha }}" "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-  # Ticket 049 (rediseño) — asegura la infra compartida de la VM (red
-  # `edge`, Traefik, SonarQube) en CUALQUIER push, a cualquier rama.
+  # Asegura la infra compartida de la VM (red `edge`, Traefik, SonarQube,
+  # Jenkins, certificados, firewall) en CUALQUIER push, a cualquier rama.
   # Idempotente ("docker compose up -d"/"docker network create" no hacen
   # nada si ya existen) — seguro de correr en cada push, no solo la
   # primera vez.
-  #
-  # Deliberadamente SIN "needs: build-test-analyze" ni "if" por rama: es
-  # justo lo contrario, un prerrequisito de ese job, no una consecuencia —
-  # build-test-analyze necesita SonarQube ya arriba en localhost:9000
-  # para poder correr el análisis. Si dependiera de build-test-analyze en
-  # verde, nunca podría levantar Sonar la primera vez (bloqueo circular
-  # real, encontrado en el primer intento de este rediseño: build-test-
-  # analyze fallaba porque Sonar no existía todavía en la VM, y Sonar
-  # nunca se levantaba porque ese job dependía de build-test-analyze en
-  # verde).
   sync-vm-infra:
-    if: github.event_name == 'push'
     runs-on: [self-hosted, vm-oci]
     steps:
       - uses: actions/checkout@v4
@@ -148,8 +54,8 @@ jobs:
       - name: Traefik (ingress compartido de la VM, puertas adentro)
         run: docker compose -f deploy/vm-infra/traefik/docker-compose.yml up -d
 
-      # Hallazgo real (primer intento de este rediseño): la VM ya traía
-      # nginx en el puerto 80/443 (paquete de fábrica de Ubuntu) —
+      # Hallazgo real (primer intento del rediseño dev/qa/prod): la VM ya
+      # traía nginx en el puerto 80/443 (paquete de fábrica de Ubuntu) —
       # decisión de Marco: NO deshabilitarlo, se queda como puerta de
       # entrada pública y le hace reverse proxy a Traefik (que por eso
       # publica su entrypoint solo en 127.0.0.1:8000, nunca directo al
@@ -209,12 +115,8 @@ jobs:
 
       # Ticket 049 (pivote GH Actions -> Jenkins) — certificado aparte
       # (no se puede meter en el -d de arriba: certbot exige que TODOS los
-      # SAN de una misma petición resuelvan, y jenkins.64bitstudio.com
-      # todavía no tiene el registro DNS creado por Marco). continue-on-
-      # error a propósito: mientras el DNS no exista, este paso falla
-      # solo, sin tumbar el resto del job — en cuanto el DNS resuelva,
-      # el próximo push lo emite solo, sin tocar nada más.
-      - name: Certificado Let's Encrypt para Jenkins (depende de DNS pendiente)
+      # SAN de una misma petición resuelvan). Idempotente.
+      - name: Certificado Let's Encrypt para Jenkins
         continue-on-error: true
         run: |
           sudo certbot --nginx --non-interactive --agree-tos \
@@ -240,19 +142,9 @@ jobs:
             echo "Creado $ENVFILE (password generado, no impreso). GITHUB_PAT queda vacío -- Marco debe llenarlo a mano."
           fi
 
-      # Hallazgo real (primer build real de dev vía Jenkins): dejé
-      # SONAR_TOKEN vacío en la plantilla de Jenkins (mismo patrón que
-      # GITHUB_PAT, pensado para que Marco lo llenara) pero NUNCA lo
-      # agregué a la lista de "pendiente de Marco" -- se me olvidó, y el
-      # build falló con 401 al analizar. A diferencia del PAT de GitHub
-      # (que Jenkins solo puede generar Marco a mano), esto SÍ se puede
-      # resolver solo: ya existe un SONAR_TOKEN de admin funcionando
-      # (secret de este mismo repo, usado por build-test-analyze arriba)
-      # -- se usa para generar un token NUEVO y dedicado para Jenkins
-      # (mejor práctica: credenciales separadas por consumidor,
-      # revocables independientemente) vía la propia API de SonarQube,
-      # sin volver a pedirle nada a Marco. Idempotente: no reemplaza un
-      # token ya puesto.
+      # SONAR_TOKEN de Jenkins: se genera solo (vía la API de SonarQube,
+      # usando el SONAR_TOKEN de admin que ya vive en los secrets del
+      # repo/org) si todavía no hay uno en el .env de Jenkins. Idempotente.
       - name: Asegurar SONAR_TOKEN de Jenkins en /home/ubuntu/secrets/jenkins/.env (si falta)
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -274,29 +166,10 @@ jobs:
       # CLI de docker) y el GID real del grupo dueño de docker.sock EN
       # ESTA VM (puede variar entre hosts, nunca hardcodeado) para que el
       # usuario "jenkins" adentro del contenedor pueda usarlo sin sudo.
-      # Hallazgo real (primer deploy real de dev vía Jenkins): los .env de
-      # cada proyecto en /home/ubuntu/secrets/<proyecto>/ son 600, dueño
-      # "ubuntu" -- Jenkins corre como uid 1000 (usuario "jenkins" del
-      # contenedor), sin relación con el uid de "ubuntu" en esta VM (1001)
-      # -- "permission denied" al leerlos desde dentro del contenedor.
-      # Se vuelven legibles por grupo (640) -- Jenkins se une al grupo de
-      # "ubuntu" como grupo suplementario (ver UBUNTU_GID abajo).
-      # Idempotente (chmod no falla si ya estaba en 640/750/710).
-      #
-      # Hallazgo real #2 (ticket 049, PR #78 -- el primer chmod, solo a los
-      # ARCHIVOS, no bastaba): "leer un archivo por permiso de grupo"
-      # también exige permiso de TRAVERSAL (bit x) en cada directorio del
-      # camino, no solo en el archivo final. /home/ubuntu/secrets/ y
-      # /home/ubuntu/secrets/auth-core-mc/ quedaron en 700 (rwx------,
-      # sin ningún acceso de grupo) -- confirmado con
-      # "docker exec jenkins test -r .../.env.dev" -> NOT_READABLE pese a
-      # que jenkins SÍ es miembro del grupo "ubuntu" (ver UBUNTU_GID) y los
-      # archivos SÍ estaban en 640. Se agrega +x de grupo al directorio
-      # compartido /home/ubuntu/secrets (710: solo traversal, no listado --
-      # ahí viven también los secrets de Jenkins y de futuros proyectos, no
-      # hace falta que el grupo pueda enumerar cuáles existen) y +rx de
-      # grupo al directorio propio del proyecto (750: listar+entrar es
-      # inocuo aquí, el contenido de cada archivo ya es legible por grupo).
+      # Hallazgo real (ticket 049, PR #78): "leer un archivo por permiso
+      # de grupo" también exige permiso de TRAVERSAL (bit x) en cada
+      # directorio del camino, no solo en el archivo final -- ver
+      # docs/ARQUITECTURA.md ticket 049 para el detalle completo.
       - name: Permisos de grupo en los secrets de cada proyecto (para Jenkins)
         run: |
           chmod 710 /home/ubuntu/secrets 2>/dev/null || true
@@ -304,34 +177,13 @@ jobs:
           chmod 640 /home/ubuntu/secrets/auth-core-mc/.env.* 2>/dev/null || true
 
       # Hallazgo real (ticket 049, PR #78): este step corría "--build" SIN
-      # condición, en TODO push a CUALQUIER rama (el job entero no filtra
-      # por rama -- ver el comentario de sync-vm-infra más arriba). Un
-      # rebuild de imagen sin --build --no-cache "de referencia" previa aun
-      # así produce casi siempre un image ID nuevo (jenkins-plugin-cli
-      # resuelve versiones de plugins contra el índice remoto en cada
-      # build), así que "docker compose up -d --build" terminaba recreando
-      # (reiniciando) el contenedor de Jenkins en casi cada push -- justo
-      # cuando ese MISMO push ya había disparado, en paralelo, un build de
-      # Jenkins vía webhook para esa rama. Evidencia real cruzada (mismo
-      # push, misma corrida): el log de este job muestra "Container
-      # jenkins Recreated" a las 06:16:26Z; el log del build de Jenkins
-      # para esa rama muestra "Pausing (shutting down)" justo después de
-      # las 06:16:09Z y "Resuming build ... after Jenkins restart" a las
-      # 06:17:00Z, seguido 10 minutos después de un timeout del
-      # durable-task ("wrapper script does not seem to be touching the log
-      # file ... may occur if the durable task process was terminated
-      # externally") -> stage de Sonar marcado FAILURE, todo lo demás
-      # "skipped due to earlier failure(s)", check de GitHub en ERROR.
-      # Se corrige quitando el "--build" incondicional: solo se
-      # reconstruye la imagen (y por lo tanto solo se recrea/reinicia el
-      # contenedor) cuando algo que de verdad define la imagen cambió
-      # (Dockerfile o plugins.txt), comparando contra un hash guardado
-      # fuera del checkout (persiste entre corridas pese al "git clean" del
-      # runner). Sin --build, "docker compose up -d" sigue recreando el
-      # contenedor cuando corresponde por diseño (p.ej. UBUNTU_GID nuevo,
-      # como en este mismo PR) -- eso es intencional y necesario, no parte
-      # del bug; solo se elimina la recreación INNECESARIA en pushes que no
-      # tocan nada de Jenkins, que era la inmensa mayoría de los casos.
+      # condición en todo push, recreando (reiniciando) el contenedor de
+      # Jenkins en casi cada push -- justo cuando ese mismo push disparaba,
+      # en paralelo, un build de Jenkins vía webhook. Se corrige
+      # reconstruyendo la imagen solo cuando algo que de verdad la define
+      # (Dockerfile o plugins.txt) cambió, comparando contra un hash
+      # guardado fuera del checkout. Ver docs/ARQUITECTURA.md ticket 049
+      # para el detalle completo.
       - name: Jenkins (orquestador del pipeline, compartido de la VM)
         run: |
           set -a
@@ -355,21 +207,7 @@ jobs:
       # del Jenkinsfile (waitForQualityGate()) necesita que SonarQube avise
       # a Jenkins cuando termina un análisis -- eso es un webhook
       # configurado DEL LADO DE SONAR, no del lado de Jenkins. Idempotente
-      # (busca por nombre antes de crear). Usa el mismo SONAR_TOKEN que ya
-      # está en el .env de Jenkins (con permiso de administrar el sistema).
-      #
-      # Hallazgo real (expuesto por el fix del SONAR_TOKEN de este mismo
-      # PR -- antes, con el token vacío, este step salía por el "exit 0"
-      # de abajo sin llegar nunca a fallar): este step corre DIRECTO en el
-      # shell del runner de la VM (el host), no dentro de un contenedor de
-      # la red "vm-infra" -- usar ${SONAR_HOST_URL} (que vale
-      # "http://sonarqube:9000", el nombre de host interno de Docker,
-      # correcto para Jenkins) fallaba aquí con "curl: (6) Could not
-      # resolve host: sonarqube", porque ese nombre solo es resoluble
-      # DESDE containers conectados a esa red, no desde el host. Fix:
-      # usar el puerto publicado al host (127.0.0.1:9000, confirmado con
-      # "docker port sonarqube", no asumido) en vez de reusar la variable
-      # pensada para Jenkins.
+      # (busca por nombre antes de crear).
       - name: Webhook de SonarQube -> Jenkins (para el Quality Gate)
         run: |
           SONAR_HOST_URL_LOCAL="http://127.0.0.1:9000"
@@ -385,24 +223,6 @@ jobs:
               --data-urlencode "url=http://jenkins:8080/sonarqube-webhook/"
           fi
 
-  # Construye la imagen Docker UNA vez, tras tests+Sonar en verde, solo
-  # para pushes a `dev` (el merge feature/NNN -> dev es automático cuando
-  # este pipeline completo queda verde — ver docs/ARQUITECTURA.md ticket
-  # 049).
-  build-image:
-    needs: build-test-analyze
-    if: github.event_name == 'push' && github.ref_name == 'dev'
-    runs-on: [self-hosted, vm-oci]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build de la imagen (tag = SHA del commit)
-        run: |
-          docker build \
-            --label "org.opencontainers.image.revision=${{ github.sha }}" \
-            -t "auth-core-mc:${{ github.sha }}" \
-            ./backend
-
       - name: Notify success (Telegram)
         if: success()
         env:
@@ -410,7 +230,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*✅ [auth-core-mc] build-image OK*\nImagen auth-core-mc:%s construida en la VM.\n%s' "${{ github.sha }}" "$RUN_URL")
+          MSG=$(printf '*✅ [auth-core-mc] infra-sync OK*\nTraefik/SonarQube/Jenkins al día en %s (%s).\n%s' "${{ github.ref_name }}" "${{ github.sha }}" "$RUN_URL")
           curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "parse_mode=Markdown" \
@@ -424,310 +244,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*🔴 [auth-core-mc] build-image FALLÓ*\n%s' "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-  # Ticket 049 (rediseño) — despliega la imagen recién construida al stack
-  # DEV (antes "TEST"). deploy/.env.dev vive FUERA del checkout de git, en
-  # /home/ubuntu/secrets/auth-core-mc/.env.dev (un self-hosted runner
-  # limpia el workspace con `git clean` antes de cada checkout — un archivo
-  # gitignored dentro del propio checkout se borraría en cada run). Ver
-  # docs/ARQUITECTURA.md ticket 049, sección "Convención de secrets en la
-  # VM" — mismo patrón que debe reusar el ticket gemelo de mail-core-mc.
-  deploy-dev:
-    needs: build-image
-    if: github.event_name == 'push' && github.ref_name == 'dev'
-    runs-on: [self-hosted, vm-oci]
-    steps:
-      - uses: actions/checkout@v4
-
-      # Hallazgo real (primer deploy-dev del rediseño): deploy/.env.dev
-      # nunca se creó en la VM -- el .env.test del esquema anterior no se
-      # renombró/migró solo. Idempotente: si ya existe, no lo toca (nunca
-      # pisa un password real ya generado). El password se genera EN la
-      # VM con openssl y nunca se imprime en el log.
-      - name: Asegurar deploy/.env.dev real en la VM (si falta)
-        run: |
-          ENVFILE=/home/ubuntu/secrets/auth-core-mc/.env.dev
-          if [ ! -f "$ENVFILE" ]; then
-            PW=$(openssl rand -base64 24 | tr -d '=+/\n')
-            sed "s#^DB_PASSWORD=.*#DB_PASSWORD=${PW}#" deploy/.env.dev.example > "$ENVFILE"
-            chmod 600 "$ENVFILE"
-            echo "Creado $ENVFILE (password generado, no impreso)."
-          fi
-
-      # Hallazgo real: el stack "test" del modelo anterior (auth-core-mc-
-      # test, mismo puerto de host 8081 que ahora usa DEV) seguía
-      # corriendo y le ganaba el puerto al "docker compose up -d" de
-      # abajo. TEST/DEV siempre fue disposable por diseño (sin garantía
-      # de rollback, ver docs/ARQUITECTURA.md ticket 049) -- se retira sin
-      # migrar datos. Idempotente (no-op una vez que ya no existe).
-      - name: Retirar el stack "test" del modelo anterior (puerto 8081 en conflicto)
-        run: docker compose -p auth-core-mc-test down 2>/dev/null || true
-
-      - name: Tag de release para DEV
-        run: |
-          docker tag "auth-core-mc:${{ github.sha }}" "auth-core-mc-dev:${{ github.sha }}"
-          docker tag "auth-core-mc:${{ github.sha }}" "auth-core-mc-dev:current"
-
-      - name: Deploy al stack DEV
-        env:
-          IMAGE_TAG: current
-        run: |
-          docker compose \
-            -f deploy/docker-compose.dev.yml \
-            --env-file /home/ubuntu/secrets/auth-core-mc/.env.dev \
-            up -d
-
-      - name: Esperar healthcheck real de /actuator/health
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8081/actuator/health | grep -q '"status":"UP"'; then
-              echo "DEV healthy."
-              exit 0
-            fi
-            echo "Esperando a que DEV quede healthy... ($i/30)"
-            sleep 5
-          done
-          echo "DEV nunca quedó healthy." >&2
-          exit 1
-
-      - name: Estado del stack DEV (docker compose ps)
-        if: always()
-        # IMAGE_TAG es una variable de entorno de este PASO (definida en
-        # "Deploy al stack DEV" más arriba), no del .env.dev en disco —
-        # GitHub Actions no la hereda entre steps, hay que repetirla aquí
-        # (hallazgo real del modelo anterior, ver la nota de rediseño).
-        env:
-          IMAGE_TAG: current
-        run: docker compose -f deploy/docker-compose.dev.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.dev ps
-
-      - name: Limpieza de imágenes/recursos (retención DEV = 1)
-        if: always()
-        run: ./deploy/cleanup.sh dev
-
-      - name: Notify success (Telegram)
-        if: success()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*✅ [auth-core-mc] deploy-dev OK*\nDEV corriendo auth-core-mc-dev:%s en la VM.\n%s' "${{ github.sha }}" "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-      - name: Notify failure (Telegram)
-        if: failure()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*🔴 [auth-core-mc] deploy-dev FALLÓ*\n%s' "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-  # Ticket 049 (rediseño) — promueve a QA la MISMA imagen ya validada en
-  # DEV (nunca reconstruye: retagea localmente `auth-core-mc-dev:current`,
-  # resolviendo su SHA real vía el label
-  # `org.opencontainers.image.revision` puesto en build-image — así el job
-  # no depende de qué SHA exacto disparó el push a `qa`, que puede diferir
-  # del SHA probado en DEV según la estrategia de merge de GitHub, sino de
-  # "lo que de verdad está corriendo en DEV ahora mismo").
-  #
-  # Disparo: push directo a `qa` — es decir, el merge MANUAL de Marco de
-  # `dev` a `qa` (nunca automático). No hay GitHub Environment de por
-  # medio: ese merge manual ES el gate real (ver la nota de rediseño
-  # arriba — el Environment anterior no protegía nada real de todos
-  # modos, por el bypass automático a admins).
-  deploy-qa:
-    needs: build-test-analyze
-    if: github.event_name == 'push' && github.ref_name == 'qa'
-    runs-on: [self-hosted, vm-oci]
-    steps:
-      - uses: actions/checkout@v4
-
-      # Mismo hallazgo que deploy-dev: deploy/.env.qa no existía en la VM
-      # (ambiente nuevo, nunca se creó a mano). Idempotente.
-      - name: Asegurar deploy/.env.qa real en la VM (si falta)
-        run: |
-          ENVFILE=/home/ubuntu/secrets/auth-core-mc/.env.qa
-          if [ ! -f "$ENVFILE" ]; then
-            PW=$(openssl rand -base64 24 | tr -d '=+/\n')
-            sed "s#^DB_PASSWORD=.*#DB_PASSWORD=${PW}#" deploy/.env.qa.example > "$ENVFILE"
-            chmod 600 "$ENVFILE"
-            echo "Creado $ENVFILE (password generado, no impreso)."
-          fi
-
-      - name: Resolver el SHA actualmente validado en DEV
-        id: resolve
-        run: |
-          SHA=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' auth-core-mc-dev:current)
-          if [ -z "$SHA" ]; then
-            echo "No se encontró auth-core-mc-dev:current — ¿corrió deploy-dev alguna vez?" >&2
-            exit 1
-          fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Tag de release para QA (sin rebuild)
-        run: |
-          docker tag auth-core-mc-dev:current "auth-core-mc-qa:${{ steps.resolve.outputs.sha }}"
-          docker tag auth-core-mc-dev:current "auth-core-mc-qa:current"
-
-      - name: Deploy al stack QA
-        env:
-          IMAGE_TAG: ${{ steps.resolve.outputs.sha }}
-        run: |
-          docker compose \
-            -f deploy/docker-compose.qa.yml \
-            --env-file /home/ubuntu/secrets/auth-core-mc/.env.qa \
-            up -d
-
-      - name: Esperar healthcheck real de /actuator/health
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8082/actuator/health | grep -q '"status":"UP"'; then
-              echo "QA healthy."
-              exit 0
-            fi
-            echo "Esperando a que QA quede healthy... ($i/30)"
-            sleep 5
-          done
-          echo "QA nunca quedó healthy." >&2
-          exit 1
-
-      - name: Estado del stack QA (docker compose ps)
-        if: always()
-        env:
-          IMAGE_TAG: ${{ steps.resolve.outputs.sha }}
-        run: docker compose -f deploy/docker-compose.qa.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.qa ps
-
-      - name: Limpieza de imágenes/recursos (retención QA = 1)
-        if: always()
-        run: ./deploy/cleanup.sh qa
-
-      - name: Notify success (Telegram)
-        if: success()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*✅ [auth-core-mc] deploy-qa OK*\nQA corriendo auth-core-mc-qa:%s en la VM.\n%s' "${{ steps.resolve.outputs.sha }}" "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-      - name: Notify failure (Telegram)
-        if: failure()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*🔴 [auth-core-mc] deploy-qa FALLÓ*\n%s' "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-  # Ticket 049 (rediseño) — promueve a PROD la MISMA imagen ya validada en
-  # QA (mismo mecanismo de resolución de SHA que deploy-qa, ahora leyendo
-  # el label de `auth-core-mc-qa:current`). Disparo: push directo a `prod`
-  # — el merge MANUAL de Marco de `qa` a `prod` (nunca automático). Sin
-  # GitHub Environment (ver la nota de rediseño arriba: no protegía nada
-  # real — GitHub deja pasar el gate automáticamente a cualquier admin del
-  # repo, y Marco es admin).
-  deploy-prod:
-    needs: build-test-analyze
-    if: github.event_name == 'push' && github.ref_name == 'prod'
-    runs-on: [self-hosted, vm-oci]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Resolver el SHA actualmente validado en QA
-        id: resolve
-        run: |
-          SHA=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' auth-core-mc-qa:current)
-          if [ -z "$SHA" ]; then
-            echo "No se encontró auth-core-mc-qa:current — ¿corrió deploy-qa alguna vez?" >&2
-            exit 1
-          fi
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Tag de release para PROD (sin rebuild)
-        run: |
-          docker tag auth-core-mc-qa:current "auth-core-mc-prod:${{ steps.resolve.outputs.sha }}"
-          docker tag auth-core-mc-qa:current "auth-core-mc-prod:current"
-
-      - name: Deploy al stack PROD
-        env:
-          IMAGE_TAG: ${{ steps.resolve.outputs.sha }}
-        run: |
-          docker compose \
-            -f deploy/docker-compose.prod.yml \
-            --env-file /home/ubuntu/secrets/auth-core-mc/.env.prod \
-            up -d
-
-      - name: Esperar healthcheck real de /actuator/health
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
-              echo "PROD healthy."
-              exit 0
-            fi
-            echo "Esperando a que PROD quede healthy... ($i/30)"
-            sleep 5
-          done
-          echo "PROD nunca quedó healthy." >&2
-          exit 1
-
-      - name: Estado del stack PROD (docker compose ps)
-        if: always()
-        env:
-          IMAGE_TAG: ${{ steps.resolve.outputs.sha }}
-        run: docker compose -f deploy/docker-compose.prod.yml --env-file /home/ubuntu/secrets/auth-core-mc/.env.prod ps
-
-      - name: Limpieza de imágenes/recursos (retención PROD = 2)
-        if: always()
-        run: ./deploy/cleanup.sh prod
-
-      - name: Notify success (Telegram)
-        if: success()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*✅ [auth-core-mc] deploy-prod OK*\nPROD corriendo auth-core-mc-prod:%s en la VM.\n%s' "${{ steps.resolve.outputs.sha }}" "$RUN_URL")
-          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "parse_mode=Markdown" \
-            --data-urlencode "text=$MSG" \
-            > /dev/null
-
-      - name: Notify failure (Telegram)
-        if: failure()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*🔴 [auth-core-mc] deploy-prod FALLÓ*\n%s' "$RUN_URL")
+          MSG=$(printf '*🔴 [auth-core-mc] infra-sync FALLÓ*\nFalló en %s (%s).\n%s' "${{ github.ref_name }}" "${{ github.sha }}" "$RUN_URL")
           curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "parse_mode=Markdown" \

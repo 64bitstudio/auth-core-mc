@@ -1464,12 +1464,41 @@ dado el mensaje de error), y (b) entender por qué no falla siempre.
 No se tocó el PAT ni se investigó más a fondo en este PR — se deja
 consignado con la evidencia real para retomarlo aparte.
 
+## Retiro de la duplicación ci.yml / Jenkinsfile (ticket 049, 2026-08-31)
+
+Con el Jenkinsfile ya confirmado funcionando de punta a punta (PR #78
+mergeado a `dev`, Sonar Quality Gate real, deploy a DEV automático), se
+retira de `.github/workflows/ci.yml` la duplicación aceptada como
+temporal durante el pivote: los jobs `build-test-analyze`, `build-image`,
+`deploy-dev`, `deploy-qa`, `deploy-prod` — cada push a dev/qa/prod
+corría Sonar+build+deploy dos veces (una por sistema) en una VM de solo
+2 vCPU. El Jenkinsfile queda como único orquestador de build+test+Sonar+
+deploy.
+
+Se conserva únicamente `sync-vm-infra` (workflow renombrado a
+"Infra Sync (VM)") — no es parte de la duplicación, mantiene Traefik/
+SonarQube/el propio contenedor de Jenkins al día en cada push, y nada
+del lado de Jenkins lo reemplaza.
+
+**Consecuencia que había que resolver aparte, no "de paso"**: la branch
+protection de `dev`/`qa`/`prod` requería el check `build-test-analyze`
+(que ya no existe) como *required status check* — sin actualizarlo,
+ningún PR de `feature/NNN` podría auto-mergearse nunca más a `dev`. Se
+actualizó vía API (`required_status_checks.checks`) para requerir en su
+lugar `continuous-integration/jenkins/branch` (el check que publica el
+Jenkinsfile), en las tres ramas — corrido por Marco directamente (acción
+de escritura sobre branch protection, bloqueada para el agente/
+orquestador por el clasificador del harness).
+
 ## Estado de este documento
-_Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
-Jenkins como orquestador (Marco, 2026-08-30), con el diseño y la infra de
-Jenkins ya implementados (contenedor, JCasC, Jenkinsfile, redes) pero
-`ci.yml` todavía activo en paralelo y varios pasos manuales pendientes de
-Marco (ver la sección del pivote arriba). Antes de esto: DEV y QA
+_Última actualización: ticket `049`, retiro de la duplicación ci.yml/
+Jenkinsfile tras confirmar el Jenkinsfile funcionando de punta a punta
+(2026-08-31, ver sección arriba) — Jenkins es ahora el único orquestador
+del pipeline, `ci.yml` solo sincroniza infra compartida de la VM. Antes
+de esto: SEGUNDO pivote — de GitHub Actions a Jenkins como orquestador
+(Marco, 2026-08-30), con el break-glass de seguridad de Jenkins y los 8
+hallazgos reales del PR #78 (ver la sección del pivote arriba para el
+detalle completo). Antes de eso: DEV y QA
 validados de punta a punta de verdad (deploy real, healthcheck real,
 Traefik+TLS real, retención de imágenes real) tras el PRIMER rediseño
 dev/qa/prod — ver la sección del ticket 049 arriba para la historia
