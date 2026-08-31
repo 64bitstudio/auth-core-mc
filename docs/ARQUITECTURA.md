@@ -1284,6 +1284,80 @@ arranque, es solo a las variables de entorno (congeladas desde la
 creación del contenedor) a las que no afecta, que es el caso distinto
 que documenta el hallazgo #1.
 
+**Hallazgo real #5 (PR #78 — WORKAROUND aplicado, la causa raíz NO se
+confirmó)**: con el fix del hallazgo #3 ya aplicado (esquema `entries:`
+correctamente tipado, confirmado con `USER:hudson.model.Hudson.
+Administer:marco` en `config.xml`) y el fix del hallazgo #4 ya aplicado
+(`docker restart jenkins` real, confirmado con `StartedAt` nuevo), el
+POST autenticado a `config.xml` **seguía dando el mismo 403** —
+incluyendo después de que Marco confirmara, por URL exacta
+(`/manage/configureSecurity/`, no un scope de folder/job), que la
+matriz GLOBAL real mostraba "Overall: Administer" marcado y "Job >
+Configure" como *implied*. Se investigaron, con evidencia real (no
+suposiciones) y en este orden, cinco hipótesis:
+
+1. **Caché en memoria desincronizada del disco** — descartada:
+   `docker inspect jenkins` mostró `RestartCount=0`/`StartedAt` sin
+   cambios en el primer chequeo (el `config.xml` que aplicó ese boot
+   era exactamente el que estaba en disco), y más adelante, tras el
+   restart real (hallazgo #4), el `StartedAt` sí cambió y el 403
+   persistió igual.
+2. **Clase legacy del core (`hudson.security.
+   GlobalMatrixAuthorizationStrategy`) distinta de la del plugin
+   `matrix-auth`** — descartada: confirmado contra el código fuente
+   real del plugin que esa clase es del propio `matrix-auth` (puente de
+   compatibilidad de nombre), no una implementación congelada aparte.
+3. **Esquema deprecado de JCasC (`permissions:` sin tipo, en vez de
+   `entries:`)** — parcialmente cierto (era un problema real, ver
+   hallazgo #3) pero **no era la causa completa**: migrado a `entries:`
+   con tipo `USER:` explícito, confirmado en `config.xml`, y el 403
+   siguió exactamente igual.
+4. **Identidad duplicada o SID no coincidente** — descartada con
+   evidencia directa: `grep -r '<id>' /var/jenkins_home/users/*/
+   config.xml` mostró un único usuario `marco` (id exacto, sin espacio
+   ni mayúscula distinta), y `/whoAmI/api/json` (GET autenticado,
+   autoritativo) confirmó `"name": "marco"` exacto en el SID de la
+   sesión real. Coincide carácter por carácter con el permiso otorgado.
+5. **Colisión de classloading con el plugin `role-strategy` residual**
+   (instalado en disco, activo — `active=true, enabled=true` vía la
+   API de Jenkins — pero ya no en `plugins.txt`) — descartada:
+   extraído su jar interno, su estrategia real vive en
+   `com.michelin.cio.hudson.plugins.rolestrategy.
+   RoleBasedAuthorizationStrategy`, sin ninguna clase bajo el paquete
+   `hudson.security.*` que pudiera chocar con la de `matrix-auth`.
+6. **`FACTOR_PASSWORD`** (una authority no vista antes en
+   `/whoAmI`) — rastreada, con grep exhaustivo sobre TODO
+   `jenkins-core-2.568.2.jar`, los 85 plugins instalados, y las ~78
+   librerías restantes de `jenkins.war`, hasta su origen exacto:
+   `org/springframework/security/core/authority/
+   FactorGrantedAuthority.class` y `RequiredFactor$Builder.class` en
+   `spring-security-core-7.1.0.jar` — una feature nativa de Spring
+   Security 7.1 (su mecanismo de "authentication factors"), que
+   Jenkins 2.568.2 trae empaquetada como dependencia. Ninguna clase de
+   `jenkins-core` ni de los 85 plugins referencia `RequiredFactor`/
+   `FactorGrantedAuthority` — no se encontró ningún enganche que
+   conecte esta authority con el permission-check de `Job/Configure`.
+   Descartada como causa más probable, sin poder descartarla al 100%
+   sin depurar el JVM en vivo.
+
+**Con las 5 hipótesis (6 pistas) agotadas por costo/beneficio, la
+causa raíz real de por qué `Overall/Administer` no implica
+correctamente el resto de los permisos para `marco` en esta
+combinación de versiones (Jenkins 2.568.2 + matrix-auth 3.3 + Spring
+Security 7.1) queda SIN CONFIRMAR.** Marco dio VoBo explícito para un
+workaround, no para seguir invirtiendo en diagnóstico: en vez de
+depender de que `Overall/Administer` implique el resto, se otorgan
+los 32 permisos reales de esta instalación explícitamente a `marco` en
+`authorizationStrategy.globalMatrix.entries` (ver el comentario en el
+propio `jenkins.yaml` para el detalle de cómo se verificó cada string
+contra dos fuentes reales antes de escribirlo). Si alguien retoma esto
+más adelante: el punto de partida sería reproducir el 403 con
+`Jenkins.getAuthorizationStrategy().getACL(item).hasPermission2(...)`
+desde la consola de script de Jenkins (acción que este mismo PR no
+llegó a ejecutar, bloqueada para el agente por las reglas de escritura
+del harness) para ver en vivo en qué punto de la cadena de
+`impliedBy` se corta la resolución.
+
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
 Jenkins como orquestador (Marco, 2026-08-30), con el diseño y la infra de
