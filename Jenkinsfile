@@ -49,9 +49,21 @@ pipeline {
 
         stage('Build, test y análisis SonarQube') {
             steps {
-                dir('backend') {
-                    withSonarQubeEnv('sonarqube-vm') {
-                        sh './gradlew build sonar'
+                // Hallazgo real (primer build real de dev): la imagen de
+                // Jenkins solo trae JDK 21 (para correr Jenkins mismo) --
+                // el backend necesita el toolchain Java 25 (mismo que
+                // ci.yml provisionaba vía actions/setup-java). Se instaló
+                // Temurin 25 aparte en la imagen (ver Dockerfile) y se
+                // activa SOLO para este stage, sin tocar el JDK del
+                // controller.
+                withEnv([
+                    "JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-arm64",
+                    "PATH=/usr/lib/jvm/temurin-25-jdk-arm64/bin:${env.PATH}"
+                ]) {
+                    dir('backend') {
+                        withSonarQubeEnv('sonarqube-vm') {
+                            sh './gradlew build sonar'
+                        }
                     }
                 }
             }
