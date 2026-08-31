@@ -1358,6 +1358,46 @@ llegó a ejecutar, bloqueada para el agente por las reglas de escritura
 del harness) para ver en vivo en qué punto de la cadena de
 `impliedBy` se corta la resolución.
 
+**Hallazgo real #7 (PR #78 — el workaround de 32 permisos explícitos
+tampoco se pudo confirmar aplicado)**: tras el `docker restart jenkins`
+para tomar el commit con los 32 permisos, `config.xml` seguía
+mostrando una única línea de permiso (`USER:hudson.model.Hudson.
+Administer:marco`), no las 32 — y el log de ese boot, a diferencia de
+TODOS los boots anteriores, no mostró ninguna línea de reconciliación
+de `AuthorizationContainer#add`/`MatrixAuthorizationStrategyConfigurator`,
+pese a que `config.xml` sí se reescribió al final exacto de ese mismo
+boot (mtime coincide al milisegundo con "Jenkins is fully up and
+running"). Quedó ambiguo si (a) los 31 permisos extra nunca se
+aplicaron, o (b) `matrix-auth` colapsa en la serialización XML los
+permisos explícitos redundantes frente a uno que ya los implica — no
+se llegó a correr el POST de verificación definitivo sobre este estado
+antes de que Marco y el Product Owner decidieran cambiar de estrategia
+(ver abajo).
+
+**Decisión final (PR #78 — break-glass de Jenkins, VoBo de Marco)**:
+en vez de seguir iterando a ciegas sobre JCasC para un problema cuya
+causa raíz nunca se pudo confirmar (ver hallazgo real #5, cinco
+hipótesis descartadas más `FACTOR_PASSWORD` como sexta pista, todas
+con evidencia real y ninguna concluyente), Marco hizo el "break-glass"
+oficial de Jenkins: desactivar la seguridad temporalmente, arreglar el
+usuario admin sin restricciones directo en `config.xml`/la UI, y
+reactivar. Consecuencia directa para este repo: **`securityRealm:` y
+`authorizationStrategy:` se QUITAN por completo de
+`deploy/vm-infra/jenkins/casc/jenkins.yaml`** — si hubieran quedado
+declarados ahí, JCasC los habría reaplicado en el siguiente arranque
+del contenedor y deshecho lo que el break-glass acabara de arreglar
+(el mismo mecanismo, ya documentado arriba, que hace que un cambio en
+ese archivo solo tome efecto con un reinicio real del proceso). **De
+aquí en adelante, la seguridad de Jenkins (usuarios, permisos) se
+gestiona 100% a mano desde `Manage Jenkins -> Security`, no vía JCasC**
+— es la única parte de la configuración de Jenkins que queda fuera del
+"configuration as code" de este repo, y es una decisión deliberada,
+no un descuido: JCasC sigue cubriendo plugins, credenciales y el
+mensaje del sistema como siempre. La causa raíz original del 403
+sigue sin resolverse — este cambio la vuelve irrelevante para la
+operación normal (la seguridad ya no depende de que JCasC la
+reconstruya bien en cada boot), no la explica.
+
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
 Jenkins como orquestador (Marco, 2026-08-30), con el diseño y la infra de

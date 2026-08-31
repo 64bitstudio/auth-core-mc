@@ -1,29 +1,29 @@
 # Ticket 049 (pivote GH Actions -> Jenkins): configuración de Jenkins
 # como código (plugin configuration-as-code) — evita dejar el setup
-# "hecho a mano" sin rastro. Solo cubre seguridad/plugins/credenciales
-# (la parte 100% reproducible sin intervención humana); el job
-# Multibranch Pipeline en sí se crea una vez, a mano, desde la UI de
-# Jenkins (2-3 minutos, ver docs/ARQUITECTURA.md ticket 049 para los
-# campos exactos) — hacerlo vía Job DSL aquí era frágil de verificar sin
-# poder iterar en vivo contra la UI real, y el riesgo de romper el
-# arranque completo de Jenkins por un error de sintaxis en el DSL no
-# valía la pena por algo que Marco hace una sola vez.
+# "hecho a mano" sin rastro. Cubre plugins/credenciales/mensaje del
+# sistema (la parte 100% reproducible sin intervención humana). La
+# SEGURIDAD (securityRealm/authorizationStrategy) YA NO se gestiona
+# aquí — ver el comentario dentro de "jenkins:" más abajo para el
+# porqué. El job Multibranch Pipeline en sí se crea una vez, a mano,
+# desde la UI de Jenkins (2-3 minutos, ver docs/ARQUITECTURA.md ticket
+# 049 para los campos exactos) — hacerlo vía Job DSL aquí era frágil de
+# verificar sin poder iterar en vivo contra la UI real, y el riesgo de
+# romper el arranque completo de Jenkins por un error de sintaxis en el
+# DSL no valía la pena por algo que Marco hace una sola vez.
 #
 # JENKINS_ADMIN_USER/JENKINS_ADMIN_PASSWORD/GITHUB_PAT vienen del
 # entorno del contenedor (ver docker-compose.yml, que los toma de
 # /home/ubuntu/secrets/jenkins/.env — NUNCA hardcodeados aquí).
+# JENKINS_ADMIN_USER/PASSWORD ya no se consumen en ESTE archivo (la
+# seguridad se gestiona por UI, ver más abajo) pero siguen
+# necesitándose en docker-compose.yml/el .env para el resto del flujo
+# (ci.yml los usa para asegurar el .env la primera vez).
 jenkins:
   systemMessage: >
     auth-core-mc / mail-core-mc CI-CD -- gestionado como código
     (deploy/vm-infra/jenkins en el repo de auth-core-mc). Ver
     docs/ARQUITECTURA.md ticket 049.
   numExecutors: 2
-  securityRealm:
-    local:
-      allowsSignup: false
-      users:
-        - id: "${JENKINS_ADMIN_USER}"
-          password: "${JENKINS_ADMIN_PASSWORD}"
   # Hallazgo real (primer arranque de Jenkins, crash-loop): el plugin
   # role-strategy cambió su esquema de JCasC -- "assignments" anidado
   # dentro de cada rol quedó deprecado ("'assignments' is deprecated",
@@ -31,80 +31,36 @@ jenkins:
   # Se cambió a matrix-auth (plugin más simple y estable, sin ese
   # churn de esquema) -- alcanza de sobra para "un solo admin real".
   #
-  # Hallazgo real #2 (ticket 049, PR #78 -- Marco con Overall/Administer
-  # recibía 403 "missing the Job/Configure permission" al intentar
-  # configurar el job auth-core-mc, pese a ser admin): el esquema usado
-  # arriba ("permissions:", una lista plana "Permiso:sid" sin prefijo de
-  # tipo) es el formato DEPRECADO de matrix-auth desde la 3.2 -- el
-  # propio log de arranque de Jenkins lo advierte en el momento exacto
-  # de aplicar este grant: "Processing a permission assignment in the
-  # legacy format (without explicit TYPE prefix): Overall/Administer:
-  # marco" + "Loading deprecated attribute 'permissions' ... Use
-  # 'entries' instead". Sin el prefijo USER:/GROUP: explícito, el plugin
-  # tiene que INFERIR si "marco" es un usuario o un grupo -- justo el
-  # caso que el formato moderno "entries:" (con cada entrada tipada
-  # explícitamente) elimina. Se migra al esquema moderno, sin ambigüedad
-  # de tipo, para el mismo grant de siempre (un solo admin real).
+  # Hallazgo real #2 (ticket 049, PR #78): el esquema `permissions:`
+  # (lista plana "Permiso:sid" sin prefijo de tipo) resultó ser el
+  # formato DEPRECADO de matrix-auth desde la 3.2 -- se migró a
+  # `entries:` (tipado explícito USER:/GROUP:).
   #
-  # WORKAROUND (ticket 049, PR #78 -- NO es una causa raíz confirmada,
-  # ver docs/ARQUITECTURA.md "Hallazgo real #3" para las 5 hipótesis
-  # descartadas y su evidencia): tras migrar a "entries:" arriba, Marco
-  # confirmó por captura y por URL exacta (/manage/configureSecurity/)
-  # que la matriz GLOBAL real ya mostraba "Overall: Administer" marcado
-  # y "Job > Configure" como implied -- y el POST autenticado real a
-  # config.xml seguía dando 403 en Item.Configure. La cadena de
-  # implicación de Administer no se está resolviendo correctamente para
-  # marco en esta combinación de versiones (Jenkins 2.568.2 + matrix-auth
-  # 3.3 + Spring Security 7.1), por una causa que no se pudo confirmar a
-  # nivel de bytecode. En vez de depender de esa implicación, se otorga
-  # cada permiso EXPLÍCITAMENTE. La lista completa se verificó letra por
-  # letra contra dos fuentes reales antes de escribirla (no asumida):
-  # (1) los 32 checkboxes reales renderizados por este mismo Jenkins en
-  # /manage/configureSecurity/ (name="[hudson.model.Xxx.Yyy]" -- los IDs
-  # Java completos que este Jenkins tiene registrados) y (2) la tabla
-  # oficial de jenkins.io/doc/book/security/access-control/permissions/
-  # para el nombre de grupo corto moderno de cada uno (único caso no
-  # obvio: hudson.model.Computer.* se expone como "Agent/*", no
-  # "Computer/*" -- Jenkins renombró "Slave"/"Computer" a "Agent" en la
-  # UI). Las 32 coincidieron 1 a 1 entre ambas fuentes.
-  authorizationStrategy:
-    globalMatrix:
-      entries:
-        - user:
-            name: "${JENKINS_ADMIN_USER}"
-            permissions:
-              - "Overall/Administer"
-              - "Overall/Manage"
-              - "Overall/Read"
-              - "Credentials/Create"
-              - "Credentials/Delete"
-              - "Credentials/ManageDomains"
-              - "Credentials/Update"
-              - "Credentials/View"
-              - "Agent/Build"
-              - "Agent/Configure"
-              - "Agent/Connect"
-              - "Agent/Create"
-              - "Agent/Delete"
-              - "Agent/Disconnect"
-              - "Agent/Provision"
-              - "Job/Build"
-              - "Job/Cancel"
-              - "Job/Configure"
-              - "Job/Create"
-              - "Job/Delete"
-              - "Job/Discover"
-              - "Job/Move"
-              - "Job/Read"
-              - "Job/Workspace"
-              - "Run/Delete"
-              - "Run/Replay"
-              - "Run/Update"
-              - "View/Configure"
-              - "View/Create"
-              - "View/Delete"
-              - "View/Read"
-              - "SCM/Tag"
+  # Hallazgo real #5/#6 (ticket 049, PR #78 -- ver docs/ARQUITECTURA.md
+  # para las 5 hipótesis investigadas y su evidencia completa): incluso
+  # con `entries:` bien tipado y con los 32 permisos reales de esta
+  # instalación otorgados EXPLÍCITAMENTE a marco (no solo
+  # Overall/Administer), marco seguía recibiendo 403 "missing the
+  # Job/Configure permission" al configurar el job auth-core-mc vía la
+  # API de Jenkins -- sin que ninguna de las hipótesis investigadas
+  # (caché en memoria, clase legacy del core, esquema deprecado,
+  # identidad duplicada, colisión con el plugin role-strategy,
+  # la authority FACTOR_PASSWORD de Spring Security 7.1) explicara la
+  # causa real. Con VoBo de Marco, se hizo el "break-glass" oficial de
+  # Jenkins (desactivar seguridad temporalmente vía la UI, arreglar el
+  # admin sin restricciones, reactivar) -- un procedimiento que
+  # necesariamente deja el estado de seguridad real vivo solo en el
+  # config.xml del propio Jenkins, escrito por la UI en el momento.
+  #
+  # POR ESO se quitan por completo `securityRealm:` y
+  # `authorizationStrategy:` de este archivo: si quedaran declarados
+  # aquí, JCasC los reaplicaría en el siguiente arranque del
+  # contenedor y DESHARÍA lo que el break-glass acabe de arreglar --
+  # volviendo al mismo estado roto que motivó el break-glass. De aquí
+  # en adelante, la seguridad de Jenkins (usuarios, permisos) se
+  # gestiona 100% a mano desde Manage Jenkins -> Security, NO vía
+  # JCasC -- ver docs/ARQUITECTURA.md ticket 049 para el detalle
+  # completo de esta decisión y su razón.
 
 credentials:
   system:
