@@ -1118,11 +1118,25 @@ este pivote:
 3. Crear el registro DNS de `jenkins.64bitstudio.com` → `159.54.153.37`
    — ya resuelve (confirmado), el certificado real de Let's Encrypt
    también ya se emitió.
-4. Crear el job Multibranch Pipeline desde la UI de Jenkins (apuntando
-   al repo, con la credencial `github-pat`) y configurar el webhook de
-   GitHub hacia Jenkins — **todavía pendiente**.
+4. ~~Crear el job~~ — hecho (tipo "GitHub Organization", no Multibranch
+   Pipeline por repo — decisión de Marco para que descubra
+   `mail-core-mc` y proyectos futuros solos). Hallazgo real en el
+   camino: el filtro `^(dev|qa|prod)$` que se agregó primero quedó como
+   filtro de nombre de REPOSITORIO (`RegexSCMSourceFilterTrait`), no de
+   RAMA (`RegexSCMHeadFilterTrait`) — ambos comparten el mismo texto
+   "Filter by name (with regular expression)" en el dropdown de Jenkins
+   (confirmado contra el código fuente real del plugin `scm-api`, no
+   por suposición) — excluyó los 2 repos completos. Se quitó; por ahora
+   Jenkins indexa TODAS las ramas de cada repo (sin filtro por nombre),
+   aceptado como no-bloqueante. También faltaba el trait "Discover
+   branches" (sin él, cero ramas se consideran candidatas aunque el
+   repo pase el filtro) — ya agregado.
+   ~~Webhook de GitHub hacia Jenkins~~ — creado por API
+   (`POST /repos/64bitstudio/auth-core-mc/hooks`, evento `push` hacia
+   `https://jenkins.64bitstudio.com/github-webhook/`), verificado con un
+   ping real (`200`).
 5. Confirmar de punta a punta que el Jenkinsfile despliega igual que
-   `ci.yml` antes de retirar este último — pendiente del punto 4.
+   `ci.yml` — en curso, ver el hallazgo del JDK 25 más abajo.
 
 **Hallazgo real (`docker restart` vs. recrear el contenedor)**: tras
 poner el PAT real en el `.env` y reiniciar el contenedor de Jenkins, la
