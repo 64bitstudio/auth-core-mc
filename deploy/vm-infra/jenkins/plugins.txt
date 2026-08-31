@@ -5,7 +5,7 @@ github-branch-source
 workflow-aggregator
 docker-workflow
 credentials-binding
-role-strategy
+matrix-auth
 ws-cleanup
 timestamper
 sonar
