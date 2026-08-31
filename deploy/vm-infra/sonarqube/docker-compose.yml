@@ -27,6 +27,14 @@
 # comparte 2 OCPU/12GB con Postfix, los stacks dev/qa/prod, Traefik y el
 # runner. Ver docs/ARQUITECTURA.md ticket 049 para el estado de memoria
 # real medido tras levantar esto.
+#
+# Ticket 050 (Portainer + subdominios): además conectado a la red "edge"
+# (tráfico público vía Traefik/nginx) con labels de Traefik, para exponer
+# sonarqube.64bitstudio.com -- SIN quitar el bind a 127.0.0.1:9000 de
+# arriba, que sigue siendo el camino que usa Jenkins/el runner para
+# alcanzar Sonar dentro de la VM. El acceso público queda detrás de Basic
+# Auth de nginx (ver deploy/vm-infra/nginx/), Sonar mismo sigue pidiendo su
+# propio login encima. Ver docs/ARQUITECTURA.md ticket 050.
 name: vm-infra-sonarqube
 
 services:
@@ -68,9 +76,18 @@ services:
     networks:
       - default
       - vm-infra
+      - edge
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.sonarqube.rule=Host(`sonarqube.64bitstudio.com`)"
+      - "traefik.http.routers.sonarqube.entrypoints=web"
+      - "traefik.http.services.sonarqube.loadbalancer.server.port=9000"
 
 networks:
   vm-infra:
+    external: true
+  edge:
     external: true
 
 volumes:

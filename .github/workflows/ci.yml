@@ -77,6 +77,50 @@ jobs:
           sudo nginx -t
           sudo systemctl reload nginx
 
+      # Ticket 050 (Portainer + subdominios): Basic Auth compartido de
+      # nginx para sonarqube/traefik/portainer.64bitstudio.com — hash
+      # apr1 (formato que entiende auth_basic_user_file de nginx, sin
+      # depender del paquete apache2-utils/htpasswd, no instalado en esta
+      # VM). Bootstrap idempotente (nunca pisa un hash ya generado) — debe
+      # correr ANTES del paso de abajo que copia el vhost, porque
+      # "nginx -t" falla si auth_basic_user_file no existe todavía.
+      # Deliberadamente NO bajo /home/ubuntu/secrets/: ese árbol solo es
+      # legible por Docker vía bind-mount con el UID/GID de cada
+      # contenedor (ver "Permisos de grupo..." más abajo) — nginx corre
+      # como el usuario de sistema "www-data" sin membresía en el grupo
+      # "ubuntu" y sin traversal a /home/ubuntu (permisos 750). Abrir eso
+      # a nivel de todo /home/ubuntu para que www-data pase habría sido un
+      # cambio de alcance mucho más amplio que el necesario — hallazgo
+      # real de este ticket. /etc/nginx/secrets/ es el árbol nativo que
+      # nginx ya puede leer (root:root, patrón estándar de htpasswd,
+      # mundo-legible en 644 — es un hash, no la contraseña en claro).
+      - name: Asegurar Basic Auth compartido de nginx (.htpasswd) si falta
+        run: |
+          sudo mkdir -p /etc/nginx/secrets
+          sudo chmod 755 /etc/nginx/secrets
+          FILE=/etc/nginx/secrets/vm-admin-tools.htpasswd
+          if [ ! -f "$FILE" ]; then
+            PW=$(openssl rand -base64 24 | tr -d '=+/\n')
+            HASH=$(openssl passwd -apr1 "$PW")
+            printf "admin:%s\n" "$HASH" | sudo tee "$FILE" > /dev/null
+            sudo chmod 644 "$FILE"
+            sudo chown root:root "$FILE"
+            echo "Creado $FILE (usuario 'admin', password generado, no impreso) -- Marco debe pedirlo a quien lo generó si lo perdió."
+          fi
+
+      # Ticket 050 (Portainer + subdominios): mismo patrón que los vhosts
+      # de arriba, para los 3 subdominios de infra privilegiada (SonarQube,
+      # dashboard de Traefik, Portainer) — un solo vhost con los 3
+      # server_name, detrás de Basic Auth (ver deploy/vm-infra/nginx/
+      # vm-admin-tools.conf). Depende del paso anterior (el .htpasswd debe
+      # existir antes de "nginx -t").
+      - name: nginx -> Traefik (vhost de las 3 herramientas de infra + Basic Auth)
+        run: |
+          sudo cp deploy/vm-infra/nginx/vm-admin-tools.conf /etc/nginx/sites-available/vm-admin-tools.conf
+          sudo ln -sf /etc/nginx/sites-available/vm-admin-tools.conf /etc/nginx/sites-enabled/vm-admin-tools.conf
+          sudo nginx -t
+          sudo systemctl reload nginx
+
       # Hallazgo real: el firewall local de la VM (iptables, persistido con
       # iptables-persistent/netfilter-persistent) solo tenía reglas ACCEPT
       # explícitas para 22 (SSH), 25 (SMTP de mail-core-mc) y 80 (HTTP) —
@@ -124,8 +168,33 @@ jobs:
             -d jenkins.64bitstudio.com \
             --redirect
 
+      # Ticket 050 (Portainer + subdominios) — certificado aparte para los
+      # 3 subdominios de infra privilegiada (mismo motivo que el de
+      # Jenkins: certbot exige que TODOS los SAN de una misma petición
+      # resuelvan, así que van en su propia petición, no junto a los de
+      # arriba). continue-on-error: true por si el DNS de alguno de los 3
+      # todavía no propagó del todo cuando corre este paso — no bloqueante,
+      # igual que el de Jenkins. Idempotente.
+      - name: Certificado Let's Encrypt para las 3 herramientas de infra
+        continue-on-error: true
+        run: |
+          sudo certbot --nginx --non-interactive --agree-tos \
+            -m marco.cortes@64bitstudio.com \
+            -d sonarqube.64bitstudio.com \
+            -d traefik.64bitstudio.com \
+            -d portainer.64bitstudio.com \
+            --redirect
+
       - name: SonarQube (compartido de la VM)
         run: docker compose -f deploy/vm-infra/sonarqube/docker-compose.yml up -d
+
+      # Ticket 050 (Portainer + subdominios): dashboard web de Docker/
+      # Compose, compartido de la VM (no específico de auth-core-mc, mismo
+      # criterio que Traefik/SonarQube/Jenkins). Ver
+      # deploy/vm-infra/portainer/docker-compose.yml para el riesgo
+      # aceptado de docker.sock (mismo ya documentado para Jenkins).
+      - name: Portainer (dashboard de Docker/Compose, compartido de la VM)
+        run: docker compose -f deploy/vm-infra/portainer/docker-compose.yml up -d
 
       # Ticket 049 (pivote GH Actions -> Jenkins): bootstrap idempotente
       # de /home/ubuntu/secrets/jenkins/.env (nunca lo pisa si ya existe
@@ -230,7 +299,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG=$(printf '*✅ [auth-core-mc] infra-sync OK*\nTraefik/SonarQube/Jenkins al día en %s (%s).\n%s' "${{ github.ref_name }}" "${{ github.sha }}" "$RUN_URL")
+          MSG=$(printf '*✅ [auth-core-mc] infra-sync OK*\nTraefik/SonarQube/Jenkins/Portainer al día en %s (%s).\n%s' "${{ github.ref_name }}" "${{ github.sha }}" "$RUN_URL")
           curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "parse_mode=Markdown" \

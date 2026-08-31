@@ -20,8 +20,17 @@ providers:
     network: edge
     watch: true
 
-# Dashboard/API deliberadamente NO habilitado — no hay todavía una
-# decisión de a qué hostname/auth quedaría expuesto.
+# Ticket 050 (Portainer + subdominios): dashboard/API habilitado -- ya hay
+# hostname/auth decidido (traefik.64bitstudio.com, detrás de Basic Auth de
+# nginx). Deliberadamente SIN "--api.insecure=true": ese flag abre un
+# entrypoint HTTP sin autenticación propia en el puerto 8080 del
+# contenedor -- innecesario acá porque el router de abajo (ver
+# docker-compose.yml, service "api@internal") expone el dashboard por el
+# MISMO entrypoint "web" (8000) que ya usa el resto del tráfico, protegido
+# por el mismo camino: nginx (Basic Auth + TLS) -> Traefik puertas adentro
+# en 127.0.0.1:8000, nunca directo a internet.
+api:
+  dashboard: true
 
 log:
   level: INFO
