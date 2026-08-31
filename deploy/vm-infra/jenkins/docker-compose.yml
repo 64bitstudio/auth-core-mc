@@ -23,9 +23,20 @@
 # login de administrador en Jenkins (ver casc/jenkins.yaml), y el mismo
 # GitHub PAT/credencial no se hardcodea en ningún archivo de este repo.
 #
-# DOCKER_GID se resuelve en el momento del deploy (el job de CI que trae
-# esto arriba exporta la variable antes de "docker compose up") --
-# nunca hardcodeado, puede variar entre hosts.
+# DOCKER_GID/UBUNTU_GID se resuelven en el momento del deploy (el job de
+# CI que trae esto arriba exporta las variables antes de "docker compose
+# up") -- nunca hardcodeados, pueden variar entre hosts.
+#
+# Hallazgo real (primer deploy real de dev vía Jenkins): "docker compose
+# ... --env-file /home/ubuntu/secrets/auth-core-mc/.env.dev up -d" fallaba
+# con "permission denied" -- esos archivos son 600, dueño "ubuntu" (uid
+# 1001 en esta VM), y el usuario "jenkins" del contenedor es uid 1000, sin
+# relación con "ubuntu" -- el montaje read-only de /home/ubuntu/secrets no
+# alcanza si el propio archivo no es legible por ese uid. Mismo mecanismo
+# ya usado para docker.sock: se agrega el GID real de "ubuntu" como grupo
+# suplementario de "jenkins", y los archivos de secrets de cada proyecto
+# se vuelven legibles por grupo (chmod 640) -- ver el paso correspondiente
+# en ci.yml, sync-vm-infra.
 name: vm-infra-jenkins
 
 services:
@@ -38,6 +49,7 @@ services:
     user: jenkins
     group_add:
       - "${DOCKER_GID:?falta DOCKER_GID -- resolver con: stat -c '%g' /var/run/docker.sock}"
+      - "${UBUNTU_GID:?falta UBUNTU_GID -- resolver con: id -g ubuntu}"
     environment:
       CASC_JENKINS_CONFIG: /var/jenkins_casc/jenkins.yaml
       JAVA_OPTS: "-Xmx1536m -Djenkins.install.runSetupWizard=false"

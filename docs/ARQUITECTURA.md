@@ -1151,7 +1151,318 @@ compara la config resuelta contra la que corre y recrea si difiere) —
 exactamente lo que ya hace el paso "Jenkins (orquestador del pipeline)"
 de `sync-vm-infra` en cada push a `dev`. Se corrige disparando ese job
 de nuevo (este mismo commit de docs lo dispara), sin necesitar tocar la
-VM a mano.
+VM a mano. (Nota corregida más abajo: `sync-vm-infra` en realidad corre
+en TODO push, a cualquier rama — `if: github.event_name == 'push'`, sin
+filtro de rama — no solo a `dev`; ese detalle es justo la causa del
+hallazgo siguiente.)
+
+**Hallazgo real (PR #78 — causa raíz real del check
+`continuous-integration/jenkins/branch` en ERROR, confirmada con log
+completo del build de Jenkins vía SSH, no asumida)**: el commit
+`40cc81b` ("Jenkins no podía leer los secrets del proyecto") pasó
+`build-test-analyze` de GitHub Actions en verde pero el check de Jenkins
+quedó en ERROR. El log real del build #1 de esa rama en Jenkins
+(`docker exec jenkins cat .../branches/.../builds/1/log`) mostró que el
+stage de Sonar murió a mitad del `./gradlew build sonar`, en plena tarea
+`:test`, con: `Pausing (shutting down)` → `Resuming build ... after
+Jenkins restart` → 10 minutos después,
+`wrapper script does not seem to be touching the log file ... may occur
+if the durable task process was terminated externally` (JENKINS-48300)
+→ el resto de los stages "skipped due to earlier failure(s)" → pipeline
+FAILURE. Es decir: **no era el bug de permisos que el PR dice arreglar**
+— el build murió mucho antes de llegar a ningún stage de deploy que
+leyera esos `.env.*`. Cruzando el timestamp con el log de la MISMA
+corrida de `sync-vm-infra` (mismo push, mismo commit): el paso "Jenkins
+(orquestador del pipeline)" corría `docker compose ... up -d --build`
+**sin condición, en cualquier push a cualquier rama** (el job
+`sync-vm-infra` no filtra por rama ni por paths) y mostró
+`Container jenkins Recreated` a las 06:16:26Z — exactamente en la
+ventana entre el `Pausing` y el `Resuming` del build de Jenkins para esa
+misma rama. Causa raíz real: el mismo push dispara en paralelo (a) el
+webhook de GitHub hacia Jenkins, que arranca un build para esa rama, y
+(b) el job `sync-vm-infra`, cuyo `--build` incondicional casi siempre
+produce un image ID nuevo (`jenkins-plugin-cli` resuelve versiones de
+plugins contra el índice remoto en cada build, no hay garantía de cache
+hit) y por lo tanto casi siempre fuerza un "Recreate" del contenedor —
+matando cualquier build de Jenkins que estuviera corriendo en ese
+instante, incluido el disparado por el propio push que lo causó. Fix
+(este mismo commit): se quita el `--build` incondicional; se calcula un
+hash de `Dockerfile` + `plugins.txt` guardado fuera del checkout
+(`/home/ubuntu/secrets/jenkins/.image-inputs-hash`, sobrevive al `git
+clean` del runner) y solo se reconstruye la imagen (y por lo tanto solo
+se puede recrear el contenedor) cuando esos archivos cambiaron de
+verdad. `docker compose up -d` sin `--build` sigue recreando el
+contenedor cuando su config SÍ cambia (un GID nuevo, un secret nuevo) —
+eso sigue siendo necesario y correcto, solo se elimina la recreación
+innecesaria en pushes que no tocan nada de Jenkins (la inmensa mayoría).
+No se resuelve la colisión de fondo para el caso raro de un push que
+SÍ cambia la config de Jenkins (como este mismo PR) — ahí una
+recreación real es inevitable y puede seguir matando el build de esa
+misma rama; se acepta como caso conocido, no bloqueante, resuelto
+re-disparando el build a mano cuando ocurre (documentado, no oculto).
+
+**Hallazgo real #2 (PR #78 — el bug de permisos original SÍ existía,
+pero el fix del primer commit era incompleto)**: confirmado por SSH
+(`docker exec jenkins id` → `jenkins` sí es miembro del grupo de
+`ubuntu`; `docker exec jenkins test -r
+/home/ubuntu/secrets/auth-core-mc/.env.dev` → `NOT_READABLE` aun así).
+Causa: leer un archivo por permiso de GRUPO también exige permiso de
+traversal (bit `x`) en cada directorio del camino, no solo en el
+archivo final — `chmod 640` a los `.env.*` (commit `40cc81b`) no
+alcanzaba porque `/home/ubuntu/secrets/` y
+`/home/ubuntu/secrets/auth-core-mc/` seguían en `700`
+(`drwx------`, cero acceso de grupo), confirmado con `stat`. Fix (este
+mismo commit): `chmod 710` en `/home/ubuntu/secrets` (solo traversal de
+grupo, sin listar — ahí conviven los secrets de Jenkins y de futuros
+proyectos) y `chmod 750` en `/home/ubuntu/secrets/auth-core-mc` (listar
++ entrar es inocuo ahí: el contenido de cada archivo ya es legible por
+grupo desde el commit anterior). Sin este fix de directorios, el bug que
+el PR #78 dice cerrar seguía sin cerrarse en ningún ambiente (dev, qa,
+prod) pese al `chmod` de los archivos.
+
+**Hallazgo real #3 (PR #78 — Marco, con `Overall/Administer` ya
+otorgado y confirmado en `config.xml`, recibía `403 "marco is missing
+the Job/Configure permission"` al intentar configurar el job
+`auth-core-mc` vía la API de Jenkins)**: descartado primero, con
+evidencia, que fuera un problema de caché en memoria desincronizada del
+disco (`docker inspect jenkins` → `RestartCount=0`, corriendo continuo
+desde el recreate de este mismo PR, así que el `config.xml` que aplicó
+en ese boot es exactamente el que está en disco) o de la clase
+`hudson.security.GlobalMatrixAuthorizationStrategy` siendo una clase
+"legacy" del core de Jenkins distinta de la del plugin `matrix-auth`
+(confirmado contra el código fuente real del plugin: esa clase es del
+propio `matrix-auth`, un puente de compatibilidad de nombre, no una
+implementación congelada aparte). Causa real encontrada en el propio
+log de arranque de Jenkins, en el momento exacto en que aplica el grant
+de `marco`:
+```
+Processing a permission assignment in the legacy format (without
+explicit TYPE prefix): Overall/Administer:marco
+MatrixAuthorizationStrategyConfigurator#setLegacyPermissions: Loading
+deprecated attribute 'permissions' for instance of
+'hudson.security.GlobalMatrixAuthorizationStrategy'. Use 'entries'
+instead.
+```
+El esquema de JCasC usado en `authorizationStrategy.globalMatrix` era
+el formato `permissions:` (lista plana `"Permiso:sid"`, sin prefijo de
+tipo) — **deprecado desde matrix-auth 3.2** en favor de `entries:`
+(cada entrada tipada explícitamente como `user:`/`group:`). Sin el
+prefijo, el plugin tiene que inferir si `marco` es un usuario o un
+grupo; esa ambigüedad de tipo entre el grant otorgado y la identidad
+autenticada en tiempo de request (`X-You-Are-Authenticated-As: marco`
+coincide en texto, pero no necesariamente en tipo resuelto) es la
+hipótesis mejor sustentada con la evidencia disponible -- no se pudo
+confirmar el mecanismo exacto sin depurar el JVM en vivo. Fix: migrar
+`deploy/vm-infra/jenkins/casc/jenkins.yaml` al esquema moderno
+`entries:`/`user:`/`permissions:` (mismo grant de siempre: un solo
+admin real, `Overall/Administer` para `${JENKINS_ADMIN_USER}`), sin la
+ambigüedad de tipo del formato viejo.
+
+**Hallazgo real #4 (PR #78 — el `docker compose up -d` para recoger el
+fix del hallazgo #3 no tuvo efecto)**: tras el push del commit con el
+`jenkins.yaml` corregido, Marco corrió `git pull` + `docker compose
+up -d` en la VM (mismo comando que ya recreaba Jenkins en corridas
+anteriores). Confirmado con `docker inspect jenkins` que el contenedor
+NO se reinició (`StartedAt`/`RestartCount` idénticos a antes del
+comando) — y con `docker exec jenkins cat /var/jenkins_casc/
+jenkins.yaml` que el bind-mount SÍ reflejaba ya el `entries:` nuevo
+(el archivo en disco estaba correcto). Causa: a diferencia del
+hallazgo #1 de más arriba (que necesitaba una RECREACIÓN para tomar un
+`UBUNTU_GID` nuevo en el `docker-compose.yml`), acá lo único que
+cambió fue el CONTENIDO de un archivo bind-montado
+(`./casc:/var/jenkins_casc:ro`) — `docker compose up -d` decide si
+recrea comparando la config RESUELTA del servicio (imagen, variables de
+entorno, definición de volúmenes/puertos), no el contenido de los
+archivos montados; como nada de eso cambió, fue un no-op total, ni
+siquiera un restart. JCasC solo relee `jenkins.yaml` al arrancar el
+proceso de Jenkins, así que el fix del hallazgo #3 nunca llegó a
+aplicarse. Corrección: para este caso (env/volúmenes sin cambios, solo
+contenido de un archivo montado) alcanza con reiniciar el PROCESO —
+`docker restart jenkins` — sin necesidad de recrear el contenedor;
+un restart sí relee archivos bind-montados frescos del disco en cada
+arranque, es solo a las variables de entorno (congeladas desde la
+creación del contenedor) a las que no afecta, que es el caso distinto
+que documenta el hallazgo #1.
+
+**Hallazgo real #5 (PR #78 — WORKAROUND aplicado, la causa raíz NO se
+confirmó)**: con el fix del hallazgo #3 ya aplicado (esquema `entries:`
+correctamente tipado, confirmado con `USER:hudson.model.Hudson.
+Administer:marco` en `config.xml`) y el fix del hallazgo #4 ya aplicado
+(`docker restart jenkins` real, confirmado con `StartedAt` nuevo), el
+POST autenticado a `config.xml` **seguía dando el mismo 403** —
+incluyendo después de que Marco confirmara, por URL exacta
+(`/manage/configureSecurity/`, no un scope de folder/job), que la
+matriz GLOBAL real mostraba "Overall: Administer" marcado y "Job >
+Configure" como *implied*. Se investigaron, con evidencia real (no
+suposiciones) y en este orden, cinco hipótesis:
+
+1. **Caché en memoria desincronizada del disco** — descartada:
+   `docker inspect jenkins` mostró `RestartCount=0`/`StartedAt` sin
+   cambios en el primer chequeo (el `config.xml` que aplicó ese boot
+   era exactamente el que estaba en disco), y más adelante, tras el
+   restart real (hallazgo #4), el `StartedAt` sí cambió y el 403
+   persistió igual.
+2. **Clase legacy del core (`hudson.security.
+   GlobalMatrixAuthorizationStrategy`) distinta de la del plugin
+   `matrix-auth`** — descartada: confirmado contra el código fuente
+   real del plugin que esa clase es del propio `matrix-auth` (puente de
+   compatibilidad de nombre), no una implementación congelada aparte.
+3. **Esquema deprecado de JCasC (`permissions:` sin tipo, en vez de
+   `entries:`)** — parcialmente cierto (era un problema real, ver
+   hallazgo #3) pero **no era la causa completa**: migrado a `entries:`
+   con tipo `USER:` explícito, confirmado en `config.xml`, y el 403
+   siguió exactamente igual.
+4. **Identidad duplicada o SID no coincidente** — descartada con
+   evidencia directa: `grep -r '<id>' /var/jenkins_home/users/*/
+   config.xml` mostró un único usuario `marco` (id exacto, sin espacio
+   ni mayúscula distinta), y `/whoAmI/api/json` (GET autenticado,
+   autoritativo) confirmó `"name": "marco"` exacto en el SID de la
+   sesión real. Coincide carácter por carácter con el permiso otorgado.
+5. **Colisión de classloading con el plugin `role-strategy` residual**
+   (instalado en disco, activo — `active=true, enabled=true` vía la
+   API de Jenkins — pero ya no en `plugins.txt`) — descartada:
+   extraído su jar interno, su estrategia real vive en
+   `com.michelin.cio.hudson.plugins.rolestrategy.
+   RoleBasedAuthorizationStrategy`, sin ninguna clase bajo el paquete
+   `hudson.security.*` que pudiera chocar con la de `matrix-auth`.
+6. **`FACTOR_PASSWORD`** (una authority no vista antes en
+   `/whoAmI`) — rastreada, con grep exhaustivo sobre TODO
+   `jenkins-core-2.568.2.jar`, los 85 plugins instalados, y las ~78
+   librerías restantes de `jenkins.war`, hasta su origen exacto:
+   `org/springframework/security/core/authority/
+   FactorGrantedAuthority.class` y `RequiredFactor$Builder.class` en
+   `spring-security-core-7.1.0.jar` — una feature nativa de Spring
+   Security 7.1 (su mecanismo de "authentication factors"), que
+   Jenkins 2.568.2 trae empaquetada como dependencia. Ninguna clase de
+   `jenkins-core` ni de los 85 plugins referencia `RequiredFactor`/
+   `FactorGrantedAuthority` — no se encontró ningún enganche que
+   conecte esta authority con el permission-check de `Job/Configure`.
+   Descartada como causa más probable, sin poder descartarla al 100%
+   sin depurar el JVM en vivo.
+
+**Con las 5 hipótesis (6 pistas) agotadas por costo/beneficio, la
+causa raíz real de por qué `Overall/Administer` no implica
+correctamente el resto de los permisos para `marco` en esta
+combinación de versiones (Jenkins 2.568.2 + matrix-auth 3.3 + Spring
+Security 7.1) queda SIN CONFIRMAR.** Marco dio VoBo explícito para un
+workaround, no para seguir invirtiendo en diagnóstico: en vez de
+depender de que `Overall/Administer` implique el resto, se otorgan
+los 32 permisos reales de esta instalación explícitamente a `marco` en
+`authorizationStrategy.globalMatrix.entries` (ver el comentario en el
+propio `jenkins.yaml` para el detalle de cómo se verificó cada string
+contra dos fuentes reales antes de escribirlo). Si alguien retoma esto
+más adelante: el punto de partida sería reproducir el 403 con
+`Jenkins.getAuthorizationStrategy().getACL(item).hasPermission2(...)`
+desde la consola de script de Jenkins (acción que este mismo PR no
+llegó a ejecutar, bloqueada para el agente por las reglas de escritura
+del harness) para ver en vivo en qué punto de la cadena de
+`impliedBy` se corta la resolución.
+
+**Hallazgo real #7 (PR #78 — el workaround de 32 permisos explícitos
+tampoco se pudo confirmar aplicado)**: tras el `docker restart jenkins`
+para tomar el commit con los 32 permisos, `config.xml` seguía
+mostrando una única línea de permiso (`USER:hudson.model.Hudson.
+Administer:marco`), no las 32 — y el log de ese boot, a diferencia de
+TODOS los boots anteriores, no mostró ninguna línea de reconciliación
+de `AuthorizationContainer#add`/`MatrixAuthorizationStrategyConfigurator`,
+pese a que `config.xml` sí se reescribió al final exacto de ese mismo
+boot (mtime coincide al milisegundo con "Jenkins is fully up and
+running"). Quedó ambiguo si (a) los 31 permisos extra nunca se
+aplicaron, o (b) `matrix-auth` colapsa en la serialización XML los
+permisos explícitos redundantes frente a uno que ya los implica — no
+se llegó a correr el POST de verificación definitivo sobre este estado
+antes de que Marco y el Product Owner decidieran cambiar de estrategia
+(ver abajo).
+
+**Decisión final (PR #78 — break-glass de Jenkins, VoBo de Marco)**:
+en vez de seguir iterando a ciegas sobre JCasC para un problema cuya
+causa raíz nunca se pudo confirmar (ver hallazgo real #5, cinco
+hipótesis descartadas más `FACTOR_PASSWORD` como sexta pista, todas
+con evidencia real y ninguna concluyente), Marco hizo el "break-glass"
+oficial de Jenkins: desactivar la seguridad temporalmente, arreglar el
+usuario admin sin restricciones directo en `config.xml`/la UI, y
+reactivar. Consecuencia directa para este repo: **`securityRealm:` y
+`authorizationStrategy:` se QUITAN por completo de
+`deploy/vm-infra/jenkins/casc/jenkins.yaml`** — si hubieran quedado
+declarados ahí, JCasC los habría reaplicado en el siguiente arranque
+del contenedor y deshecho lo que el break-glass acabara de arreglar
+(el mismo mecanismo, ya documentado arriba, que hace que un cambio en
+ese archivo solo tome efecto con un reinicio real del proceso). **De
+aquí en adelante, la seguridad de Jenkins (usuarios, permisos) se
+gestiona 100% a mano desde `Manage Jenkins -> Security`, no vía JCasC**
+— es la única parte de la configuración de Jenkins que queda fuera del
+"configuration as code" de este repo, y es una decisión deliberada,
+no un descuido: JCasC sigue cubriendo plugins, credenciales y el
+mensaje del sistema como siempre.
+
+**Cierre (PR #78 — el break-glass funcionó, causa raíz mejor
+evidenciada de las 6 investigadas)**: Marco reactivó la seguridad
+directo desde la UI (`/manage/configureSecurity/`, Matrix-based con
+`marco: Overall/Administer`, submit normal del formulario — no vía
+JCasC) y confirmó dos cosas de punta a punta: (1) el "Save" del job
+`auth-core-mc` (Branch Sources → Discover branches → All branches, la
+Opción A que llevábamos varios hallazgos intentando aplicar) por fin
+guardó sin 403, y (2) `https://jenkins.64bitstudio.com` volvió a pedir
+login (la seguridad quedó reactivada de verdad, no abierta). Causa raíz
+**mejor evidenciada** (no probada a nivel de bytecode, pero la
+explicación con más respaldo de las 6 investigadas — ver hallazgo real
+#5): el objeto `AuthorizationStrategy` que JCasC construye/aplica en
+caliente al arrancar el contenedor (invocando setters internos sobre
+un objeto ya vivo del proceso) parece quedar en un estado que resuelve
+mal `Item.Configure`, pese a que el `config.xml` serializado se veía
+correcto — mientras que el MISMO grant, escrito a través del submit
+normal del formulario de `/manage/configureSecurity/` (que reconstruye
+el objeto desde cero por el flujo estándar de Jenkins, no por
+reconciliación de JCasC), sí funciona. Esto es consistente con la
+decisión ya tomada arriba de sacar `securityRealm`/`authorizationStrategy`
+de `jenkins.yaml` de forma permanente, no como parche temporal:
+mientras esa combinación de versiones (Jenkins 2.568.2 + matrix-auth
+3.3 + Spring Security 7.1 + `configuration-as-code`) exista, aplicar
+seguridad vía JCasC en caliente queda en la lista de cosas a evitar
+para este proyecto.
+
+Verificación de punta a punta tras el break-glass: el build #2 de la
+rama `fix/049-jenkins-secrets-permission` (commit `21463e5`, disparado
+por el reindexado que la propia UI ya no bloqueaba) consiguió
+`executor`, hizo checkout con el PAT, y corrió el `./gradlew build
+sonar` real hasta la mitad de la tarea `:test` — la prueba definitiva
+de que el 403 histórico de este PR quedó resuelto (ninguno de esos
+pasos ocurría antes; el build simplemente no se programaba). Ese build
+en particular terminó en `ABORTED`, no en verde — colateral de que,
+al mismo tiempo, se abortaron manualmente dos builds "zombie" de otras
+ramas de este mismo ticket (ver más abajo) que llevaban varios minutos
+con executors ocupados sin liberar pese a que sus propios logs ya
+mostraban `Finished: FAILURE`. No es un fallo del pipeline ni de la
+causa raíz del 403 -- se resuelve con un re-trigger normal.
+
+**Hallazgo real #8 (no bloqueante, pendiente de arreglar en otro
+momento — PAT de GitHub sin permiso para notificar el commit status)**:
+en el log de la rama `docs/049-jenkins-webhook-created` (build #1,
+parte del mismo backlog de ramas que el reindexado post-break-glass
+disparó de una vez) apareció, al final del pipeline:
+```
+Could not update commit status. Message: {"message":"Resource not
+accessible by personal access token","documentation_url":"https://
+docs.github.com/rest/commits/statuses#create-a-commit-status",
+"status":"403"}
+```
+El PAT fine-grained de Jenkins (ver el punto "Generar un PAT de
+GitHub" más arriba en este documento) se generó con los scopes
+`Contents read/write` + `Metadata read` + `Webhooks read/write` —
+**sin ningún scope de "Commit statuses"/"Checks"**, que es justo lo que
+la API `POST /repos/.../statuses/:sha` (usada para postear el check
+`continuous-integration/jenkins/branch`) requiere. Curiosamente, el
+build #2 de `fix/049-jenkins-secrets-permission` (este mismo PR) SÍ
+logró notificar el status sin error ("GitHub has been notified of this
+commit's build result", sin ningún 403 en su log) — así que el fallo
+parece intermitente o dependiente de algún otro factor todavía no
+identificado (¿reintentos de GitHub Branch Source con un token
+distinto o refrescado?, ¿un límite de rate en el momento?), no un
+bloqueo sistemático. Queda pendiente: (a) confirmar si el PAT
+realmente necesita un scope de "Commit statuses" agregado (probable,
+dado el mensaje de error), y (b) entender por qué no falla siempre.
+No se tocó el PAT ni se investigó más a fondo en este PR — se deja
+consignado con la evidencia real para retomarlo aparte.
 
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
