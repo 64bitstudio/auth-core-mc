@@ -24,16 +24,16 @@ jenkins:
       users:
         - id: "${JENKINS_ADMIN_USER}"
           password: "${JENKINS_ADMIN_PASSWORD}"
+  # Hallazgo real (primer arranque de Jenkins, crash-loop): el plugin
+  # role-strategy cambió su esquema de JCasC -- "assignments" anidado
+  # dentro de cada rol quedó deprecado ("'assignments' is deprecated",
+  # Jenkins rechazaba el arranque completo con ConfiguratorException).
+  # Se cambió a matrix-auth (plugin más simple y estable, sin ese
+  # churn de esquema) -- alcanza de sobra para "un solo admin real".
   authorizationStrategy:
-    roleBased:
-      roles:
-        global:
-          - name: "admin"
-            description: "Control total -- solo Marco."
-            permissions:
-              - "Overall/Administer"
-            assignments:
-              - "${JENKINS_ADMIN_USER}"
+    globalMatrix:
+      permissions:
+        - "Overall/Administer:${JENKINS_ADMIN_USER}"
 
 credentials:
   system:
