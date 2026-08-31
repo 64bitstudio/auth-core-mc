@@ -1109,18 +1109,35 @@ nulo. Marco confirmó proceder con estos números.
 
 **Pendiente de una acción directa de Marco** para terminar de cerrar
 este pivote:
-1. Completar el setup wizard de Jenkins con el usuario/password inicial
-   (generado, entregado por separado) y cambiar el password de
-   inmediato.
-2. Generar un PAT de GitHub (scope `repo`) y ponerlo en
-   `/home/ubuntu/secrets/jenkins/.env` (`GITHUB_PAT=`) — GitHub no tiene
-   API para crear PATs, tiene que hacerlo él.
-3. Crear el registro DNS de `jenkins.64bitstudio.com` → `159.54.153.37`.
+1. ~~Completar el setup wizard de Jenkins~~ — hecho, confirmado con un
+   login real (POST a `j_spring_security_check`).
+2. ~~Generar un PAT de GitHub~~ — hecho (fine-grained, `All repositories`
+   de `64bitstudio`, `Contents read/write` + `Metadata read` +
+   `Webhooks read/write`), puesto en
+   `/home/ubuntu/secrets/jenkins/.env`.
+3. Crear el registro DNS de `jenkins.64bitstudio.com` → `159.54.153.37`
+   — ya resuelve (confirmado), el certificado real de Let's Encrypt
+   también ya se emitió.
 4. Crear el job Multibranch Pipeline desde la UI de Jenkins (apuntando
    al repo, con la credencial `github-pat`) y configurar el webhook de
-   GitHub hacia Jenkins.
+   GitHub hacia Jenkins — **todavía pendiente**.
 5. Confirmar de punta a punta que el Jenkinsfile despliega igual que
-   `ci.yml` antes de retirar este último.
+   `ci.yml` antes de retirar este último — pendiente del punto 4.
+
+**Hallazgo real (`docker restart` vs. recrear el contenedor)**: tras
+poner el PAT real en el `.env` y reiniciar el contenedor de Jenkins, la
+variable `GITHUB_PAT` seguía vacía DENTRO del contenedor
+(`docker exec jenkins printenv GITHUB_PAT` → vacío), pese a que el
+archivo en la VM sí tenía el valor correcto. Causa: un `docker restart`
+(o equivalente) solo para/arranca el MISMO contenedor con el entorno ya
+congelado desde su creación — nunca vuelve a leer el `.env` ni el
+`docker-compose.yml`. Para que una variable de entorno nueva tome
+efecto hace falta recrear el contenedor (`docker compose up -d`, que sí
+compara la config resuelta contra la que corre y recrea si difiere) —
+exactamente lo que ya hace el paso "Jenkins (orquestador del pipeline)"
+de `sync-vm-infra` en cada push a `dev`. Se corrige disparando ese job
+de nuevo (este mismo commit de docs lo dispara), sin necesitar tocar la
+VM a mano.
 
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
