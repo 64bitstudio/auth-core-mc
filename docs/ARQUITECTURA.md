@@ -1220,6 +1220,44 @@ grupo desde el commit anterior). Sin este fix de directorios, el bug que
 el PR #78 dice cerrar seguía sin cerrarse en ningún ambiente (dev, qa,
 prod) pese al `chmod` de los archivos.
 
+**Hallazgo real #3 (PR #78 — Marco, con `Overall/Administer` ya
+otorgado y confirmado en `config.xml`, recibía `403 "marco is missing
+the Job/Configure permission"` al intentar configurar el job
+`auth-core-mc` vía la API de Jenkins)**: descartado primero, con
+evidencia, que fuera un problema de caché en memoria desincronizada del
+disco (`docker inspect jenkins` → `RestartCount=0`, corriendo continuo
+desde el recreate de este mismo PR, así que el `config.xml` que aplicó
+en ese boot es exactamente el que está en disco) o de la clase
+`hudson.security.GlobalMatrixAuthorizationStrategy` siendo una clase
+"legacy" del core de Jenkins distinta de la del plugin `matrix-auth`
+(confirmado contra el código fuente real del plugin: esa clase es del
+propio `matrix-auth`, un puente de compatibilidad de nombre, no una
+implementación congelada aparte). Causa real encontrada en el propio
+log de arranque de Jenkins, en el momento exacto en que aplica el grant
+de `marco`:
+```
+Processing a permission assignment in the legacy format (without
+explicit TYPE prefix): Overall/Administer:marco
+MatrixAuthorizationStrategyConfigurator#setLegacyPermissions: Loading
+deprecated attribute 'permissions' for instance of
+'hudson.security.GlobalMatrixAuthorizationStrategy'. Use 'entries'
+instead.
+```
+El esquema de JCasC usado en `authorizationStrategy.globalMatrix` era
+el formato `permissions:` (lista plana `"Permiso:sid"`, sin prefijo de
+tipo) — **deprecado desde matrix-auth 3.2** en favor de `entries:`
+(cada entrada tipada explícitamente como `user:`/`group:`). Sin el
+prefijo, el plugin tiene que inferir si `marco` es un usuario o un
+grupo; esa ambigüedad de tipo entre el grant otorgado y la identidad
+autenticada en tiempo de request (`X-You-Are-Authenticated-As: marco`
+coincide en texto, pero no necesariamente en tipo resuelto) es la
+hipótesis mejor sustentada con la evidencia disponible -- no se pudo
+confirmar el mecanismo exacto sin depurar el JVM en vivo. Fix: migrar
+`deploy/vm-infra/jenkins/casc/jenkins.yaml` al esquema moderno
+`entries:`/`user:`/`permissions:` (mismo grant de siempre: un solo
+admin real, `Overall/Administer` para `${JENKINS_ADMIN_USER}`), sin la
+ambigüedad de tipo del formato viejo.
+
 ## Estado de este documento
 _Última actualización: ticket `049`, SEGUNDO pivote — de GitHub Actions a
 Jenkins como orquestador (Marco, 2026-08-30), con el diseño y la infra de

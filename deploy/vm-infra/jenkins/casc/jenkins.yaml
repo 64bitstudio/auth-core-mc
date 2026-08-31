@@ -30,10 +30,28 @@ jenkins:
   # Jenkins rechazaba el arranque completo con ConfiguratorException).
   # Se cambió a matrix-auth (plugin más simple y estable, sin ese
   # churn de esquema) -- alcanza de sobra para "un solo admin real".
+  #
+  # Hallazgo real #2 (ticket 049, PR #78 -- Marco con Overall/Administer
+  # recibía 403 "missing the Job/Configure permission" al intentar
+  # configurar el job auth-core-mc, pese a ser admin): el esquema usado
+  # arriba ("permissions:", una lista plana "Permiso:sid" sin prefijo de
+  # tipo) es el formato DEPRECADO de matrix-auth desde la 3.2 -- el
+  # propio log de arranque de Jenkins lo advierte en el momento exacto
+  # de aplicar este grant: "Processing a permission assignment in the
+  # legacy format (without explicit TYPE prefix): Overall/Administer:
+  # marco" + "Loading deprecated attribute 'permissions' ... Use
+  # 'entries' instead". Sin el prefijo USER:/GROUP: explícito, el plugin
+  # tiene que INFERIR si "marco" es un usuario o un grupo -- justo el
+  # caso que el formato moderno "entries:" (con cada entrada tipada
+  # explícitamente) elimina. Se migra al esquema moderno, sin ambigüedad
+  # de tipo, para el mismo grant de siempre (un solo admin real).
   authorizationStrategy:
     globalMatrix:
-      permissions:
-        - "Overall/Administer:${JENKINS_ADMIN_USER}"
+      entries:
+        - user:
+            name: "${JENKINS_ADMIN_USER}"
+            permissions:
+              - "Overall/Administer"
 
 credentials:
   system:
