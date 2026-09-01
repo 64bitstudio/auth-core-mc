@@ -19,6 +19,14 @@
 // fetchAndPatchDbPasswordFromVault corre en un build real de Jenkins
 // -- ver platform/docs/ARQUITECTURA.md, ticket 004, para la evidencia
 // una vez verificado.
+//
+// Segunda verificación (mismo ticket 004): el primer deploy real
+// (build #11) expuso el token de Vault en texto plano en el log de
+// Jenkins (set -x de la shell imprimía la línea del curl con el token
+// ya resuelto) -- corregido en platform con `set +x` explícito
+// (vars/corePipeline.groovy). Este comentario fuerza un segundo push
+// real a `dev` para confirmar que el fix realmente quita el token del
+// log, no solo que el código se ve bien.
 @Library('platform') _
 
 corePipeline(
