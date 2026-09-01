@@ -14,7 +14,10 @@
 
 corePipeline(
     projectName: 'auth-core-mc',
-    healthPorts: [dev: 8081, qa: 8082, prod: 8080],
+    // containerPort no se pasa -- default de corePipeline (8080) ya es
+    // el puerto interno real en dev/qa/prod (ver
+    // deploy/docker-compose.*.yml: "8081:8080"/"8082:8080"/"8080:8080"
+    // -- el puerto publicado al host varía, el interno no).
     vhostFile: 'deploy/vm-infra/nginx/auth-core-mc.conf',
     buildAndTest: {
         // Hallazgo real (primer build real de dev, heredado sin cambios):
