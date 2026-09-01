@@ -10,6 +10,15 @@
 // (ver docs/ARQUITECTURA.md de platform, runbook "conectar un proyecto
 // nuevo", para la evidencia).
 
+// Ticket platform/004 (docs/definiciones/vault-secrets-manager-vm.md,
+// HU-1/HU-3/HU-4): a partir de este commit, DB_PASSWORD de dev/qa/prod
+// ya no viene del .env estático -- corePipeline.groovy lo obtiene de
+// Vault (AppRole "jenkins-infra", solo lectura) y lo renderiza en el
+// archivo real antes de cada deploy. Este comentario existe para
+// forzar un push real a `dev` y verificar de punta a punta que
+// fetchAndPatchDbPasswordFromVault corre en un build real de Jenkins
+// -- ver platform/docs/ARQUITECTURA.md, ticket 004, para la evidencia
+// una vez verificado.
 @Library('platform') _
 
 corePipeline(
