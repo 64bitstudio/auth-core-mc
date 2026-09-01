@@ -637,7 +637,7 @@ Pedido externo: `mail-core-mc` (nuevo servicio del ecosistema) necesitaba autent
 - **Hallazgo de infra encontrado en el camino, no introducido por este ticket**: Testcontainers no podía hablar con Docker localmente — `/var/run/docker.sock` es un symlink roto (apunta al socket de una instalación vieja de Docker Desktop que ya no existe); el socket real de OrbStack vive en otra ruta. **Cualquier test con Testcontainers de este proyecto corrido localmente necesita `DOCKER_HOST=unix:///Users/marcocortes/.orbstack/run/docker.sock` explícito** hasta que alguien arregle el symlink (requiere `sudo`, fuera de alcance de este ticket). El self-hosted runner de CI no está afectado — confirmado, no asumido: `~/actions-runner-auth-core-mc/.env` ya trae `DOCKER_HOST` apuntando al socket correcto de OrbStack.
 - **Sin Postman** — el proyecto sigue sin ninguna colección.
 
-## Ticket 049: pipeline de CI/CD a la VM dedicada — EN CURSO (rediseñado en vivo, ver historia abajo)
+## Ticket 049: pipeline de CI/CD a la VM dedicada — EN CURSO (pivote a Jenkins, ver sección al final)
 
 **Objetivo**: pasar de "CI solo en la Mac" a un despliegue real en la VM OCI
 Ampere A1.Flex compartida (`ampere-free`, 159.54.153.37, Ubuntu 24.04 ARM64
@@ -891,32 +891,105 @@ tomada en el ticket): mismo host construye (`build-image`) y despliega
   resuelto por este ticket** — se documenta aquí como hallazgo, no se
   asume una solución.
 
-### Bloqueos de esta fase (rediseño), pendientes de una acción directa de Marco (no resueltos por asunción)
+### Bloqueos de esta fase (rediseño) — TODOS resueltos salvo uno fuera de alcance
 
-**Ya resueltos por Marco** (quedan anotados como historia, no como
-pendiente):
+**Resueltos:**
 - `allow_auto_merge` del repo — habilitado por Marco directamente.
 - Desregistro del runner de la Mac de auth-core-mc (`marco-mac-auth-core-mc`,
   id 2) — borrado del registro de GitHub vía API por Marco (estaba
   offline localmente desde antes, ya no aparece en la lista de runners).
+- 3 registros DNS en Cloudflare (`auth`/`auth-qa`/`auth-dev`.64bitstudio.com
+  → 159.54.153.37) — creados por Marco.
+- Certificado real de Let's Encrypt — emitido por `certbot --nginx` una
+  vez el DNS resolvió (ver certificado SAN único para los 3 subdominios,
+  válido, en la sección de Traefik/nginx arriba).
 
-**Siguen pendientes:**
+**Sigue pendiente, fuera de alcance de este ticket:**
+- Runner de la Mac de `mail-core-mc` (`marco-mac-mail-core-mc`) — existe
+  un SEGUNDO runner repo-level para ese proyecto, todavía activo. La
+  misma decisión ("la Mac solo codifica") aplicaría ahí, pero es del
+  ticket gemelo (011) de `mail-core-mc` — se deja anotado, sin tocar.
 
-1. **Runner de la Mac de `mail-core-mc`** (`marco-mac-mail-core-mc`) —
-   descubierto al revisar el estado de la Mac: existe un SEGUNDO runner
-   repo-level para `mail-core-mc`, todavía activo. La instrucción de
-   "la Mac queda dedicada solo a codificar" aplicaría igual ahí, pero ese
-   runner es del ticket gemelo (011) de `mail-core-mc`, fuera del alcance
-   de este ticket — se deja anotado, sin tocar, para que se decida
-   explícitamente en ese proyecto.
-2. **3 registros DNS en Cloudflare** — `auth.64bitstudio.com`,
-   `auth-qa.64bitstudio.com`, `auth-dev.64bitstudio.com`, todos apuntando
-   a `159.54.153.37`. No hay token de API de Cloudflare disponible en este
-   entorno (buscado explícitamente, no asumido) — Marco tiene que
-   crearlos manualmente en el dashboard de Cloudflare.
-3. **Certificado real de Let's Encrypt vía certbot** — depende del punto
-   anterior (DNS). Comando exacto documentado en la sección de Traefik/
-   nginx de arriba.
+### Verificación de punta a punta — hallazgos reales encontrados y corregidos
+
+Tras el primer merge real a `dev` (feature/049-rediseno-dev-qa-prod →
+`dev`, disparando por primera vez el pipeline completo del rediseño),
+aparecieron 4 bugs reales más, cada uno solo visible al correr el
+pipeline de verdad contra la VM — ninguno se hubiera visto en revisión
+de código. Se documentan todos, en el orden en que aparecieron:
+
+1. **`deploy/.env.dev`/`deploy/.env.qa` nunca existieron en la VM** — el
+   primer `deploy-dev` falló con `couldn't find env file`. El `.env.test`
+   del modelo anterior no se había renombrado/migrado solo (obvio en
+   retrospectiva: nadie lo hace por uno). Fix: paso idempotente en
+   `deploy-dev`/`deploy-qa` que genera el archivo real desde su
+   `.example` (con `DB_PASSWORD` vía `openssl rand`, nunca impreso en el
+   log) si todavía no existe.
+2. **El stack `auth-core-mc-test` del modelo anterior seguía corriendo y
+   ocupaba el puerto 8081** — el mismo que ahora usa DEV. Se retira
+   (`docker compose -p auth-core-mc-test down`) antes del `up` del nuevo
+   stack — TEST/DEV siempre fue disposable por diseño, sin garantía de
+   rollback, así que no se migraron datos. El viejo `auth-core-mc-prod`
+   SÍ se dejó corriendo tal cual (mismo nombre de proyecto/puerto que el
+   PROD nuevo — se actualiza solo, sin conflicto, cuando corra el primer
+   `deploy-prod` real).
+3. **`cleanup.sh` borró la imagen de release QUE ESTABA EN USO** —
+   `deploy-dev` desplegó bien (3 contenedores healthy, healthcheck real
+   en verde), pero el paso de limpieza falló: `image is being used by
+   running container`. Causa confirmada en la VM: dos imágenes de SHAs
+   distintos con el **mismo `CreatedAt` exacto** (el código de
+   `./backend` no había cambiado entre esos commits, así que `docker
+   build` reutilizó el cache de capas completo). El script anterior
+   ordenaba solo por fecha para decidir cuál es "la actual" — con ese
+   empate real, el orden no estaba garantizado. Fix: la imagen actual se
+   resuelve del tag `:current` (no de la fecha), y además nunca se borra
+   una imagen que un contenedor corriendo esté usando de verdad
+   (`docker ps --filter ancestor=<id>`), sin importar qué diga el cálculo
+   de retención — salvaguarda independiente. Aplica a los 3 ambientes.
+4. **Traefik nunca pudo leer el provider Docker, desde el día uno** — con
+   el deploy y el certificado ya funcionando, `auth-dev.64bitstudio.com`
+   daba 404: cero routers registrados. Traefik reintentaba en loop
+   `client version 1.24 is too old` — el cliente Docker embebido en
+   `traefik:v3.1` negociaba API 1.24 contra el daemon real (1.55), que ya
+   rechaza clientes tan viejos (bug conocido,
+   [traefik/traefik#12253](https://github.com/traefik/traefik/issues/12253),
+   causado por Docker Engine 29+ subiendo su mínimo soportado). Primer
+   intento de fix (fijar `DOCKER_API_VERSION=1.47` a mano) **no
+   funcionó** — confirmado en vivo que el contenedor recreado seguía
+   fallando igual pese a tener la variable puesta. El fix real
+   ([traefik/traefik#12256](https://github.com/traefik/traefik/pull/12256))
+   es la negociación automática de versión, agregada en v3.6+ — se subió
+   la imagen a `traefik:v3.7.12`.
+5. **El puerto 443 nunca estuvo abierto en el Security List de OCI** —
+   distinto del firewall local (iptables) que ya se había abierto antes.
+   El VNIC de la VM no tiene NSGs; las reglas viven en el Security List
+   del subnet, que solo tenía ingress para 22 (SSH) y 80 (HTTP) — nadie
+   había necesitado 443 hasta ahora. Verificado con `oci network
+   security-list get` y corregido con `oci network security-list
+   update` (agregando la regla ingress 443/tcp desde 0.0.0.0/0, mismo
+   patrón que usa `oci_a1_grab.sh`). **Importante para no repetir el
+   error de diagnóstico**: un `curl` hecho DESDE la propia VM contra su
+   propio hostname/IP público puede fallar por "hairpin NAT" del cloud
+   incluso con el puerto ya bien abierto — la prueba real tiene que
+   hacerse desde AFUERA de la VM (o con `curl --resolve host:puerto:127.0.0.1`
+   para probar el servicio local sin depender del enrutamiento externo).
+
+Verificado desde afuera de la VM, de punta a punta, tras estos 5 fixes:
+`curl https://auth-dev.64bitstudio.com/actuator/health` → `200`,
+`{"status":"UP",...}` real. Mismo resultado para
+`auth-qa.64bitstudio.com` tras el merge de validación `dev → qa`.
+
+### Política de merges por rama (vigente)
+
+- `feature/NNN → dev`: automático (`allow_auto_merge` + el pipeline en
+  verde), sin acción humana por commit.
+- `dev → qa`: lo mergea el **orquestador** (la sesión principal de
+  Claude Code), no este agente ni Marco directamente — se abre el PR y
+  se avisa para que lo mergeen desde ahí.
+- `qa → prod`: **exclusivo de Marco**, siempre, sin excepción — ni este
+  agente ni el orquestador lo tocan nunca, ni siquiera "para probar el
+  mecanismo". Se abre el PR y se espera a que Marco decida y ejecute el
+  merge él mismo.
 
 ### Recursos de la VM — atención continua, no una decisión de una sola vez
 
@@ -929,10 +1002,640 @@ levantar todo esto se acerca al límite, se reporta con números concretos
 (no se decide nada por asunción, como apagar algo o cambiar límites de
 memoria, sin que Marco lo confirme primero).
 
+### SEGUNDO PIVOTE: de GitHub Actions a Jenkins (2026-08-30, decisión deliberada de Marco)
+
+Con DEV y QA ya validados de punta a punta sobre GitHub Actions, Marco
+pidió migrar la ORQUESTACIÓN del pipeline a Jenkins — no por indecisión,
+sino por una necesidad real de UX que GitHub Actions no cubre: ver desde
+un frontend qué cambios llegaron a QA y cuándo, con un botón real para
+promoverlos a PROD, el pipeline visualizado, y enlaces a SonarQube/
+Traefik. Jenkins cubre esto nativo (steps `input` con botón real,
+vista de pipeline, historial de builds) — no se construye ningún
+frontend nuevo.
+
+**Se conserva TODO lo ya construido** — Dockerfiles, `docker-compose.
+{dev,qa,prod}.yml`, `cleanup.sh`, Traefik, SonarQube en la VM, la
+convención de secrets fuera del checkout, las 3 ramas dev/qa/prod como
+fuente de verdad en git. Lo que cambia es solo QUIÉN orquesta: Jenkins
+en vez de `.github/workflows/ci.yml` — que **se mantiene corriendo en
+paralelo** hasta confirmar que Jenkins funciona de punta a punta (no se
+retira todavía, para no dejar el pipeline sin ninguna forma de
+desplegar durante la migración).
+
+**Medición de recursos ANTES de instalar nada** (pedida explícitamente
+por Marco antes de proceder): con SonarQube+Traefik+dev/qa/prod ya
+corriendo, `free -h` real mostró 11Gi totales, 5.0Gi en uso, **6.6Gi
+disponibles**. Desglose por contenedor (`docker stats --no-stream`):
+SonarQube solo, 2.75GB (el consumidor más grande con diferencia); cada
+stack de la app (dev/qa/prod), ~400-435MB; postgres de cada ambiente,
+~42MB; Traefik, 44MB. CPU: **solo 2 vCPU** — señalado como el punto real
+a vigilar (no bloqueante): SonarQube, el controller de Jenkins y los
+builds de Gradle son todos JVMs que compiten por los mismos 2 cores
+durante un build real, aunque en reposo el uso de CPU es prácticamente
+nulo. Marco confirmó proceder con estos números.
+
+**Diseño e implementación**:
+- **Jenkins como contenedor Docker** (`deploy/vm-infra/jenkins/`),
+  infra COMPARTIDA de la VM igual que Traefik/SonarQube (mail-core-mc
+  debe reusar esta misma instancia, no levantar una segunda). Imagen
+  propia (`Dockerfile` sobre `jenkins/jenkins:lts-jdk21`) porque la
+  oficial no trae el CLI de Docker.
+- **docker.sock montado, NO Docker-in-Docker** — Jenkins necesita
+  construir/desplegar contra el MISMO daemon Docker de la VM que ya
+  usan los compose files y la red `edge`; un daemon anidado rompería
+  esa continuidad (habría que reconstruir imágenes/redes otra vez
+  adentro). Riesgo aceptado y documentado: monta docker.sock le da a
+  cualquier job de Jenkins acceso equivalente a root en el host — pero
+  es EXACTAMENTE el mismo nivel de acceso que ya tiene el runner
+  self-hosted de GitHub Actions (usuario `ubuntu`, grupo `docker`, sin
+  sandboxing extra), no una categoría de riesgo nueva. Mitigación real:
+  solo Marco tiene login de administrador en Jenkins.
+- **Hallazgo real de docker.sock** (gotcha clásico, encontrado antes de
+  desplegar, no en producción): cuando el CLI de Docker corre DENTRO de
+  un contenedor pero habla con el daemon del HOST vía el socket, un
+  flag como `--env-file /home/ubuntu/secrets/...` lo resuelve el propio
+  proceso del CLI (adentro del contenedor), no el host. Sin ese mismo
+  path también disponible ADENTRO del contenedor de Jenkins, el
+  `--env-file` habría fallado con "no such file" pese a que el archivo
+  sí existe en la VM. Se monta `/home/ubuntu/secrets` 1:1 (solo
+  lectura) en el contenedor de Jenkins para que ambos "vean" la misma
+  ruta.
+- **Configuration as Code (plugin `configuration-as-code`)** —
+  seguridad, plugins y credenciales se declaran en
+  `deploy/vm-infra/jenkins/casc/jenkins.yaml`, versionado, no "hecho a
+  mano" sin rastro. El único usuario administrador (`marco`, password
+  generado la primera vez, que Marco debe cambiar de inmediato al
+  entrar) y las credenciales (PAT de GitHub, token de Sonar, Telegram)
+  se inyectan vía variables de entorno del contenedor, leídas de
+  `/home/ubuntu/secrets/jenkins/.env` — nunca hardcodeadas en ningún
+  archivo del repo. El job Multibranch Pipeline en sí (el que de verdad
+  lee el `Jenkinsfile` de cada rama) se crea a mano, una sola vez, desde
+  la UI — se evaluó automatizarlo también vía Job DSL en el mismo
+  `jenkins.yaml`, pero el riesgo de tumbar el arranque completo de
+  Jenkins por un error de sintaxis en el DSL (sin poder iterar en vivo
+  contra la UI real) no valía la pena por un setup de 2-3 minutos que
+  Marco hace una sola vez.
+- **Red compartida nueva `vm-infra`** (distinta de `edge`, que es solo
+  para tráfico público vía Traefik) — Jenkins necesita alcanzar a
+  SonarQube por nombre de contenedor (`sonarqube:9000`), no por
+  `localhost` (cada contenedor tiene su propio loopback). SonarQube se
+  conectó también a esta red nueva.
+- **Ingress**: mismo patrón que auth-core-mc — nginx (puerta pública)
+  reenvía `jenkins.64bitstudio.com` a Traefik, que rutea al contenedor
+  de Jenkins por label. **Pendiente de Marco**: el registro DNS de
+  `jenkins.64bitstudio.com` (mismo patrón que los subdominios de
+  auth-core-mc) — hasta que exista, el certificado real de Let's
+  Encrypt para Jenkins queda con `continue-on-error` en el pipeline (no
+  tumba el resto del job mientras tanto, se emite solo en cuanto el DNS
+  resuelva).
+- **`Jenkinsfile`** (raíz del repo) reemplaza a `ci.yml` como
+  orquestador: mismas etapas (Sonar con Quality Gate real vía el plugin
+  oficial `sonar` + un webhook Sonar→Jenkins configurado por API →
+  build de imagen → deploy). `feature/NNN`/`dev` construyen y despliegan
+  a DEV automático; `qa` promueve (sin rebuild) la imagen validada en
+  DEV a QA automático, y termina en un stage `input` — el botón real que
+  pidió Marco — con `submitter: 'marco'` (solo él puede aprobarlo). Al
+  aprobar: promueve (sin rebuild) la misma imagen a PROD, corre
+  `cleanup.sh prod`, y actualiza la rama `prod` en git (push directo,
+  vía el PAT) para que el historial de ramas siga reflejando qué hay
+  realmente en producción — ya no es un merge de PR lo que dispara ese
+  despliegue, así que el registro en git pasa a ser una consecuencia del
+  pipeline, no su disparador.
+- **Duplicación temporal aceptada, no oculta**: mientras ambos pipelines
+  corren en paralelo, el mismo commit se analiza dos veces en Sonar (una
+  vez por `ci.yml`, otra por el Jenkinsfile). Se resuelve al retirar
+  `ci.yml`, una vez Jenkins esté confirmado funcionando de punta a
+  punta — todavía no.
+
+**Pendiente de una acción directa de Marco** para terminar de cerrar
+este pivote:
+1. ~~Completar el setup wizard de Jenkins~~ — hecho, confirmado con un
+   login real (POST a `j_spring_security_check`).
+2. ~~Generar un PAT de GitHub~~ — hecho (fine-grained, `All repositories`
+   de `64bitstudio`, `Contents read/write` + `Metadata read` +
+   `Webhooks read/write`), puesto en
+   `/home/ubuntu/secrets/jenkins/.env`.
+3. Crear el registro DNS de `jenkins.64bitstudio.com` → `159.54.153.37`
+   — ya resuelve (confirmado), el certificado real de Let's Encrypt
+   también ya se emitió.
+4. ~~Crear el job~~ — hecho (tipo "GitHub Organization", no Multibranch
+   Pipeline por repo — decisión de Marco para que descubra
+   `mail-core-mc` y proyectos futuros solos). Hallazgo real en el
+   camino: el filtro `^(dev|qa|prod)$` que se agregó primero quedó como
+   filtro de nombre de REPOSITORIO (`RegexSCMSourceFilterTrait`), no de
+   RAMA (`RegexSCMHeadFilterTrait`) — ambos comparten el mismo texto
+   "Filter by name (with regular expression)" en el dropdown de Jenkins
+   (confirmado contra el código fuente real del plugin `scm-api`, no
+   por suposición) — excluyó los 2 repos completos. Se quitó; por ahora
+   Jenkins indexa TODAS las ramas de cada repo (sin filtro por nombre),
+   aceptado como no-bloqueante. También faltaba el trait "Discover
+   branches" (sin él, cero ramas se consideran candidatas aunque el
+   repo pase el filtro) — ya agregado.
+   ~~Webhook de GitHub hacia Jenkins~~ — creado por API
+   (`POST /repos/64bitstudio/auth-core-mc/hooks`, evento `push` hacia
+   `https://jenkins.64bitstudio.com/github-webhook/`), verificado con un
+   ping real (`200`).
+5. Confirmar de punta a punta que el Jenkinsfile despliega igual que
+   `ci.yml` — en curso, ver el hallazgo del JDK 25 más abajo.
+
+**Hallazgo real (`docker restart` vs. recrear el contenedor)**: tras
+poner el PAT real en el `.env` y reiniciar el contenedor de Jenkins, la
+variable `GITHUB_PAT` seguía vacía DENTRO del contenedor
+(`docker exec jenkins printenv GITHUB_PAT` → vacío), pese a que el
+archivo en la VM sí tenía el valor correcto. Causa: un `docker restart`
+(o equivalente) solo para/arranca el MISMO contenedor con el entorno ya
+congelado desde su creación — nunca vuelve a leer el `.env` ni el
+`docker-compose.yml`. Para que una variable de entorno nueva tome
+efecto hace falta recrear el contenedor (`docker compose up -d`, que sí
+compara la config resuelta contra la que corre y recrea si difiere) —
+exactamente lo que ya hace el paso "Jenkins (orquestador del pipeline)"
+de `sync-vm-infra` en cada push a `dev`. Se corrige disparando ese job
+de nuevo (este mismo commit de docs lo dispara), sin necesitar tocar la
+VM a mano. (Nota corregida más abajo: `sync-vm-infra` en realidad corre
+en TODO push, a cualquier rama — `if: github.event_name == 'push'`, sin
+filtro de rama — no solo a `dev`; ese detalle es justo la causa del
+hallazgo siguiente.)
+
+**Hallazgo real (PR #78 — causa raíz real del check
+`continuous-integration/jenkins/branch` en ERROR, confirmada con log
+completo del build de Jenkins vía SSH, no asumida)**: el commit
+`40cc81b` ("Jenkins no podía leer los secrets del proyecto") pasó
+`build-test-analyze` de GitHub Actions en verde pero el check de Jenkins
+quedó en ERROR. El log real del build #1 de esa rama en Jenkins
+(`docker exec jenkins cat .../branches/.../builds/1/log`) mostró que el
+stage de Sonar murió a mitad del `./gradlew build sonar`, en plena tarea
+`:test`, con: `Pausing (shutting down)` → `Resuming build ... after
+Jenkins restart` → 10 minutos después,
+`wrapper script does not seem to be touching the log file ... may occur
+if the durable task process was terminated externally` (JENKINS-48300)
+→ el resto de los stages "skipped due to earlier failure(s)" → pipeline
+FAILURE. Es decir: **no era el bug de permisos que el PR dice arreglar**
+— el build murió mucho antes de llegar a ningún stage de deploy que
+leyera esos `.env.*`. Cruzando el timestamp con el log de la MISMA
+corrida de `sync-vm-infra` (mismo push, mismo commit): el paso "Jenkins
+(orquestador del pipeline)" corría `docker compose ... up -d --build`
+**sin condición, en cualquier push a cualquier rama** (el job
+`sync-vm-infra` no filtra por rama ni por paths) y mostró
+`Container jenkins Recreated` a las 06:16:26Z — exactamente en la
+ventana entre el `Pausing` y el `Resuming` del build de Jenkins para esa
+misma rama. Causa raíz real: el mismo push dispara en paralelo (a) el
+webhook de GitHub hacia Jenkins, que arranca un build para esa rama, y
+(b) el job `sync-vm-infra`, cuyo `--build` incondicional casi siempre
+produce un image ID nuevo (`jenkins-plugin-cli` resuelve versiones de
+plugins contra el índice remoto en cada build, no hay garantía de cache
+hit) y por lo tanto casi siempre fuerza un "Recreate" del contenedor —
+matando cualquier build de Jenkins que estuviera corriendo en ese
+instante, incluido el disparado por el propio push que lo causó. Fix
+(este mismo commit): se quita el `--build` incondicional; se calcula un
+hash de `Dockerfile` + `plugins.txt` guardado fuera del checkout
+(`/home/ubuntu/secrets/jenkins/.image-inputs-hash`, sobrevive al `git
+clean` del runner) y solo se reconstruye la imagen (y por lo tanto solo
+se puede recrear el contenedor) cuando esos archivos cambiaron de
+verdad. `docker compose up -d` sin `--build` sigue recreando el
+contenedor cuando su config SÍ cambia (un GID nuevo, un secret nuevo) —
+eso sigue siendo necesario y correcto, solo se elimina la recreación
+innecesaria en pushes que no tocan nada de Jenkins (la inmensa mayoría).
+No se resuelve la colisión de fondo para el caso raro de un push que
+SÍ cambia la config de Jenkins (como este mismo PR) — ahí una
+recreación real es inevitable y puede seguir matando el build de esa
+misma rama; se acepta como caso conocido, no bloqueante, resuelto
+re-disparando el build a mano cuando ocurre (documentado, no oculto).
+
+**Hallazgo real #2 (PR #78 — el bug de permisos original SÍ existía,
+pero el fix del primer commit era incompleto)**: confirmado por SSH
+(`docker exec jenkins id` → `jenkins` sí es miembro del grupo de
+`ubuntu`; `docker exec jenkins test -r
+/home/ubuntu/secrets/auth-core-mc/.env.dev` → `NOT_READABLE` aun así).
+Causa: leer un archivo por permiso de GRUPO también exige permiso de
+traversal (bit `x`) en cada directorio del camino, no solo en el
+archivo final — `chmod 640` a los `.env.*` (commit `40cc81b`) no
+alcanzaba porque `/home/ubuntu/secrets/` y
+`/home/ubuntu/secrets/auth-core-mc/` seguían en `700`
+(`drwx------`, cero acceso de grupo), confirmado con `stat`. Fix (este
+mismo commit): `chmod 710` en `/home/ubuntu/secrets` (solo traversal de
+grupo, sin listar — ahí conviven los secrets de Jenkins y de futuros
+proyectos) y `chmod 750` en `/home/ubuntu/secrets/auth-core-mc` (listar
++ entrar es inocuo ahí: el contenido de cada archivo ya es legible por
+grupo desde el commit anterior). Sin este fix de directorios, el bug que
+el PR #78 dice cerrar seguía sin cerrarse en ningún ambiente (dev, qa,
+prod) pese al `chmod` de los archivos.
+
+**Hallazgo real #3 (PR #78 — Marco, con `Overall/Administer` ya
+otorgado y confirmado en `config.xml`, recibía `403 "marco is missing
+the Job/Configure permission"` al intentar configurar el job
+`auth-core-mc` vía la API de Jenkins)**: descartado primero, con
+evidencia, que fuera un problema de caché en memoria desincronizada del
+disco (`docker inspect jenkins` → `RestartCount=0`, corriendo continuo
+desde el recreate de este mismo PR, así que el `config.xml` que aplicó
+en ese boot es exactamente el que está en disco) o de la clase
+`hudson.security.GlobalMatrixAuthorizationStrategy` siendo una clase
+"legacy" del core de Jenkins distinta de la del plugin `matrix-auth`
+(confirmado contra el código fuente real del plugin: esa clase es del
+propio `matrix-auth`, un puente de compatibilidad de nombre, no una
+implementación congelada aparte). Causa real encontrada en el propio
+log de arranque de Jenkins, en el momento exacto en que aplica el grant
+de `marco`:
+```
+Processing a permission assignment in the legacy format (without
+explicit TYPE prefix): Overall/Administer:marco
+MatrixAuthorizationStrategyConfigurator#setLegacyPermissions: Loading
+deprecated attribute 'permissions' for instance of
+'hudson.security.GlobalMatrixAuthorizationStrategy'. Use 'entries'
+instead.
+```
+El esquema de JCasC usado en `authorizationStrategy.globalMatrix` era
+el formato `permissions:` (lista plana `"Permiso:sid"`, sin prefijo de
+tipo) — **deprecado desde matrix-auth 3.2** en favor de `entries:`
+(cada entrada tipada explícitamente como `user:`/`group:`). Sin el
+prefijo, el plugin tiene que inferir si `marco` es un usuario o un
+grupo; esa ambigüedad de tipo entre el grant otorgado y la identidad
+autenticada en tiempo de request (`X-You-Are-Authenticated-As: marco`
+coincide en texto, pero no necesariamente en tipo resuelto) es la
+hipótesis mejor sustentada con la evidencia disponible -- no se pudo
+confirmar el mecanismo exacto sin depurar el JVM en vivo. Fix: migrar
+`deploy/vm-infra/jenkins/casc/jenkins.yaml` al esquema moderno
+`entries:`/`user:`/`permissions:` (mismo grant de siempre: un solo
+admin real, `Overall/Administer` para `${JENKINS_ADMIN_USER}`), sin la
+ambigüedad de tipo del formato viejo.
+
+**Hallazgo real #4 (PR #78 — el `docker compose up -d` para recoger el
+fix del hallazgo #3 no tuvo efecto)**: tras el push del commit con el
+`jenkins.yaml` corregido, Marco corrió `git pull` + `docker compose
+up -d` en la VM (mismo comando que ya recreaba Jenkins en corridas
+anteriores). Confirmado con `docker inspect jenkins` que el contenedor
+NO se reinició (`StartedAt`/`RestartCount` idénticos a antes del
+comando) — y con `docker exec jenkins cat /var/jenkins_casc/
+jenkins.yaml` que el bind-mount SÍ reflejaba ya el `entries:` nuevo
+(el archivo en disco estaba correcto). Causa: a diferencia del
+hallazgo #1 de más arriba (que necesitaba una RECREACIÓN para tomar un
+`UBUNTU_GID` nuevo en el `docker-compose.yml`), acá lo único que
+cambió fue el CONTENIDO de un archivo bind-montado
+(`./casc:/var/jenkins_casc:ro`) — `docker compose up -d` decide si
+recrea comparando la config RESUELTA del servicio (imagen, variables de
+entorno, definición de volúmenes/puertos), no el contenido de los
+archivos montados; como nada de eso cambió, fue un no-op total, ni
+siquiera un restart. JCasC solo relee `jenkins.yaml` al arrancar el
+proceso de Jenkins, así que el fix del hallazgo #3 nunca llegó a
+aplicarse. Corrección: para este caso (env/volúmenes sin cambios, solo
+contenido de un archivo montado) alcanza con reiniciar el PROCESO —
+`docker restart jenkins` — sin necesidad de recrear el contenedor;
+un restart sí relee archivos bind-montados frescos del disco en cada
+arranque, es solo a las variables de entorno (congeladas desde la
+creación del contenedor) a las que no afecta, que es el caso distinto
+que documenta el hallazgo #1.
+
+**Hallazgo real #5 (PR #78 — WORKAROUND aplicado, la causa raíz NO se
+confirmó)**: con el fix del hallazgo #3 ya aplicado (esquema `entries:`
+correctamente tipado, confirmado con `USER:hudson.model.Hudson.
+Administer:marco` en `config.xml`) y el fix del hallazgo #4 ya aplicado
+(`docker restart jenkins` real, confirmado con `StartedAt` nuevo), el
+POST autenticado a `config.xml` **seguía dando el mismo 403** —
+incluyendo después de que Marco confirmara, por URL exacta
+(`/manage/configureSecurity/`, no un scope de folder/job), que la
+matriz GLOBAL real mostraba "Overall: Administer" marcado y "Job >
+Configure" como *implied*. Se investigaron, con evidencia real (no
+suposiciones) y en este orden, cinco hipótesis:
+
+1. **Caché en memoria desincronizada del disco** — descartada:
+   `docker inspect jenkins` mostró `RestartCount=0`/`StartedAt` sin
+   cambios en el primer chequeo (el `config.xml` que aplicó ese boot
+   era exactamente el que estaba en disco), y más adelante, tras el
+   restart real (hallazgo #4), el `StartedAt` sí cambió y el 403
+   persistió igual.
+2. **Clase legacy del core (`hudson.security.
+   GlobalMatrixAuthorizationStrategy`) distinta de la del plugin
+   `matrix-auth`** — descartada: confirmado contra el código fuente
+   real del plugin que esa clase es del propio `matrix-auth` (puente de
+   compatibilidad de nombre), no una implementación congelada aparte.
+3. **Esquema deprecado de JCasC (`permissions:` sin tipo, en vez de
+   `entries:`)** — parcialmente cierto (era un problema real, ver
+   hallazgo #3) pero **no era la causa completa**: migrado a `entries:`
+   con tipo `USER:` explícito, confirmado en `config.xml`, y el 403
+   siguió exactamente igual.
+4. **Identidad duplicada o SID no coincidente** — descartada con
+   evidencia directa: `grep -r '<id>' /var/jenkins_home/users/*/
+   config.xml` mostró un único usuario `marco` (id exacto, sin espacio
+   ni mayúscula distinta), y `/whoAmI/api/json` (GET autenticado,
+   autoritativo) confirmó `"name": "marco"` exacto en el SID de la
+   sesión real. Coincide carácter por carácter con el permiso otorgado.
+5. **Colisión de classloading con el plugin `role-strategy` residual**
+   (instalado en disco, activo — `active=true, enabled=true` vía la
+   API de Jenkins — pero ya no en `plugins.txt`) — descartada:
+   extraído su jar interno, su estrategia real vive en
+   `com.michelin.cio.hudson.plugins.rolestrategy.
+   RoleBasedAuthorizationStrategy`, sin ninguna clase bajo el paquete
+   `hudson.security.*` que pudiera chocar con la de `matrix-auth`.
+6. **`FACTOR_PASSWORD`** (una authority no vista antes en
+   `/whoAmI`) — rastreada, con grep exhaustivo sobre TODO
+   `jenkins-core-2.568.2.jar`, los 85 plugins instalados, y las ~78
+   librerías restantes de `jenkins.war`, hasta su origen exacto:
+   `org/springframework/security/core/authority/
+   FactorGrantedAuthority.class` y `RequiredFactor$Builder.class` en
+   `spring-security-core-7.1.0.jar` — una feature nativa de Spring
+   Security 7.1 (su mecanismo de "authentication factors"), que
+   Jenkins 2.568.2 trae empaquetada como dependencia. Ninguna clase de
+   `jenkins-core` ni de los 85 plugins referencia `RequiredFactor`/
+   `FactorGrantedAuthority` — no se encontró ningún enganche que
+   conecte esta authority con el permission-check de `Job/Configure`.
+   Descartada como causa más probable, sin poder descartarla al 100%
+   sin depurar el JVM en vivo.
+
+**Con las 5 hipótesis (6 pistas) agotadas por costo/beneficio, la
+causa raíz real de por qué `Overall/Administer` no implica
+correctamente el resto de los permisos para `marco` en esta
+combinación de versiones (Jenkins 2.568.2 + matrix-auth 3.3 + Spring
+Security 7.1) queda SIN CONFIRMAR.** Marco dio VoBo explícito para un
+workaround, no para seguir invirtiendo en diagnóstico: en vez de
+depender de que `Overall/Administer` implique el resto, se otorgan
+los 32 permisos reales de esta instalación explícitamente a `marco` en
+`authorizationStrategy.globalMatrix.entries` (ver el comentario en el
+propio `jenkins.yaml` para el detalle de cómo se verificó cada string
+contra dos fuentes reales antes de escribirlo). Si alguien retoma esto
+más adelante: el punto de partida sería reproducir el 403 con
+`Jenkins.getAuthorizationStrategy().getACL(item).hasPermission2(...)`
+desde la consola de script de Jenkins (acción que este mismo PR no
+llegó a ejecutar, bloqueada para el agente por las reglas de escritura
+del harness) para ver en vivo en qué punto de la cadena de
+`impliedBy` se corta la resolución.
+
+**Hallazgo real #7 (PR #78 — el workaround de 32 permisos explícitos
+tampoco se pudo confirmar aplicado)**: tras el `docker restart jenkins`
+para tomar el commit con los 32 permisos, `config.xml` seguía
+mostrando una única línea de permiso (`USER:hudson.model.Hudson.
+Administer:marco`), no las 32 — y el log de ese boot, a diferencia de
+TODOS los boots anteriores, no mostró ninguna línea de reconciliación
+de `AuthorizationContainer#add`/`MatrixAuthorizationStrategyConfigurator`,
+pese a que `config.xml` sí se reescribió al final exacto de ese mismo
+boot (mtime coincide al milisegundo con "Jenkins is fully up and
+running"). Quedó ambiguo si (a) los 31 permisos extra nunca se
+aplicaron, o (b) `matrix-auth` colapsa en la serialización XML los
+permisos explícitos redundantes frente a uno que ya los implica — no
+se llegó a correr el POST de verificación definitivo sobre este estado
+antes de que Marco y el Product Owner decidieran cambiar de estrategia
+(ver abajo).
+
+**Decisión final (PR #78 — break-glass de Jenkins, VoBo de Marco)**:
+en vez de seguir iterando a ciegas sobre JCasC para un problema cuya
+causa raíz nunca se pudo confirmar (ver hallazgo real #5, cinco
+hipótesis descartadas más `FACTOR_PASSWORD` como sexta pista, todas
+con evidencia real y ninguna concluyente), Marco hizo el "break-glass"
+oficial de Jenkins: desactivar la seguridad temporalmente, arreglar el
+usuario admin sin restricciones directo en `config.xml`/la UI, y
+reactivar. Consecuencia directa para este repo: **`securityRealm:` y
+`authorizationStrategy:` se QUITAN por completo de
+`deploy/vm-infra/jenkins/casc/jenkins.yaml`** — si hubieran quedado
+declarados ahí, JCasC los habría reaplicado en el siguiente arranque
+del contenedor y deshecho lo que el break-glass acabara de arreglar
+(el mismo mecanismo, ya documentado arriba, que hace que un cambio en
+ese archivo solo tome efecto con un reinicio real del proceso). **De
+aquí en adelante, la seguridad de Jenkins (usuarios, permisos) se
+gestiona 100% a mano desde `Manage Jenkins -> Security`, no vía JCasC**
+— es la única parte de la configuración de Jenkins que queda fuera del
+"configuration as code" de este repo, y es una decisión deliberada,
+no un descuido: JCasC sigue cubriendo plugins, credenciales y el
+mensaje del sistema como siempre.
+
+**Cierre (PR #78 — el break-glass funcionó, causa raíz mejor
+evidenciada de las 6 investigadas)**: Marco reactivó la seguridad
+directo desde la UI (`/manage/configureSecurity/`, Matrix-based con
+`marco: Overall/Administer`, submit normal del formulario — no vía
+JCasC) y confirmó dos cosas de punta a punta: (1) el "Save" del job
+`auth-core-mc` (Branch Sources → Discover branches → All branches, la
+Opción A que llevábamos varios hallazgos intentando aplicar) por fin
+guardó sin 403, y (2) `https://jenkins.64bitstudio.com` volvió a pedir
+login (la seguridad quedó reactivada de verdad, no abierta). Causa raíz
+**mejor evidenciada** (no probada a nivel de bytecode, pero la
+explicación con más respaldo de las 6 investigadas — ver hallazgo real
+#5): el objeto `AuthorizationStrategy` que JCasC construye/aplica en
+caliente al arrancar el contenedor (invocando setters internos sobre
+un objeto ya vivo del proceso) parece quedar en un estado que resuelve
+mal `Item.Configure`, pese a que el `config.xml` serializado se veía
+correcto — mientras que el MISMO grant, escrito a través del submit
+normal del formulario de `/manage/configureSecurity/` (que reconstruye
+el objeto desde cero por el flujo estándar de Jenkins, no por
+reconciliación de JCasC), sí funciona. Esto es consistente con la
+decisión ya tomada arriba de sacar `securityRealm`/`authorizationStrategy`
+de `jenkins.yaml` de forma permanente, no como parche temporal:
+mientras esa combinación de versiones (Jenkins 2.568.2 + matrix-auth
+3.3 + Spring Security 7.1 + `configuration-as-code`) exista, aplicar
+seguridad vía JCasC en caliente queda en la lista de cosas a evitar
+para este proyecto.
+
+Verificación de punta a punta tras el break-glass: el build #2 de la
+rama `fix/049-jenkins-secrets-permission` (commit `21463e5`, disparado
+por el reindexado que la propia UI ya no bloqueaba) consiguió
+`executor`, hizo checkout con el PAT, y corrió el `./gradlew build
+sonar` real hasta la mitad de la tarea `:test` — la prueba definitiva
+de que el 403 histórico de este PR quedó resuelto (ninguno de esos
+pasos ocurría antes; el build simplemente no se programaba). Ese build
+en particular terminó en `ABORTED`, no en verde — colateral de que,
+al mismo tiempo, se abortaron manualmente dos builds "zombie" de otras
+ramas de este mismo ticket (ver más abajo) que llevaban varios minutos
+con executors ocupados sin liberar pese a que sus propios logs ya
+mostraban `Finished: FAILURE`. No es un fallo del pipeline ni de la
+causa raíz del 403 -- se resuelve con un re-trigger normal.
+
+**Hallazgo real #8 (no bloqueante, pendiente de arreglar en otro
+momento — PAT de GitHub sin permiso para notificar el commit status)**:
+en el log de la rama `docs/049-jenkins-webhook-created` (build #1,
+parte del mismo backlog de ramas que el reindexado post-break-glass
+disparó de una vez) apareció, al final del pipeline:
+```
+Could not update commit status. Message: {"message":"Resource not
+accessible by personal access token","documentation_url":"https://
+docs.github.com/rest/commits/statuses#create-a-commit-status",
+"status":"403"}
+```
+El PAT fine-grained de Jenkins (ver el punto "Generar un PAT de
+GitHub" más arriba en este documento) se generó con los scopes
+`Contents read/write` + `Metadata read` + `Webhooks read/write` —
+**sin ningún scope de "Commit statuses"/"Checks"**, que es justo lo que
+la API `POST /repos/.../statuses/:sha` (usada para postear el check
+`continuous-integration/jenkins/branch`) requiere. Curiosamente, el
+build #2 de `fix/049-jenkins-secrets-permission` (este mismo PR) SÍ
+logró notificar el status sin error ("GitHub has been notified of this
+commit's build result", sin ningún 403 en su log) — así que el fallo
+parece intermitente o dependiente de algún otro factor todavía no
+identificado (¿reintentos de GitHub Branch Source con un token
+distinto o refrescado?, ¿un límite de rate en el momento?), no un
+bloqueo sistemático. Queda pendiente: (a) confirmar si el PAT
+realmente necesita un scope de "Commit statuses" agregado (probable,
+dado el mensaje de error), y (b) entender por qué no falla siempre.
+No se tocó el PAT ni se investigó más a fondo en este PR — se deja
+consignado con la evidencia real para retomarlo aparte.
+
+## Retiro de la duplicación ci.yml / Jenkinsfile (ticket 049, 2026-08-31)
+
+Con el Jenkinsfile ya confirmado funcionando de punta a punta (PR #78
+mergeado a `dev`, Sonar Quality Gate real, deploy a DEV automático), se
+retira de `.github/workflows/ci.yml` la duplicación aceptada como
+temporal durante el pivote: los jobs `build-test-analyze`, `build-image`,
+`deploy-dev`, `deploy-qa`, `deploy-prod` — cada push a dev/qa/prod
+corría Sonar+build+deploy dos veces (una por sistema) en una VM de solo
+2 vCPU. El Jenkinsfile queda como único orquestador de build+test+Sonar+
+deploy.
+
+Se conserva únicamente `sync-vm-infra` (workflow renombrado a
+"Infra Sync (VM)") — no es parte de la duplicación, mantiene Traefik/
+SonarQube/el propio contenedor de Jenkins al día en cada push, y nada
+del lado de Jenkins lo reemplaza.
+
+**Consecuencia que había que resolver aparte, no "de paso"**: la branch
+protection de `dev`/`qa`/`prod` requería el check `build-test-analyze`
+(que ya no existe) como *required status check* — sin actualizarlo,
+ningún PR de `feature/NNN` podría auto-mergearse nunca más a `dev`. Se
+actualizó vía API (`required_status_checks.checks`) para requerir en su
+lugar `continuous-integration/jenkins/branch` (el check que publica el
+Jenkinsfile), en las tres ramas — corrido por Marco directamente (acción
+de escritura sobre branch protection, bloqueada para el agente/
+orquestador por el clasificador del harness).
+
+## Portainer + subdominios públicos para SonarQube y Traefik (ticket 050, 2026-08-31)
+
+Se exponen por HTTPS público, detrás de Basic Auth de nginx, las 3
+herramientas de infra de mayor privilegio de la VM: `sonarqube.
+64bitstudio.com`, `traefik.64bitstudio.com` (nuevo, sin exponer hasta
+ahora) y `portainer.64bitstudio.com` (herramienta nueva — Portainer CE,
+dashboard web para gestionar Docker/Compose sin CLI, adelantada en el
+roadmap de infra). Decisión de Marco: estas 3 (a diferencia de `auth`/
+`jenkins`, que se quedan como están) llevan una capa extra de protección
+porque el acceso equivale a control total sobre Docker/CI/análisis de
+código de la VM — sin restringir por IP fija.
+
+**SonarQube**: se agregan labels de Traefik + red `edge` al compose ya
+existente (`deploy/vm-infra/sonarqube/docker-compose.yml`), sin quitar el
+bind a `127.0.0.1:9000` — Jenkins/el runner lo siguen usando internamente
+por ese loopback, sin relación con el subdominio público nuevo (verificado
+en vivo tras el cambio: `curl 127.0.0.1:9000` sigue en 200 desde la VM).
+
+**Traefik**: el dashboard estaba deliberadamente sin habilitar desde el
+049 ("no hay todavía una decisión de a qué hostname/auth quedaría
+expuesto" — confirmado leyendo `config/traefik.yml` antes de tocar nada).
+Se habilita con `api.dashboard: true`, expuesto por un router propio
+(`service=api@internal`) sobre el MISMO entrypoint `web` (8000) que ya usa
+todo el tráfico — deliberadamente SIN `--api.insecure=true` (ese flag abre
+un entrypoint HTTP sin autenticación propia; innecesario acá porque la
+protección real es Basic Auth de nginx + el hecho de que Traefik nunca es
+alcanzable directo desde internet, igual que siempre).
+
+**Portainer**: contenedor nuevo (`deploy/vm-infra/portainer/docker-
+compose.yml`), imagen `portainer/portainer-ce:lts`, `docker.sock` montado
+rw — mismo riesgo aceptado y ya documentado que Jenkins (control
+equivalente a root sobre Docker), no se repite la discusión desde cero
+(ver comentarios del compose file y el de Jenkins). A diferencia de
+Jenkins, la imagen corre como root por default, así que no hace falta el
+`group_add` de `DOCKER_GID`/`UBUNTU_GID`. Servido por HTTP interno
+(`--http-enabled`, puerto 9000) — nginx ya termina TLS en el borde, mismo
+patrón que el resto.
+
+**Basic Auth de nginx**: un vhost nuevo (`deploy/vm-infra/nginx/
+vm-admin-tools.conf`) con los 3 `server_name` en un solo bloque —
+`auth_basic` + `htpasswd`, un usuario compartido (`admin`, password
+aleatorio de 24 bytes vía `openssl rand`, hash `apr1` vía `openssl passwd`
+— sin depender de `apache2-utils`, que no está instalado en esta VM).
+
+**Hallazgo real (gotcha nuevo, no cubierto por el patrón de Jenkins)**:
+el primer intento guardó el hash en `/home/ubuntu/secrets/nginx-basic-
+auth/.htpasswd` (mismo árbol que usan los demás secrets de la VM) — pero
+ese árbol solo es legible por Docker vía bind-mount con el UID/GID de
+cada contenedor (ver el paso "Permisos de grupo..." de `sync-vm-infra`
+para Jenkins). nginx corre como el usuario de sistema `www-data`, sin
+membresía en el grupo `ubuntu` y sin traversal a `/home/ubuntu`
+(permisos `750`) — confirmado en los logs reales: `nginx: [crit] open()
+".../.htpasswd" failed (13: Permission denied)`, con `curl` devolviendo
+`500` en vez de sim servir la app. Abrir el traversal a nivel de todo
+`/home/ubuntu` para que `www-data` pasara habría sido un cambio de
+alcance mucho más amplio que el necesario (y el clasificador del harness
+lo bloqueó como cambio de permisos demasiado amplio sobre un directorio
+compartido). Fix real: el hash vive en `/etc/nginx/secrets/vm-admin-
+tools.htpasswd` (root:root, 644 — mundo-legible, aceptable porque es un
+hash `apr1`, no la contraseña en claro — árbol nativo que nginx ya puede
+leer sin tocar permisos fuera de su propia jerarquía). Conclusión para
+infra futura: cualquier secreto que deba leer el propio nginx (proceso de
+sistema, no un contenedor con UID mapeado) va en `/etc/nginx/secrets/`,
+nunca en `/home/ubuntu/secrets/` (ese árbol es solo para lo que montan
+los contenedores Docker).
+
+**Certificados**: Let's Encrypt real para los 3 subdominios en una sola
+petición SAN (certbot exige que todos los `-d` de la misma petición
+resuelvan) — los 3 registros DNS ya estaban creados en Cloudflare para
+cuando se corrió esto, así que el certificado se emitió de verdad (no
+quedó pendiente): `issuer=Let's Encrypt`, válido hasta 2026-11-29. El
+paso en `sync-vm-infra` igual queda con `continue-on-error: true` (mismo
+patrón que Jenkins) para futuros subdominios que sí puedan tener el DNS
+atrasado respecto al push que los agrega.
+
+**Verificación de punta a punta real** (no solo local): `curl` externo a
+los 3 subdominios sin credenciales → `401`; con credenciales → SonarQube
+`200` (`<title>SonarQube`), Traefik `200` tras seguir el redirect a
+`/dashboard/` (`<title>Traefik Proxy`), Portainer `200` (`<title>
+Portainer`) tras completar el arranque — Portainer redirige a
+`/timeout.html` (`307`) si la ventana de configuración inicial del admin
+expira antes de que alguien la complete; comportamiento propio de
+Portainer (ventana de seguridad de fábrica), no un bug de esta infra —
+si Marco lo ve, `docker restart portainer` en la VM reabre la ventana.
+Login inicial de Portainer (usuario/password del primer arranque) queda
+pendiente de que Marco lo complete a mano, igual que Jenkins en su
+momento.
+
+**Credenciales entregadas a Marco fuera de este documento** (Basic Auth
+compartido: usuario + password) — no se versionan ni se dejan en texto
+plano en el repo.
+
+## Nota (2026-08-31): la infra compartida de la VM se mudó a `platform`
+
+Los tickets `049`/`050` de arriba documentan **cómo se construyó** cada
+pieza de infra compartida de la VM (Traefik, SonarQube, Jenkins,
+Portainer, nginx) — esa historia técnica se queda intacta, no se
+reescribe. Pero **dónde vivía el código** era un error de estructura
+(quedó dentro de este repo, cuando en realidad `auth-core-mc` es solo
+un consumidor más de esa infra, igual que lo será `mail-core-mc`).
+Corregido en el ticket `001` del repo `platform` (2026-08-31, decisión
+de Marco): `deploy/vm-infra/{traefik,sonarqube,jenkins,portainer}/` y
+`deploy/vm-infra/nginx/{jenkins.conf,vm-admin-tools.conf}` se movieron
+a `platform`, junto con el job `sync-vm-infra` de este `ci.yml` (que se
+retira de aquí por completo — sin este job no quedaba ningún otro en el
+archivo). Los volúmenes de Docker en la VM (datos reales de Jenkins/
+SonarQube/Portainer) no se tocaron, solo cambió desde qué repo se
+sincroniza su configuración.
+
+**Lo que se queda aquí, a propósito**: `deploy/vm-infra/nginx/auth-core-mc.conf`
+(vhost específico de este core) y el certificado Let's Encrypt de
+`auth.64bitstudio.com`/`auth-qa`/`auth-dev` — ninguno de los dos es
+infra compartida. Consecuencia real: sin `ci.yml` en este repo, ese
+vhost/certificado ya no tiene ningún job que los reaplique si
+cambiaran o si la VM se reconstruyera desde cero (la renovación
+automática del certificado sigue funcionando sola, vía el
+`certbot.timer` del sistema en la VM, no depende de GitHub Actions) —
+señalado explícitamente, no un descuido; ver `platform/docs/ARQUITECTURA.md`
+para el detalle completo y el estado actual de toda la infra
+compartida.
+
+El job de Jenkins tipo "GitHub Organization" en `64bitstudio` sigue
+descubriendo este repo sin cambios — el pipeline de la app
+(`Jenkinsfile`, `deploy/docker-compose.{dev,qa,prod}.yml`) no se tocó.
+
 ## Estado de este documento
-_Última actualización: durante la implementación del ticket `049`
-(pipeline CI/CD a la VM dedicada) — ver la sección de arriba para los tres
-bloqueos reales todavía sin decisión del Product Owner. Antes de eso, al
+_Última actualización: ticket `050`, Portainer + subdominios públicos
+para SonarQube y el dashboard de Traefik, los 3 detrás de Basic Auth de
+nginx (2026-08-31, ver sección arriba) — verificado de punta a punta en
+vivo (HTTPS real, Let's Encrypt real, Basic Auth real, login propio de
+cada herramienta real). Antes de esto: ticket `049`, retiro de la
+duplicación ci.yml/Jenkinsfile tras confirmar el Jenkinsfile funcionando
+de punta a punta (2026-08-31, ver sección arriba) — Jenkins es ahora el
+único orquestador del pipeline, `ci.yml` solo sincroniza infra compartida
+de la VM. Antes de eso: SEGUNDO pivote — de GitHub Actions a Jenkins como
+orquestador
+(Marco, 2026-08-30), con el break-glass de seguridad de Jenkins y los 8
+hallazgos reales del PR #78 (ver la sección del pivote arriba para el
+detalle completo). Antes de eso: DEV y QA
+validados de punta a punta de verdad (deploy real, healthcheck real,
+Traefik+TLS real, retención de imágenes real) tras el PRIMER rediseño
+dev/qa/prod — ver la sección del ticket 049 arriba para la historia
+completa (diseño original reemplazado, y los 5 hallazgos reales de la
+verificación de punta a punta). PROD queda pendiente de que Marco decida
+promover algo real vía `qa → prod` — esa promoción es exclusiva suya, no
+se dispara ni se simula desde ningún agente. Antes de este ticket, al
 cerrar la tarea `048` (grant `client_credentials` para clientes
 machine-to-machine). La fase 2 del rediseño de UI (tickets 024-030,
 `docs/definiciones/rediseno-ui-fase-2.md`) sigue cerrada como epic; 031-034

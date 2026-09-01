@@ -30,6 +30,10 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
       VAULT_ADDR: ${VAULT_ADDR:-}
+      # Ticket platform/005: AppRole en vez de token estático -- ver
+      # docker-compose.dev.yml para el detalle completo del porqué.
+      VAULT_ROLE_ID: ${VAULT_ROLE_ID:-}
+      VAULT_SECRET_ID: ${VAULT_SECRET_ID:-}
       VAULT_ROOT_TOKEN: ${VAULT_ROOT_TOKEN:-}
       VAULT_TRANSIT_KEY_NAME: ${VAULT_TRANSIT_KEY_NAME:-auth-core-mc-tenant-keys}
       BREAKGLASS_SECRET: ${BREAKGLASS_SECRET:-}
@@ -40,6 +44,9 @@ services:
     networks:
       - default
       - edge
+      # Ticket platform/005: red interna donde vive Vault -- ver
+      # docker-compose.dev.yml para el detalle completo.
+      - vm-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +93,8 @@ services:
 
 networks:
   edge:
+    external: true
+  vm-infra:
     external: true
 
 volumes:

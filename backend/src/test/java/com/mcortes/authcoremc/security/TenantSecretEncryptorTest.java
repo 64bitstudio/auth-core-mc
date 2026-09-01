@@ -25,18 +25,46 @@ class TenantSecretEncryptorTest {
     private static TenantSecretEncryptor encryptor;
 
     @BeforeAll
-    static void startVault() {
+    static void startVault() throws Exception {
         vault = new VaultContainer<>("hashicorp/vault:1.19")
                 .withVaultToken(ROOT_TOKEN)
                 .withInitCommand(
                         "secrets enable transit",
-                        "write -f transit/keys/auth-core-mc-tenant-keys");
+                        "write -f transit/keys/auth-core-mc-tenant-keys",
+                        "auth enable approle");
         vault.start();
+
+        // Ticket platform/005 (HU-7): el encryptor de verdad usa AppRole,
+        // no un token estático -- se replica el mismo mecanismo aquí
+        // (policy acotada a encrypt/decrypt sobre la llave de prueba,
+        // AppRole propia) en vez de seguir pasándole el token root
+        // directamente, para que este test siga probando el camino real.
+        vault.execInContainer(
+                "/bin/sh",
+                "-c",
+                "echo 'path \"transit/encrypt/auth-core-mc-tenant-keys\" { capabilities = [\"update\"] }\n"
+                        + "path \"transit/decrypt/auth-core-mc-tenant-keys\" { capabilities = [\"update\"] }' "
+                        + "| vault policy write test-transit-policy -");
+        vault.execInContainer(
+                "vault",
+                "write",
+                "auth/approle/role/test-role",
+                "token_policies=test-transit-policy",
+                "token_ttl=10m");
+        String roleId = vault.execInContainer("vault", "read", "-field=role_id", "auth/approle/role/test-role/role-id")
+                .getStdout()
+                .trim();
+        String secretId = vault.execInContainer(
+                        "vault", "write", "-field=secret_id", "-f", "auth/approle/role/test-role/secret-id")
+                .getStdout()
+                .trim();
 
         VaultTransitEncryptor vaultTransitEncryptor = new VaultTransitEncryptor(
                 RestClient.builder(),
                 "http://" + vault.getHost() + ":" + vault.getFirstMappedPort(),
-                ROOT_TOKEN,
+                roleId,
+                secretId,
+                "", // vault.token -- not used, this test exercises the AppRole path
                 "auth-core-mc-tenant-keys");
         encryptor = new TenantSecretEncryptor(vaultTransitEncryptor);
     }
