@@ -36,6 +36,15 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
       VAULT_ADDR: ${VAULT_ADDR:-}
+      # Ticket platform/005: AppRole en vez de token estático --
+      # VAULT_ROLE_ID no es secreto, tiene default hardcodeado en
+      # application.properties (mismo criterio que el RoleID de Jenkins
+      # en corePipeline.groovy). VAULT_SECRET_ID lo renderiza
+      # corePipeline.groovy en cada deploy (leído de Vault, nunca a
+      # mano). VAULT_ROOT_TOKEN se mantiene por compatibilidad con el
+      # Vault local de dev-infra únicamente (ver VaultTransitEncryptor.java).
+      VAULT_ROLE_ID: ${VAULT_ROLE_ID:-}
+      VAULT_SECRET_ID: ${VAULT_SECRET_ID:-}
       VAULT_ROOT_TOKEN: ${VAULT_ROOT_TOKEN:-}
       VAULT_TRANSIT_KEY_NAME: ${VAULT_TRANSIT_KEY_NAME:-auth-core-mc-tenant-keys}
       BREAKGLASS_SECRET: ${BREAKGLASS_SECRET:-}
@@ -46,6 +55,12 @@ services:
     networks:
       - default
       - edge
+      # Ticket platform/005: red interna donde vive Vault (mismo patrón
+      # que Jenkins<->SonarQube) -- sin esto, el backend no puede
+      # alcanzar "vault:8200" para Transit, aunque tuviera credenciales
+      # correctas. Hallazgo real: esta red faltaba, verificado leyendo
+      # el compose real antes de asumir que ya estaba.
+      - vm-infra
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,6 +112,8 @@ services:
 
 networks:
   edge:
+    external: true
+  vm-infra:
     external: true
 
 volumes:
