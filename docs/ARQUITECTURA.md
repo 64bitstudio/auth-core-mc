@@ -1582,6 +1582,39 @@ momento.
 compartido: usuario + password) — no se versionan ni se dejan en texto
 plano en el repo.
 
+## Nota (2026-08-31): la infra compartida de la VM se mudó a `platform`
+
+Los tickets `049`/`050` de arriba documentan **cómo se construyó** cada
+pieza de infra compartida de la VM (Traefik, SonarQube, Jenkins,
+Portainer, nginx) — esa historia técnica se queda intacta, no se
+reescribe. Pero **dónde vivía el código** era un error de estructura
+(quedó dentro de este repo, cuando en realidad `auth-core-mc` es solo
+un consumidor más de esa infra, igual que lo será `mail-core-mc`).
+Corregido en el ticket `001` del repo `platform` (2026-08-31, decisión
+de Marco): `deploy/vm-infra/{traefik,sonarqube,jenkins,portainer}/` y
+`deploy/vm-infra/nginx/{jenkins.conf,vm-admin-tools.conf}` se movieron
+a `platform`, junto con el job `sync-vm-infra` de este `ci.yml` (que se
+retira de aquí por completo — sin este job no quedaba ningún otro en el
+archivo). Los volúmenes de Docker en la VM (datos reales de Jenkins/
+SonarQube/Portainer) no se tocaron, solo cambió desde qué repo se
+sincroniza su configuración.
+
+**Lo que se queda aquí, a propósito**: `deploy/vm-infra/nginx/auth-core-mc.conf`
+(vhost específico de este core) y el certificado Let's Encrypt de
+`auth.64bitstudio.com`/`auth-qa`/`auth-dev` — ninguno de los dos es
+infra compartida. Consecuencia real: sin `ci.yml` en este repo, ese
+vhost/certificado ya no tiene ningún job que los reaplique si
+cambiaran o si la VM se reconstruyera desde cero (la renovación
+automática del certificado sigue funcionando sola, vía el
+`certbot.timer` del sistema en la VM, no depende de GitHub Actions) —
+señalado explícitamente, no un descuido; ver `platform/docs/ARQUITECTURA.md`
+para el detalle completo y el estado actual de toda la infra
+compartida.
+
+El job de Jenkins tipo "GitHub Organization" en `64bitstudio` sigue
+descubriendo este repo sin cambios — el pipeline de la app
+(`Jenkinsfile`, `deploy/docker-compose.{dev,qa,prod}.yml`) no se tocó.
+
 ## Estado de este documento
 _Última actualización: ticket `050`, Portainer + subdominios públicos
 para SonarQube y el dashboard de Traefik, los 3 detrás de Basic Auth de
