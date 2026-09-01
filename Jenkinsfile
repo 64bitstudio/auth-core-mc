@@ -10,12 +10,7 @@
 // (ver docs/ARQUITECTURA.md de platform, runbook "conectar un proyecto
 // nuevo", para la evidencia).
 
-// TEMPORAL, solo para la verificación en vivo del ticket 002 -- se
-// revierte a "@Library('platform') _" (sin pin) antes de terminar,
-// apuntando a defaultVersion "main" una vez que el PR de platform esté
-// mergeado. Necesario porque vars/corePipeline.groovy todavía vive en
-// una rama de feature de platform, no en main.
-@Library('platform@feature/002-shared-library-jenkins-recreate-seguro') _
+@Library('platform') _
 
 corePipeline(
     projectName: 'auth-core-mc',
