@@ -125,3 +125,8 @@ sonar {
 		property "sonar.coverage.jacoco.xmlReportPaths", "${layout.buildDirectory.get()}/reports/jacoco/test/jacocoTestReport.xml"
 	}
 }
+
+// Ticket 002 de platform, punto 1: comentario sin efecto real, solo para
+// invalidar el cache de Gradle y forzar un build no-cacheado de verdad
+// (compile+test reales, no UP-TO-DATE) al verificar en vivo que recrear
+// Jenkins ya no mata un build activo.
