@@ -19,6 +19,12 @@ corePipeline(
     // deploy/docker-compose.*.yml: "8081:8080"/"8082:8080"/"8080:8080"
     // -- el puerto publicado al host varía, el interno no).
     vhostFile: 'deploy/vm-infra/nginx/auth-core-mc.conf',
+    // Incidente real (ver platform/docs/ARQUITECTURA.md): el archivo de
+    // arriba, tal como vive en git, es la versión solo-HTTP -- sin esto,
+    // cada deploy a dev pisaría el bloque 443/ssl real (agregado por
+    // certbot en vivo, nunca sincronizado a git) con esa versión,
+    // rompiendo HTTPS de los 3 subdominios.
+    certbotDomains: ['auth.64bitstudio.com', 'auth-qa.64bitstudio.com', 'auth-dev.64bitstudio.com'],
     buildAndTest: {
         // Hallazgo real (primer build real de dev, heredado sin cambios):
         // la imagen de Jenkins solo trae JDK 21 (para correr Jenkins
