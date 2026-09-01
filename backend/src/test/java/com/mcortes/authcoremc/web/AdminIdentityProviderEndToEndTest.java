@@ -59,12 +59,47 @@ class AdminIdentityProviderEndToEndTest {
     @Container
     private static final VaultContainer<?> VAULT = new VaultContainer<>("hashicorp/vault:1.19")
             .withVaultToken(VAULT_ROOT_TOKEN)
-            .withInitCommand("secrets enable transit", "write -f transit/keys/auth-core-mc-tenant-keys");
+            .withInitCommand(
+                    "secrets enable transit",
+                    "write -f transit/keys/auth-core-mc-tenant-keys",
+                    "auth enable approle");
 
+    /**
+     * Ticket platform/005 (HU-7): the real {@code VaultTransitEncryptor}
+     * authenticates via AppRole now, not a static token — bootstraps the
+     * same least-privilege policy/AppRole inside this hermetic container
+     * (container is already started by the time {@code @DynamicPropertySource}
+     * runs) so this test keeps exercising the real auth path instead of
+     * bypassing it with the root token directly.
+     */
     @DynamicPropertySource
     static void vaultProperties(DynamicPropertyRegistry registry) {
-        registry.add("vault.address", () -> "http://" + VAULT.getHost() + ":" + VAULT.getFirstMappedPort());
-        registry.add("vault.token", () -> VAULT_ROOT_TOKEN);
+        try {
+            VAULT.execInContainer(
+                    "/bin/sh",
+                    "-c",
+                    "echo 'path \"transit/encrypt/auth-core-mc-tenant-keys\" { capabilities = [\"update\"] }\n"
+                            + "path \"transit/decrypt/auth-core-mc-tenant-keys\" { capabilities = [\"update\"] }' "
+                            + "| vault policy write test-transit-policy -");
+            VAULT.execInContainer(
+                    "vault",
+                    "write",
+                    "auth/approle/role/test-role",
+                    "token_policies=test-transit-policy",
+                    "token_ttl=10m");
+            String roleId = VAULT.execInContainer("vault", "read", "-field=role_id", "auth/approle/role/test-role/role-id")
+                    .getStdout()
+                    .trim();
+            String secretId = VAULT.execInContainer(
+                            "vault", "write", "-field=secret_id", "-f", "auth/approle/role/test-role/secret-id")
+                    .getStdout()
+                    .trim();
+            registry.add("vault.address", () -> "http://" + VAULT.getHost() + ":" + VAULT.getFirstMappedPort());
+            registry.add("vault.role-id", () -> roleId);
+            registry.add("vault.secret-id", () -> secretId);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to bootstrap the test AppRole in the Testcontainers Vault", e);
+        }
     }
 
     @Autowired
