@@ -1490,12 +1490,109 @@ Jenkinsfile), en las tres ramas — corrido por Marco directamente (acción
 de escritura sobre branch protection, bloqueada para el agente/
 orquestador por el clasificador del harness).
 
+## Portainer + subdominios públicos para SonarQube y Traefik (ticket 050, 2026-08-31)
+
+Se exponen por HTTPS público, detrás de Basic Auth de nginx, las 3
+herramientas de infra de mayor privilegio de la VM: `sonarqube.
+64bitstudio.com`, `traefik.64bitstudio.com` (nuevo, sin exponer hasta
+ahora) y `portainer.64bitstudio.com` (herramienta nueva — Portainer CE,
+dashboard web para gestionar Docker/Compose sin CLI, adelantada en el
+roadmap de infra). Decisión de Marco: estas 3 (a diferencia de `auth`/
+`jenkins`, que se quedan como están) llevan una capa extra de protección
+porque el acceso equivale a control total sobre Docker/CI/análisis de
+código de la VM — sin restringir por IP fija.
+
+**SonarQube**: se agregan labels de Traefik + red `edge` al compose ya
+existente (`deploy/vm-infra/sonarqube/docker-compose.yml`), sin quitar el
+bind a `127.0.0.1:9000` — Jenkins/el runner lo siguen usando internamente
+por ese loopback, sin relación con el subdominio público nuevo (verificado
+en vivo tras el cambio: `curl 127.0.0.1:9000` sigue en 200 desde la VM).
+
+**Traefik**: el dashboard estaba deliberadamente sin habilitar desde el
+049 ("no hay todavía una decisión de a qué hostname/auth quedaría
+expuesto" — confirmado leyendo `config/traefik.yml` antes de tocar nada).
+Se habilita con `api.dashboard: true`, expuesto por un router propio
+(`service=api@internal`) sobre el MISMO entrypoint `web` (8000) que ya usa
+todo el tráfico — deliberadamente SIN `--api.insecure=true` (ese flag abre
+un entrypoint HTTP sin autenticación propia; innecesario acá porque la
+protección real es Basic Auth de nginx + el hecho de que Traefik nunca es
+alcanzable directo desde internet, igual que siempre).
+
+**Portainer**: contenedor nuevo (`deploy/vm-infra/portainer/docker-
+compose.yml`), imagen `portainer/portainer-ce:lts`, `docker.sock` montado
+rw — mismo riesgo aceptado y ya documentado que Jenkins (control
+equivalente a root sobre Docker), no se repite la discusión desde cero
+(ver comentarios del compose file y el de Jenkins). A diferencia de
+Jenkins, la imagen corre como root por default, así que no hace falta el
+`group_add` de `DOCKER_GID`/`UBUNTU_GID`. Servido por HTTP interno
+(`--http-enabled`, puerto 9000) — nginx ya termina TLS en el borde, mismo
+patrón que el resto.
+
+**Basic Auth de nginx**: un vhost nuevo (`deploy/vm-infra/nginx/
+vm-admin-tools.conf`) con los 3 `server_name` en un solo bloque —
+`auth_basic` + `htpasswd`, un usuario compartido (`admin`, password
+aleatorio de 24 bytes vía `openssl rand`, hash `apr1` vía `openssl passwd`
+— sin depender de `apache2-utils`, que no está instalado en esta VM).
+
+**Hallazgo real (gotcha nuevo, no cubierto por el patrón de Jenkins)**:
+el primer intento guardó el hash en `/home/ubuntu/secrets/nginx-basic-
+auth/.htpasswd` (mismo árbol que usan los demás secrets de la VM) — pero
+ese árbol solo es legible por Docker vía bind-mount con el UID/GID de
+cada contenedor (ver el paso "Permisos de grupo..." de `sync-vm-infra`
+para Jenkins). nginx corre como el usuario de sistema `www-data`, sin
+membresía en el grupo `ubuntu` y sin traversal a `/home/ubuntu`
+(permisos `750`) — confirmado en los logs reales: `nginx: [crit] open()
+".../.htpasswd" failed (13: Permission denied)`, con `curl` devolviendo
+`500` en vez de sim servir la app. Abrir el traversal a nivel de todo
+`/home/ubuntu` para que `www-data` pasara habría sido un cambio de
+alcance mucho más amplio que el necesario (y el clasificador del harness
+lo bloqueó como cambio de permisos demasiado amplio sobre un directorio
+compartido). Fix real: el hash vive en `/etc/nginx/secrets/vm-admin-
+tools.htpasswd` (root:root, 644 — mundo-legible, aceptable porque es un
+hash `apr1`, no la contraseña en claro — árbol nativo que nginx ya puede
+leer sin tocar permisos fuera de su propia jerarquía). Conclusión para
+infra futura: cualquier secreto que deba leer el propio nginx (proceso de
+sistema, no un contenedor con UID mapeado) va en `/etc/nginx/secrets/`,
+nunca en `/home/ubuntu/secrets/` (ese árbol es solo para lo que montan
+los contenedores Docker).
+
+**Certificados**: Let's Encrypt real para los 3 subdominios en una sola
+petición SAN (certbot exige que todos los `-d` de la misma petición
+resuelvan) — los 3 registros DNS ya estaban creados en Cloudflare para
+cuando se corrió esto, así que el certificado se emitió de verdad (no
+quedó pendiente): `issuer=Let's Encrypt`, válido hasta 2026-11-29. El
+paso en `sync-vm-infra` igual queda con `continue-on-error: true` (mismo
+patrón que Jenkins) para futuros subdominios que sí puedan tener el DNS
+atrasado respecto al push que los agrega.
+
+**Verificación de punta a punta real** (no solo local): `curl` externo a
+los 3 subdominios sin credenciales → `401`; con credenciales → SonarQube
+`200` (`<title>SonarQube`), Traefik `200` tras seguir el redirect a
+`/dashboard/` (`<title>Traefik Proxy`), Portainer `200` (`<title>
+Portainer`) tras completar el arranque — Portainer redirige a
+`/timeout.html` (`307`) si la ventana de configuración inicial del admin
+expira antes de que alguien la complete; comportamiento propio de
+Portainer (ventana de seguridad de fábrica), no un bug de esta infra —
+si Marco lo ve, `docker restart portainer` en la VM reabre la ventana.
+Login inicial de Portainer (usuario/password del primer arranque) queda
+pendiente de que Marco lo complete a mano, igual que Jenkins en su
+momento.
+
+**Credenciales entregadas a Marco fuera de este documento** (Basic Auth
+compartido: usuario + password) — no se versionan ni se dejan en texto
+plano en el repo.
+
 ## Estado de este documento
-_Última actualización: ticket `049`, retiro de la duplicación ci.yml/
-Jenkinsfile tras confirmar el Jenkinsfile funcionando de punta a punta
-(2026-08-31, ver sección arriba) — Jenkins es ahora el único orquestador
-del pipeline, `ci.yml` solo sincroniza infra compartida de la VM. Antes
-de esto: SEGUNDO pivote — de GitHub Actions a Jenkins como orquestador
+_Última actualización: ticket `050`, Portainer + subdominios públicos
+para SonarQube y el dashboard de Traefik, los 3 detrás de Basic Auth de
+nginx (2026-08-31, ver sección arriba) — verificado de punta a punta en
+vivo (HTTPS real, Let's Encrypt real, Basic Auth real, login propio de
+cada herramienta real). Antes de esto: ticket `049`, retiro de la
+duplicación ci.yml/Jenkinsfile tras confirmar el Jenkinsfile funcionando
+de punta a punta (2026-08-31, ver sección arriba) — Jenkins es ahora el
+único orquestador del pipeline, `ci.yml` solo sincroniza infra compartida
+de la VM. Antes de eso: SEGUNDO pivote — de GitHub Actions a Jenkins como
+orquestador
 (Marco, 2026-08-30), con el break-glass de seguridad de Jenkins y los 8
 hallazgos reales del PR #78 (ver la sección del pivote arriba para el
 detalle completo). Antes de eso: DEV y QA

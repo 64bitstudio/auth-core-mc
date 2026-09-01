@@ -55,6 +55,18 @@ services:
       - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
     networks:
       - edge
+    labels:
+      # Ticket 050 (Portainer + subdominios): router del propio dashboard
+      # de Traefik hacia el servicio interno "api@internal" (habilitado en
+      # config/traefik.yml con "api.dashboard=true") -- se anuncia a sí
+      # mismo vía el provider docker, mismo mecanismo que cualquier otro
+      # stack de la VM. Detrás de Basic Auth de nginx (ver
+      # deploy/vm-infra/nginx/), sin exponer una API insegura aparte.
+      - "traefik.enable=true"
+      - "traefik.docker.network=edge"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.64bitstudio.com`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=web"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
 
 networks:
   edge:
