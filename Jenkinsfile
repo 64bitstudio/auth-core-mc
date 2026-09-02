@@ -1,61 +1,41 @@
-// Ticket 002 de platform (Shared Library): este Jenkinsfile queda
-// reducido a invocar corePipeline() con los parámetros propios de
-// auth-core-mc -- el pipeline completo (build/test/Sonar/Quality
-// Gate/build de imagen/vhost/deploy dev-qa-prod/gate manual de
-// prod/cleanup.sh/notificación a Telegram) vive ahora en
-// 64bitstudio/platform (vars/corePipeline.groovy), registrado como
-// Global Pipeline Library "platform" vía JCasC. Mismo comportamiento
-// EXACTO que el Jenkinsfile anterior (ticket 049) -- ver su historial de
-// git para comparar campo a campo. Verificado con un deploy real a DEV
-// (ver docs/ARQUITECTURA.md de platform, runbook "conectar un proyecto
-// nuevo", para la evidencia).
-
-// Ticket platform/004 (docs/definiciones/vault-secrets-manager-vm.md,
-// HU-1/HU-3/HU-4): a partir de este commit, DB_PASSWORD de dev/qa/prod
-// ya no viene del .env estático -- corePipeline.groovy lo obtiene de
-// Vault (AppRole "jenkins-infra", solo lectura) y lo renderiza en el
-// archivo real antes de cada deploy. Este comentario existe para
-// forzar un push real a `dev` y verificar de punta a punta que
-// fetchAndPatchDbPasswordFromVault corre en un build real de Jenkins
-// -- ver platform/docs/ARQUITECTURA.md, ticket 004, para la evidencia
-// una vez verificado.
+// TEMPORAL -- ticket platform/006, prueba de bypass de branch
+// protection con la GitHub App. Se elimina esta rama (y su Jenkinsfile)
+// al terminar la verificacion; no es infra real ni permanente.
 //
-// Segunda verificación (mismo ticket 004): el primer deploy real
-// (build #11) expuso el token de Vault en texto plano en el log de
-// Jenkins (set -x de la shell imprimía la línea del curl con el token
-// ya resuelto) -- corregido en platform con `set +x` explícito
-// (vars/corePipeline.groovy). Este comentario fuerza un segundo push
-// real a `dev` para confirmar que el fix realmente quita el token del
-// log, no solo que el código se ve bien.
-@Library('platform') _
-
-corePipeline(
-    projectName: 'auth-core-mc',
-    // containerPort no se pasa -- default de corePipeline (8080) ya es
-    // el puerto interno real en dev/qa/prod (ver
-    // deploy/docker-compose.*.yml: "8081:8080"/"8082:8080"/"8080:8080"
-    // -- el puerto publicado al host varía, el interno no).
-    vhostFile: 'deploy/vm-infra/nginx/auth-core-mc.conf',
-    // Incidente real (ver platform/docs/ARQUITECTURA.md): el archivo de
-    // arriba, tal como vive en git, es la versión solo-HTTP -- sin esto,
-    // cada deploy a dev pisaría el bloque 443/ssl real (agregado por
-    // certbot en vivo, nunca sincronizado a git) con esa versión,
-    // rompiendo HTTPS de los 3 subdominios.
-    certbotDomains: ['auth.64bitstudio.com', 'auth-qa.64bitstudio.com', 'auth-dev.64bitstudio.com'],
-    buildAndTest: {
-        // Hallazgo real (primer build real de dev, heredado sin cambios):
-        // la imagen de Jenkins solo trae JDK 21 (para correr Jenkins
-        // mismo) -- el backend necesita el toolchain Java 25. Se activa
-        // SOLO para este closure, sin tocar el JDK del controller.
-        withEnv([
-            "JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-arm64",
-            "PATH=/usr/lib/jvm/temurin-25-jdk-arm64/bin:${env.PATH}"
-        ]) {
-            dir('backend') {
-                withSonarQubeEnv('sonarqube-vm') {
-                    sh './gradlew build sonar'
+// Reproduce el mismo escenario del incidente real del ticket 002 (push
+// directo a una rama protegida) pero deliberado y con el credential
+// "github-app" en vez del PAT de Marco -- objetivo: confirmar que
+// GitHub RECHAZA el push (a diferencia del PAT, que lo dejaba pasar con
+// "Bypassed rule violations").
+pipeline {
+    agent any
+    stages {
+        stage('Ticket 006: prueba de bypass con GitHub App') {
+            steps {
+                sh '''
+                    git config user.email "ci-ticket006@64bitstudio.com"
+                    git config user.name "ticket-006-bypass-test"
+                    echo "prueba de bypass ticket 006 -- $(date -u +%s)" > .ticket-006-bypass-marker
+                    git add .ticket-006-bypass-marker
+                    git commit -m "test(006): commit de prueba -- no deberia llegar a la rama protegida"
+                '''
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'github-app', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PAT')]) {
+                        sh '''
+                            set +e
+                            OUT=$(git push "https://${GIT_USER}:${GIT_PAT}@github.com/64bitstudio/auth-core-mc.git" HEAD:refs/heads/ticket-006-bypass-protected 2>&1)
+                            CODE=$?
+                            echo "$OUT"
+                            echo "TICKET006_BYPASS_PUSH_EXIT_CODE=$CODE"
+                            if [ "$CODE" -ne 0 ]; then
+                                echo "TICKET006_RESULTADO=RECHAZADO (esperado -- la GitHub App NO logro saltarse branch protection)"
+                            else
+                                echo "TICKET006_RESULTADO=ACEPTADO -- HALLAZGO CRITICO: la GitHub App SI logro saltarse branch protection, igual que el PAT viejo. Reportar de inmediato, no ocultar."
+                            fi
+                        '''
+                    }
                 }
             }
         }
     }
-)
+}
