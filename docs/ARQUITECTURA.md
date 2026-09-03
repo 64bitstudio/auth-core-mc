@@ -1647,3 +1647,120 @@ por un servicio externo (`mail-core-mc`) — deja pendiente, fuera de este
 proyecto, arreglar el symlink roto de Docker en esta máquina (nota arriba)
 y, del lado de `mail-core-mc`, terminar su propio ticket 005 (resource
 server) contra este grant ya funcional._
+
+## Ticket 051: retirar el Vault local de la Mac, apuntar desarrollo local a la Vault de la VM
+
+**Objetivo**: desde el ticket 017, `~/dev-infra` corría su propio Vault
+local (motor Transit, cifrado por sobres) para desarrollo en la Mac.
+Desde `platform/005` (2026-09-02), los ambientes desplegados (DEV/QA/PROD)
+ya usan un Vault distinto — el de la VM compartida — vía AppRole. Es
+decir, existían **dos Vaults reales con distinta llave maestra**: cualquier
+`wrapped_data_key` envuelto por uno era indescifrable con el otro. Marco
+decidió explícitamente retirar el de la Mac y apuntar desarrollo local al
+de la VM en su lugar (`platform/007`, VoBo dado 2026-09-02) — un solo
+Vault real, no dos.
+
+**Hallazgo real, no asumido**: antes de tocar nada, se confirmó
+consultando la base de datos local (no solo leyendo el código) que sí
+había un tenant con datos reales dependientes de la llave maestra del
+Vault local — credenciales de Google/Facebook del tenant de pruebas
+(ticket 043, "confirmar-credenciales-reales-google-facebook", luego
+renombrado por Marco a "64Bit Studio"). Los demás tenants locales
+(`ClienteB`, `ClienteC`, `BreakGlassDemo`, etc.) no tenían
+`wrapped_data_key` — nada que migrar para ellos.
+
+**Migración real, no destrucción directa**: cifrado por sobres significa
+que la data-key AES-256 cruda del tenant es lo único que de verdad cifra
+sus secretos — Vault solo envuelve/desenvuelve esa data-key, nunca ve el
+secreto en claro (ver ticket 017). Migrar significa: desenvolver la
+data-key cruda con el Vault local, envolver esos MISMOS bytes (nunca
+generar una data-key nueva) con la Vault de la VM, verificar que el
+round-trip preserva exactamente la misma data-key (comparando SHA-256, sin
+imprimir la data-key en sí en ningún momento), y solo entonces actualizar
+`tenant.wrapped_data_key` — los secretos ya cifrados
+(`client_secret_encrypted`) no se tocan, siguen siendo AES-256-GCM con la
+misma data-key de siempre.
+
+**Bloqueo real de permisos, dos veces**: el clasificador de permisos de
+Claude Code bloqueó al agente al intentar ejecutar el paso final de la
+migración (el `UPDATE` sobre el dato real del tenant) — misma categoría de
+bloqueo ya documentada en `platform/done/005` con el `INSERT` de PROD. Se
+dejaron scripts autocontenidos
+(`backend/scripts/migrate-acme-tenant-key-via-ssh.sh`,
+`migrate-and-rename-acme-tenant.sh`) para que Marco los corriera él mismo
+— lo hizo, y pidió de paso renombrar el tenant a "64Bit Studio" (antes
+"Acme"/"MC APP"). El orquestador verificó independientemente, con un
+decrypt real contra el `wrapped_data_key` ya migrado, que la migración
+funcionó de verdad (no solo que las longitudes coincidían).
+
+**AppRole nueva, no reutilizar la de producción**: se creó
+`auth-core-mc-local-dev` (ver
+`platform/deploy/vm-infra/vault/bootstrap-auth-core-mc-local-dev-approle.sh`)
+con el mismo alcance mínimo que `auth-core-mc-backend`
+(`encrypt`/`decrypt` únicamente sobre `auth-core-mc-tenant-keys`) pero
+como credencial **separada y revocable independientemente** — si el
+`SecretID` de desarrollo local se filtrara, se puede revocar sin tocar
+DEV/QA/PROD, y viceversa. Verificada con prueba positiva + 2 negativas
+reales (403 al leer `secret/jenkins`, 403 al intentar rotar la llave).
+`VAULT_ROLE_ID`/`VAULT_SECRET_ID` viven en `backend/.env` de Marco
+(gitignored) — nunca impresos en ningún log de esta migración.
+
+**`application.properties`** (ver el archivo para el comentario completo):
+`vault.address` y `vault.role-id` cambian su *default* de apuntar al Vault
+local (`http://localhost:8200`, RoleID de `auth-core-mc-backend`) a
+apuntar a la Vault de la VM (`https://vault.64bitstudio.com`, RoleID de
+`auth-core-mc-local-dev`) — **sin tocar el mecanismo** (`VaultTransitEncryptor`
+ya soportaba AppRole desde `platform/005`, solo cambia qué credencial usa
+por default). DEV/QA/PROD no se ven afectados: sus propios
+`docker-compose.{dev,qa,prod}.yml` siguen inyectando `VAULT_ADDR`/
+`VAULT_ROLE_ID` explícitos desde Vault, así que el default de este archivo
+nunca les aplica.
+
+**Verificación end-to-end real** (no solo "el código se ve bien"):
+1. Round-trip real de Transit (`wrap`/`unwrap`) contra
+   `https://vault.64bitstudio.com` usando las credenciales reales de
+   `auth-core-mc-local-dev`, vía HTTP directo — TLS válido (certificado
+   real de Let's Encrypt), login AppRole exitoso, `encrypt`/`decrypt`
+   coincidentes.
+2. Confirmado que el allowlist de rutas de nginx (ver `platform/007`)
+   funciona como se diseñó: `/v1/sys/health`, `/ui/`, `/v1/secret/jenkins`,
+   `/v1/sys/seal-status`, `/`, y el intento de rotar la llave — todos
+   `404` (nginx nunca reenvía esas rutas a Vault). Un login con
+   credenciales inválidas sí llega hasta Vault (`400`, mensaje de Vault),
+   confirmando que la ruta permitida sí enruta correctamente.
+3. `VaultTransitEncryptor` construido exactamente como Spring lo
+   construiría a partir de los nuevos defaults de `application.properties`
+   (mismo `RestClient`, mismo `role-id` hardcodeado, `secret-id` real desde
+   el entorno) hizo un `wrap`/`unwrap` real contra la Vault de la VM —
+   prueba manual, no un test permanente (ticket 017 ya estableció que la
+   suite permanente nunca pega contra el Vault compartido, solo
+   Testcontainers).
+
+**Retiro real del Vault local**: quitado el servicio `vault` de
+`~/dev-infra/docker-compose.yml`, borrados `vault-config.hcl` y
+`scripts/vault-unseal.sh`, quitadas `VAULT_ADDR`/`VAULT_UNSEAL_KEY`/
+`VAULT_ROOT_TOKEN` de `.env`/`.env.example` (Telegram/SonarQube-VM/
+Cloudflare intactos, fuera de alcance). El contenedor se detuvo
+(`docker stop vault`) — el borrado final del contenedor y su volumen
+(`docker rm`/`docker volume rm`) quedó bloqueado por el clasificador de
+permisos (acción destructiva) igual que el paso de migración; script
+dejado en `~/dev-infra/scripts/retire-local-vault-container.sh` para que
+Marco lo corra cuando confirme que ya no lo necesita.
+
+**Hallazgo de seguridad real durante esta migración, no relacionado con
+Vault en sí**: al leer `~/dev-infra/.env` para quitar las 3 variables de
+Vault, un `grep`/diff automático del propio harness mostró en claro los
+valores de `SONAR_TOKEN` y `CLOUDFLARE_API_TOKEN` (no las variables de
+Vault que se estaban editando) — error del agente al no redactar esa
+lectura como se hizo el resto de la sesión. Ninguno de esos dos tokens se
+reutilizó ni se repitió en ningún mensaje posterior; señalado aquí por
+transparencia, no oculto. Sugerido como recordatorio para
+`dev-org-hooks-suite`: un hook que redacte automáticamente cualquier
+lectura de un archivo `.env` en la salida de herramientas, no solo confiar
+en que el agente recuerde hacerlo a mano cada vez.
+
+Ver `platform/pending/007-exponer-vault-desarrollo-local.md` (o
+`platform/done/007-...` si ya se cerró) y `platform/docs/ARQUITECTURA.md`
+para el diseño completo de la exposición pública de Vault (allowlist de
+rutas, rate limiting, por qué sin Basic Auth compartido) — ese lado del
+trabajo vive en el repo `platform`, no aquí.
