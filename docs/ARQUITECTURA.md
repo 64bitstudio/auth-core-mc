@@ -874,7 +874,7 @@ tomada en el ticket): mismo host construye (`build-image`) y despliega
   (ticket 007): sin esto, dos proyectos en la misma VM con servicios del
   mismo nombre genérico (`postgres`, `redis`, `app`) podrían chocar.
 - **Puertos de host reservados por este proyecto en la VM**: DEV → 8081,
-  QA → 8082, PROD → 8080. `mail-core-mc` (ticket gemelo 011, en curso)
+  QA → 8082, PROD → 8080. `mail-core-mc` (ticket gemelo 011, cerrado)
   reservó PROD → 8083 / DEV → 8084 / QA → 8085 — ver
   `mail-core-mc/docs/ARQUITECTURA.md`, ticket 011.
 - **Runner self-hosted único de la VM, label `vm-oci`**: desde el
