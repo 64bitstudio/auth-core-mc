@@ -874,9 +874,28 @@ tomada en el ticket): mismo host construye (`build-image`) y despliega
   (ticket 007): sin esto, dos proyectos en la misma VM con servicios del
   mismo nombre genérico (`postgres`, `redis`, `app`) podrían chocar.
 - **Puertos de host reservados por este proyecto en la VM**: DEV → 8081,
-  QA → 8082, PROD → 8080. `mail-core-mc` (ticket gemelo 011, en curso)
+  QA → 8082, PROD → 8080. `mail-core-mc` (ticket gemelo 011, cerrado)
   reservó PROD → 8083 / DEV → 8084 / QA → 8085 — ver
-  `mail-core-mc/docs/ARQUITECTURA.md`, ticket 011.
+  `mail-core-mc/docs/ARQUITECTURA.md`, ticket 011. `texture-studio-mc`
+  (ticket 001) reservó PROD → 8086 / DEV → 8087 / QA → 8088.
+  `galgoth-studio` (ticket 035) reservó PROD → 8089 / DEV → 8091 / QA →
+  8092 — **NO 8090**, ver el hallazgo de abajo.
+  **Hallazgo real (galgoth-studio, ticket 035, primer deploy a DEV):**
+  esta tabla nunca documentó los puertos de la infra COMPARTIDA misma
+  (más allá de los 3 cores de aplicación) — reservar el "siguiente
+  bloque de 3" sin cruzarlo contra esos puertos hizo que `docker compose
+  up -d` fallara con "port is already allocated" (8090 ya lo publica
+  Jenkins mismo, ver más abajo). Para el próximo core nuevo, cruzar
+  SIEMPRE contra esta lista completa, no solo contra los cores de
+  aplicación:
+  - Infra compartida (fija, no se mueve): SSH 22, MTA (mail-core-mc) 25/
+    587, DNS local 53, HTTP/HTTPS del nginx de fábrica 80/443, Traefik
+    (dashboard interno) 8000, Jenkins (UI) 8090, Vault 8200, SonarQube
+    9000.
+  - Cores de aplicación (bloques de 3, PROD/DEV/QA, en ese orden):
+    auth-core-mc 8080-8082, mail-core-mc 8083-8085, texture-studio-mc
+    8086-8088, galgoth-studio 8089/8091/8092 (salta el 8090 de Jenkins).
+  - Próximo bloque limpio y libre para el siguiente core: **8093-8095**.
 - **Runner self-hosted único de la VM, label `vm-oci`**: desde el
   rediseño, es el ÚNICO runner self-hosted del proyecto — el de la Mac fue
   retirado. `mail-core-mc` reusa este mismo runner (registrado a nivel de
