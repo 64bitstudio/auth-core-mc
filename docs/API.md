@@ -18,6 +18,7 @@ A diferencia de todos los demás endpoints de este documento, estos **no** está
 ## Convenciones
 - **Cómo se identifica el tenant en cada request**: header `X-Client-Id` con el `client_id` de un `IdentityClient` registrado (ver `BASE_DE_DATOS.md`). Si el header no corresponde a ningún cliente registrado, la respuesta es `401 unknown_client`. Esta fue la decisión pendiente que ticket `001` dejó abierta; ticket `002` la resolvió así — el flujo `/oauth2/authorize` de ticket `007` usará en cambio el parámetro estándar `client_id` de OAuth2, no este header (son superficies distintas: esta es la API "directa", esa es el flujo redirect).
 - Todas las respuestas de error usan el mismo formato: `{ "error": "codigo_de_error", "message": "explicación" }`.
+- **CORS (ticket `054`)**: `/api/v1/**` acepta llamadas cross-origin solo desde los orígenes listados en `CORS_ALLOWED_ORIGINS` (allowlist exacta por ambiente, separada por comas — vacío por defecto, ningún origen permitido). Nunca aplica a `/oauth2/**`/`/ui/**`: el JWKS lo consume el backend de cada cliente server-to-server, nunca un navegador. Una request con un `Origin` no listado no recibe `Access-Control-Allow-Origin` y, si además es preflight (o cualquier request real con ese header), Spring Security la rechaza con `403` — una request sin header `Origin` en absoluto (cualquier llamada no-navegador) nunca pasa por este chequeo.
 
 ## Registro y login (ticket `002`, `/login` actualizado en tickets `007` y `045`)
 | Método | Ruta | Qué hace | Qué recibe | Qué responde |
