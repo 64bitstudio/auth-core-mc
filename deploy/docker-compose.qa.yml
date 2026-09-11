@@ -24,6 +24,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       APP_BASE_URL: ${APP_BASE_URL:-https://auth-qa.64bitstudio.com}
+      # Ticket 054: allowlist de orígenes CORS para /api/v1/** — lista
+      # separada por comas, vacío por defecto (ningún origen permitido).
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_ADDRESS: ${RESEND_FROM_ADDRESS:-noreply@example.com}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
