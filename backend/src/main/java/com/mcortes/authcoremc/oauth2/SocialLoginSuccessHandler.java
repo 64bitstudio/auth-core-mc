@@ -21,7 +21,6 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
-import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * What happens when Google/Facebook hand back a confirmed identity (ticket
@@ -63,7 +62,8 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
 
     /**
      * Ticket 039 owns the real template; this only has to produce the right
-     * redirect target/query params for it to consume.
+     * redirect target/query params for it to consume. Used only for clients
+     * with {@code hostsOwnLoginUi() == false} — see ticket 055.
      */
     private static final String SOCIAL_CALLBACK_PATH = "/ui/social-callback";
 
@@ -125,7 +125,7 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
             // an unrecognized principal type) — never invent an identifier.
             long elapsed = System.currentTimeMillis() - startedAt;
             loginEventRecorder.recordFailure(tenant, provider.name(), elapsed);
-            redirectToThemedError(response, identityClient.getClientId(), "social_login_no_email");
+            redirectToError(response, identityClient, "social_login_no_email");
             return;
         }
 
@@ -135,17 +135,11 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
             loginEventRecorder.recordSuccess(tenant, user, provider.name(), elapsed);
 
             String code = redisTokenStore.issue(EXCHANGE_PURPOSE, user.getId().toString(), EXCHANGE_CODE_TTL);
-            String redirect = UriComponentsBuilder.fromPath(SOCIAL_CALLBACK_PATH)
-                    .queryParam("client_id", identityClient.getClientId())
-                    .queryParam("code", code)
-                    .encode()
-                    .build()
-                    .toUriString();
-            response.sendRedirect(redirect);
+            response.sendRedirect(SocialLoginRedirect.buildUri(identityClient, SOCIAL_CALLBACK_PATH, "code", code));
         } catch (SocialLoginBlockedException e) {
             long elapsed = System.currentTimeMillis() - startedAt;
             loginEventRecorder.recordFailure(tenant, provider.name(), elapsed);
-            redirectToThemedError(response, identityClient.getClientId(), e.getCode());
+            redirectToError(response, identityClient, e.getCode());
         }
     }
 
@@ -175,14 +169,8 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
         return null;
     }
 
-    private static void redirectToThemedError(HttpServletResponse response, String publicClientId, String errorCode)
+    private static void redirectToError(HttpServletResponse response, IdentityClient identityClient, String errorCode)
             throws IOException {
-        String redirect = UriComponentsBuilder.fromPath(LOGIN_PATH)
-                .queryParam("client_id", publicClientId)
-                .queryParam("error", errorCode)
-                .encode()
-                .build()
-                .toUriString();
-        response.sendRedirect(redirect);
+        response.sendRedirect(SocialLoginRedirect.buildUri(identityClient, LOGIN_PATH, "error", errorCode));
     }
 }

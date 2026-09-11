@@ -52,6 +52,16 @@ class SocialLoginFailureHandlerTest {
         return client;
     }
 
+    /** Ticket 055: a client with its own login UI (e.g. galgoth-studio). */
+    private static IdentityClient ownUiClientFixture(Tenant tenant) {
+        IdentityClient client = IdentityClient.builder(
+                        tenant, "galgoth-studio", true, List.of("https://studio.galgoth.64bitstudio.com/auth/callback"))
+                .hostsOwnLoginUi(true)
+                .build();
+        ReflectionTestUtils.setField(client, "id", UUID.randomUUID());
+        return client;
+    }
+
     private static MockHttpServletRequest requestForCallback(String registrationId) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRequestURI("/login/oauth2/code/" + registrationId);
@@ -75,6 +85,26 @@ class SocialLoginFailureHandlerTest {
                 .startsWith("/ui/login")
                 .contains("client_id=acme-web-app")
                 .contains("error=social_login_cancelled");
+        verify(loginEventRecorder).recordFailure(tenant, "GOOGLE", 0);
+    }
+
+    @Test
+    void aClientHostingItsOwnUiGetsTheCancelledErrorAtItsOwnRedirectUri() throws Exception {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = ownUiClientFixture(tenant);
+        String registrationId = client.getId() + "::google";
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        handler().onAuthenticationFailure(
+                requestForCallback(registrationId),
+                response,
+                new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED)));
+
+        assertThat(response.getRedirectedUrl())
+                .startsWith("https://studio.galgoth.64bitstudio.com/auth/callback")
+                .contains("error=social_login_cancelled")
+                .doesNotContain("client_id=");
         verify(loginEventRecorder).recordFailure(tenant, "GOOGLE", 0);
     }
 

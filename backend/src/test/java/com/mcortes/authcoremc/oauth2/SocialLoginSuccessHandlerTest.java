@@ -68,6 +68,16 @@ class SocialLoginSuccessHandlerTest {
         return client;
     }
 
+    /** Ticket 055: a client with its own login UI (e.g. galgoth-studio). */
+    private static IdentityClient ownUiClientFixture(Tenant tenant) {
+        IdentityClient client = IdentityClient.builder(
+                        tenant, "galgoth-studio", true, List.of("https://studio.galgoth.64bitstudio.com/auth/callback"))
+                .hostsOwnLoginUi(true)
+                .build();
+        ReflectionTestUtils.setField(client, "id", UUID.randomUUID());
+        return client;
+    }
+
     private static OAuth2AuthenticationToken googleToken(String registrationId, String email, boolean emailVerified) {
         OidcIdToken idToken = OidcIdToken.withTokenValue("id-token-value")
                 .claim("sub", "google-sub-1")
@@ -151,6 +161,70 @@ class SocialLoginSuccessHandlerTest {
                 .contains("error=social_login_email_conflict");
         verify(loginEventRecorder).recordFailure(eq(tenant), eq("GOOGLE"), anyLong());
         verify(redisTokenStore, never()).issue(any(), any(), any());
+    }
+
+    @Test
+    void aClientHostingItsOwnUiGetsTheCodeAtItsOwnRedirectUriInsteadOfTheHostedPage() throws Exception {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = ownUiClientFixture(tenant);
+        String registrationId = client.getId() + "::google";
+        User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", null);
+        ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
+
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+        when(socialLoginUserResolver.resolve(eq(tenant), eq(IdentityProviderType.GOOGLE), any(SocialProfile.class)))
+                .thenReturn(user);
+        when(redisTokenStore.issue(
+                        SocialLoginSuccessHandler.EXCHANGE_PURPOSE, user.getId().toString(), Duration.ofSeconds(60)))
+                .thenReturn("one-time-code");
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        handler().onAuthenticationSuccess(request, response, googleToken(registrationId, "ada@example.com", true));
+
+        assertThat(response.getRedirectedUrl())
+                .startsWith("https://studio.galgoth.64bitstudio.com/auth/callback")
+                .contains("code=one-time-code")
+                .doesNotContain("client_id=");
+    }
+
+    @Test
+    void aClientHostingItsOwnUiGetsTheErrorAtItsOwnRedirectUriInsteadOfTheHostedLoginPage() throws Exception {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = ownUiClientFixture(tenant);
+        String registrationId = client.getId() + "::facebook";
+
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        handler().onAuthenticationSuccess(request, response, facebookTokenWithoutEmail(registrationId));
+
+        assertThat(response.getRedirectedUrl())
+                .startsWith("https://studio.galgoth.64bitstudio.com/auth/callback")
+                .contains("error=social_login_no_email");
+    }
+
+    @Test
+    void aClientHostingItsOwnUiWithNoRedirectUriConfiguredFallsBackToTheHostedPage() throws Exception {
+        Tenant tenant = tenantFixture();
+        // hostsOwnLoginUi=true but redirectUris empty — misconfiguration, must not throw.
+        IdentityClient client = IdentityClient.builder(tenant, "misconfigured-client", true, List.of())
+                .hostsOwnLoginUi(true)
+                .build();
+        ReflectionTestUtils.setField(client, "id", UUID.randomUUID());
+        String registrationId = client.getId() + "::facebook";
+
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        handler().onAuthenticationSuccess(request, response, facebookTokenWithoutEmail(registrationId));
+
+        assertThat(response.getRedirectedUrl())
+                .startsWith("/ui/login")
+                .contains("client_id=misconfigured-client")
+                .contains("error=social_login_no_email");
     }
 
     @Test

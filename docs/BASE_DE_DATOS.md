@@ -94,6 +94,7 @@ Una aplicación registrada que puede pedir tokens a este servicio (ver nota de n
 | `redirect_uris` | text[] | URIs permitidas para el flujo Authorization Code |
 | `is_machine_client` | boolean | Ticket `048`. `true` → grant `client_credentials` en vez de `authorization_code`/`refresh_token` |
 | `scopes` | text[] | Ticket `048`. Scopes reales del cliente — default `{openid,profile}` para no cambiar nada existente |
+| `hosts_own_login_ui` | boolean | Ticket `055`. `true` → el login social rebota al `redirect_uri` propio del cliente en vez de a las páginas hospedadas por auth-core-mc (`/ui/social-callback`, `/ui/login`) — default `false` para no cambiar nada existente |
 
 ## `refresh_token`
 | Campo | Tipo | Para qué sirve |
