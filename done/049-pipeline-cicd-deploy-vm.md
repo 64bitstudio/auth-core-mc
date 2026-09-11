@@ -274,3 +274,18 @@ aquí, solo anotado**: un preflight/hook que valide que ningún job
 `self-hosted` sin label exclusivo pueda enrutarse al runner equivocado
 (el hallazgo original de ambigüedad de runners, ya resuelto acá pero
 podría repetirse en otro proyecto). Candidato para `dev-org-hooks-suite`.
+
+**Nota de archivo (2026-09-02, movido a `done/`)**: todo lo de arriba
+describe la orquestación ORIGINAL de este ticket, vía GitHub Actions —
+sigue siendo el registro histórico real de cómo se resolvió, pero ya
+**no** es la arquitectura vigente. El mismo día (2026-08-30) Marco pidió
+mover la orquestación a **Jenkins** ("SEGUNDO PIVOTE", ver
+`docs/ARQUITECTURA.md` de este repo para el detalle completo con
+evidencia), y poco después la infra compartida completa (Jenkins,
+Traefik, SonarQube, Portainer, Vault) se extrajo de este repo al repo
+`64bitstudio/platform` (ver `platform/docs/ARQUITECTURA.md` y la
+memoria `saas-paas-cores-strategy`), donde vive y se documenta desde
+entonces. Este archivo se mueve a `done/` como cierre tardío (el
+trabajo terminó hace días, solo faltaba el archivado) — para el estado
+actual real de la infra, ver `platform/docs/ARQUITECTURA.md`, no este
+archivo.

@@ -27,6 +27,23 @@
 // (vars/corePipeline.groovy). Este comentario fuerza un segundo push
 // real a `dev` para confirmar que el fix realmente quita el token del
 // log, no solo que el código se ve bien.
+
+// Ticket platform/006 (docs/definiciones/vault-secrets-manager-vm.md,
+// HU-9): el checkout de este Jenkinsfile (y de la Shared Library
+// "platform") ya no usa el PAT compartido de la cuenta personal de
+// Marco -- usa la GitHub App "64bitstudio-jenkins-ci" (credential
+// "github-app", ver platform/deploy/vm-infra/jenkins/casc/jenkins.yaml)
+// desde que este comentario se agregó. Motivo real: un PAT, sin
+// importar qué tan acotado, sigue heredando el bypass de branch
+// protection de la cuenta de Marco (owner de la organización) -- la
+// GitHub App tiene su propia identidad, nunca lo hereda (verificado en
+// vivo, ver platform/docs/ARQUITECTURA.md ticket 006: rama de prueba
+// con la misma protección real de `dev`, push directo con un
+// installation token real de esta App -- RECHAZADO por GitHub, a
+// diferencia del PAT viejo). Este comentario fuerza un push real a
+// `dev` para confirmar que el checkout con el credential nuevo sigue
+// funcionando sin regresión (mismo criterio que las dos verificaciones
+// anteriores de este archivo).
 @Library('platform') _
 
 corePipeline(

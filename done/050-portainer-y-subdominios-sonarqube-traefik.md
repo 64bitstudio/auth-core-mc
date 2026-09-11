@@ -81,3 +81,32 @@ fija (Marco no quiere depender de una IP que puede cambiar).
 - Dado un push cualquiera, el job `sync-vm-infra` mantiene esta infra
   nueva al día igual que ya hace con Traefik/SonarQube/Jenkins
   (idempotente, seguro de correr en cada push).
+
+## Hecho
+
+Cerrado (movido a `done/` el 2026-09-02, cierre tardío — el trabajo
+técnico se hizo y se mergeó el 2026-08-31, PR `#80`, pero el ticket
+nunca se archivó formalmente). PR #80: `feat(050): Portainer +
+subdominios públicos para SonarQube y Traefik` — `MERGED`.
+
+**Verificado de nuevo, en vivo, el 2026-09-02** (no solo confiando en
+lo que el PR decía en su momento) — request externo real, sin
+credenciales, a los 3 subdominios:
+```
+sonarqube.64bitstudio.com  -> HTTP 401
+traefik.64bitstudio.com    -> HTTP 401
+portainer.64bitstudio.com  -> HTTP 401
+```
+TLS válido en los 3 (curl no se quejó de certificado) — confirma el
+primer y segundo criterio de aceptación: los 3 vhosts existen, DNS
+resuelve, Basic Auth de nginx bloquea sin credenciales, y el
+certificado de Let's Encrypt es real (no el `continue-on-error` que
+tenía mientras el DNS no existía). El job `sync-vm-infra` (ya migrado a
+`platform`, ver ticket `platform/001`) sigue manteniendo esto al día en
+cada push — cuarto criterio cumplido, verificado repetidamente durante
+esta misma sesión en otros tickets.
+
+**No verificado por este agente, requiere confirmación de Marco**:
+el login inicial de Portainer (usuario/password del primer arranque) —
+es una acción suya, no algo que se pueda comprobar por curl externo sin
+usar sus credenciales.
