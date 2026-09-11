@@ -13,6 +13,8 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.CorsUtils;
 
 /**
  * Minimal security config so /register and /login (which by definition run
@@ -52,9 +54,14 @@ public class SecurityConfig {
             ObjectMapper objectMapper,
             ClientRegistrationRepository clientRegistrationRepository,
             SocialLoginSuccessHandler socialLoginSuccessHandler,
-            SocialLoginFailureHandler socialLoginFailureHandler) {
+            SocialLoginFailureHandler socialLoginFailureHandler,
+            CorsConfigurationSource corsConfigurationSource) {
         try {
             http.csrf(csrf -> csrf.disable())
+                    // Ticket 054: CORS allowlist for /api/v1/** (see CorsConfig) —
+                    // must run before authorizeHttpRequests so a real preflight
+                    // (OPTIONS, no credentials) isn't rejected by the rules below.
+                    .cors(cors -> cors.configurationSource(corsConfigurationSource))
                     .authorizeHttpRequests(auth -> auth.requestMatchers(
                                     "/api/v1/register",
                                     "/api/v1/login",
@@ -120,6 +127,13 @@ public class SecurityConfig {
                             // generically here, not against a real admin route yet.
                             .requestMatchers("/api/v1/admin/**")
                             .hasAnyRole("TENANT_ADMIN", "PLATFORM_ADMIN")
+                            // Ticket 054: every /api/v1/** route a browser needs cross-origin
+                            // today is already permitAll above, so this isn't load-bearing yet
+                            // — added so a future protected endpoint doesn't silently break
+                            // CORS (a preflight carries no Authorization header, so
+                            // .anyRequest().authenticated() would 401 it without this).
+                            .requestMatchers(CorsUtils::isPreFlightRequest)
+                            .permitAll()
                             .anyRequest()
                             .authenticated())
                     // Ticket 012: wires the JwtDecoder (already defined in
