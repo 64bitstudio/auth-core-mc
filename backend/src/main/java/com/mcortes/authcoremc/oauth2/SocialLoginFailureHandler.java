@@ -12,7 +12,6 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.stereotype.Component;
-import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * What happens when the Google/Facebook callback does NOT hand back a
@@ -73,12 +72,8 @@ public class SocialLoginFailureHandler implements AuthenticationFailureHandler {
                     parsed.flatMap(p -> identityClientRepository.findById(p.identityClientId()));
             if (parsed.isPresent() && client.isPresent()) {
                 loginEventRecorder.recordFailure(client.get().getTenant(), parsed.get().provider().name(), 0);
-                response.sendRedirect(UriComponentsBuilder.fromPath(LOGIN_PATH)
-                        .queryParam("client_id", client.get().getClientId())
-                        .queryParam("error", "social_login_cancelled")
-                        .encode()
-                        .build()
-                        .toUriString());
+                response.sendRedirect(
+                        SocialLoginRedirect.buildUri(client.get(), LOGIN_PATH, "error", "social_login_cancelled"));
                 return;
             }
             // Correlated request but registrationId no longer resolves (e.g.

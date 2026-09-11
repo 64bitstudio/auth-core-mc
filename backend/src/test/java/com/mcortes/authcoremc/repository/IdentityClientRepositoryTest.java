@@ -79,4 +79,39 @@ class IdentityClientRepositoryTest {
         assertThat(found.isMachineClient()).isTrue();
         assertThat(found.getScopes()).containsExactly("mail:send");
     }
+
+    @Test
+    void aClientWithNoOwnUiFlagDefaultsToHostedLoginPages() {
+        // Prueba de la migración V10 (columna nueva, aditiva): un cliente
+        // creado con el constructor de 7 args (existente desde el ticket
+        // 048) debe persistir/leer hosts_own_login_ui=false por default.
+        Tenant tenant =
+                tenantRepository.save(new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+
+        clientRepository.save(new IdentityClient(
+                tenant,
+                "legacy-app-2",
+                null,
+                true,
+                List.of("https://acme.example.com/callback"),
+                false,
+                List.of("openid", "profile")));
+
+        IdentityClient found = clientRepository.findByClientId("legacy-app-2").orElseThrow();
+        assertThat(found.hostsOwnLoginUi()).isFalse();
+    }
+
+    @Test
+    void savesAndReadsBackAClientThatHostsItsOwnLoginUi() {
+        Tenant tenant = tenantRepository.save(
+                new Tenant("Galgoth Studio", "Galgoth Studio", "#48e5a0", 900, 2_592_000, 86_400, 3_600, 300));
+
+        clientRepository.save(IdentityClient.builder(
+                        tenant, "galgoth-studio", true, List.of("https://studio.galgoth.64bitstudio.com/auth/callback"))
+                .hostsOwnLoginUi(true)
+                .build());
+
+        IdentityClient found = clientRepository.findByClientId("galgoth-studio").orElseThrow();
+        assertThat(found.hostsOwnLoginUi()).isTrue();
+    }
 }
