@@ -1823,3 +1823,30 @@ decisión de a dónde apunta el link se toma enteramente en el momento del
 Ver `docs/API.md` (sección "A dónde apunta el link del correo") para el
 contrato completo, y el ticket `done/056-...` para la verificación en vivo
 contra dev/qa/prod.
+
+**Verificación en vivo real contra DEV, dos hallazgos no relacionados con
+el código de este ticket, encontrados en el camino**:
+
+1. **`RESEND_API_KEY` nunca había estado configurado en dev** — el primer
+   intento real de `/verify-email/request` contra `galgoth-studio` dio
+   `500` con exactamente el error que `ResendEmailSender` documenta que
+   debía dar (falla ruidosa, no silenciosa). Gap de infraestructura
+   preexistente (ya señalado en este mismo documento, sección del ticket
+   046: "un error 500 real (falta RESEND_API_KEY en este entorno —
+   limitación preexistente, no relacionada)"), no algo que introdujo este
+   ticket — la traza confirma que el código nuevo (`linkFactory.build(...)`)
+   corrió sin excepción antes de llegar al punto que sí falló.
+2. **El dominio "obvio" para verificar en Resend (`mail.64bitstudio.com`)
+   ya es del `mail-core-mc`** (su propio `docker-mailserver`, con
+   DKIM/SPF/VERP configurados ahí — ver `mail-core-mc/docs/ARQUITECTURA.md`).
+   Verificarlo también en Resend habría hecho competir dos sistemas de
+   correo distintos por los mismos registros DNS. Decisión de Marco:
+   `mail.auth.64bitstudio.com` en su lugar (pendiente de verificar en
+   Resend + Cloudflare — seguimiento fuera de este ticket). Mientras tanto,
+   dev usa el remitente sandbox `onboarding@resend.dev` de Resend (válido
+   sin verificar dominio, solo hacia el email del dueño de la cuenta) para
+   no bloquear la verificación de este ticket.
+
+Con el sandbox configurado, el correo real llegó y el link fue
+`https://studio-dev.galgoth.64bitstudio.com/verify-email/confirm?token=...`
+— confirmado por Marco, no simulado.
