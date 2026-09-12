@@ -13,7 +13,17 @@ public final class IdentifierFormat {
     // Simple, permissive email shape check — full RFC 5322 validation is
     // notoriously more trouble than it's worth; deliverability is proven by
     // actually sending a verification email (ticket 003), not by the regex.
-    private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    //
+    // The straightforward version of this pattern (`[^\s@]+@[^\s@]+\.[^\s@]+$`)
+    // has two adjacent unbounded groups that both accept '.', so a failed
+    // match on a long, dot-free domain forces the engine to retry every
+    // possible split between them — quadratic behavior flagged as a ReDoS
+    // risk (SonarQube java:S5852). Structuring the domain as "label."
+    // repeated, where a label explicitly excludes '.', removes the
+    // ambiguity: each possessive group can only stop at one place, so
+    // there's nothing left to backtrack into. Still accepts multi-level
+    // domains (e.g. "user@mail.example.com").
+    private static final Pattern EMAIL = Pattern.compile("^[^\\s@]++@(?:[^\\s@.]++\\.)++[^\\s@]++$");
 
     // E.164: a leading '+' followed by 8 to 15 digits.
     private static final Pattern PHONE = Pattern.compile("^\\+[1-9][0-9]{7,14}$");

@@ -19,6 +19,13 @@ public final class Totp {
     private static final int STEP_SECONDS = 30;
     private static final String BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
+    // Constructing a SecureRandom seeds it from the platform's entropy
+    // source, which isn't free — a new instance per generateSecret() call
+    // was flagged by SonarQube (java:S2119) as wasteful churn. One shared,
+    // already-seeded instance reused across calls is the standard fix and
+    // is thread-safe (SecureRandom.nextBytes is synchronized internally).
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private Totp() {}
 
     /** The code valid right now for {@code base32Secret} — what an authenticator app would be showing. */
@@ -29,7 +36,7 @@ public final class Totp {
     /** A fresh random secret, base32-encoded (what you'd show as a QR/manual-entry code). */
     public static String generateSecret() {
         byte[] bytes = new byte[20]; // 160 bits, standard for HmacSHA1-based TOTP
-        new SecureRandom().nextBytes(bytes);
+        SECURE_RANDOM.nextBytes(bytes);
         return base32Encode(bytes);
     }
 
@@ -65,6 +72,16 @@ public final class Totp {
         try {
             byte[] key = base32Decode(base32Secret);
             byte[] data = ByteBuffer.allocate(8).putLong(counter).array();
+            // SonarQube flags "HmacSHA1" as a weak-hash Security Hotspot
+            // (java:S4790) — the concern that rule targets is SHA-1's
+            // collision weakness in contexts like digital signatures or
+            // password hashing, neither of which applies here. RFC 6238
+            // (TOTP) mandates HMAC-SHA1 as the default algorithm
+            // specifically for interop with existing authenticator apps
+            // (Google Authenticator, Authy); HMAC's security doesn't rely
+            // on collision resistance the way a bare hash does, so SHA-1's
+            // known weakness isn't exploitable through this construction.
+            // Reviewed and accepted as a Security Hotspot, not a bug.
             Mac mac = Mac.getInstance("HmacSHA1");
             mac.init(new SecretKeySpec(key, "HmacSHA1"));
             byte[] hash = mac.doFinal(data);
