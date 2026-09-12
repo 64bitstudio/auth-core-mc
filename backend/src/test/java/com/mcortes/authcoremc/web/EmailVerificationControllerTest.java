@@ -5,6 +5,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
@@ -13,6 +14,7 @@ import com.mcortes.authcoremc.security.SecurityConfig;
 import com.mcortes.authcoremc.service.EmailVerificationService;
 import com.mcortes.authcoremc.service.InvalidTokenException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,12 +61,13 @@ class EmailVerificationControllerTest {
     private EmailVerificationService verificationService;
 
     private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+    private final IdentityClient client = new IdentityClient(tenant, "acme-web-app", null, true, List.of());
     private final UUID userId = UUID.randomUUID();
 
     @Test
     void returns202OnASuccessfulVerificationRequest() {
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "hash");
-        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(client);
         when(userResolver.resolve(tenant, userId)).thenReturn(user);
 
         mvc.post()
@@ -76,15 +79,15 @@ class EmailVerificationControllerTest {
                 .assertThat()
                 .hasStatus(202);
 
-        verify(verificationService).requestVerification(user);
+        verify(verificationService).requestVerification(user, client);
     }
 
     @Test
     void returns429WhenTheResendCooldownIsActive() {
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "hash");
-        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(client);
         when(userResolver.resolve(tenant, userId)).thenReturn(user);
-        doThrow(new TooManyAttemptsException("cooldown")).when(verificationService).requestVerification(user);
+        doThrow(new TooManyAttemptsException("cooldown")).when(verificationService).requestVerification(user, client);
 
         mvc.post()
                 .uri("/api/v1/verify-email/request")

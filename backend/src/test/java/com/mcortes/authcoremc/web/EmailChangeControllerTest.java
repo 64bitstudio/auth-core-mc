@@ -5,6 +5,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
@@ -13,6 +14,7 @@ import com.mcortes.authcoremc.security.SecurityConfig;
 import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.EmailChangeService;
 import com.mcortes.authcoremc.service.InvalidTokenException;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,12 +61,13 @@ class EmailChangeControllerTest {
     private EmailChangeService emailChangeService;
 
     private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+    private final IdentityClient client = new IdentityClient(tenant, "acme-web-app", null, true, List.of());
     private final UUID userId = UUID.randomUUID();
 
     @Test
     void returns202OnASuccessfulChangeRequest() {
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "hash");
-        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(client);
         when(userResolver.resolve(tenant, userId)).thenReturn(user);
 
         mvc.post()
@@ -76,17 +79,17 @@ class EmailChangeControllerTest {
                 .assertThat()
                 .hasStatus(202);
 
-        verify(emailChangeService).requestChange(user, "ada.new@example.com");
+        verify(emailChangeService).requestChange(user, "ada.new@example.com", client);
     }
 
     @Test
     void returns409WhenTheNewEmailIsAlreadyTaken() {
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "hash");
-        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(client);
         when(userResolver.resolve(tenant, userId)).thenReturn(user);
         doThrow(new DuplicateIdentifierException("taken"))
                 .when(emailChangeService)
-                .requestChange(user, "taken@example.com");
+                .requestChange(user, "taken@example.com", client);
 
         mvc.post()
                 .uri("/api/v1/change-email/request")

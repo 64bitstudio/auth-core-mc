@@ -10,6 +10,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.notification.EmailSender;
@@ -18,6 +19,7 @@ import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.Cooldown;
 import com.mcortes.authcoremc.security.RedisTokenStore;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -60,14 +62,20 @@ class EmailVerificationServiceTest {
         return tenant;
     }
 
+    private static IdentityClient clientFixture(Tenant tenant) {
+        return new IdentityClient(tenant, "acme-web-app", null, true, List.of());
+    }
+
     @Test
     void issuesATokenAndSendsTheVerificationEmail() {
         Tenant tenant = tenantFixture();
         User user = userFixtureWithId(tenant, "ada@example.com");
+        IdentityClient client = clientFixture(tenant);
         when(tokenStore.issue(eq("email-verify"), eq(user.getId().toString()), any())).thenReturn("the-token");
-        when(linkFactory.build(anyString(), eq("the-token"))).thenReturn("https://auth.example.com/confirm?token=the-token");
+        when(linkFactory.build(eq(client), anyString(), eq("the-token")))
+                .thenReturn("https://auth.example.com/confirm?token=the-token");
 
-        service().requestVerification(user);
+        service().requestVerification(user, client);
 
         verify(emailSender)
                 .send(eq("ada@example.com"), anyString(), org.mockito.ArgumentMatchers.contains("the-token"));
@@ -78,7 +86,7 @@ class EmailVerificationServiceTest {
         Tenant tenant = tenantFixture();
         User user = userFixtureWithId(tenant, "ada@example.com");
 
-        service().requestVerification(user);
+        service().requestVerification(user, clientFixture(tenant));
 
         verify(tokenStore).issue("email-verify", user.getId().toString(), Duration.ofSeconds(86_400));
     }
@@ -89,7 +97,7 @@ class EmailVerificationServiceTest {
         User phoneOnlyUser = new User(tenant, null, "+525512345678", "Ada", "Lovelace", "hash");
         ReflectionTestUtils.setField(phoneOnlyUser, "id", UUID.randomUUID());
 
-        assertThatThrownBy(() -> service().requestVerification(phoneOnlyUser))
+        assertThatThrownBy(() -> service().requestVerification(phoneOnlyUser, clientFixture(tenant)))
                 .isInstanceOf(IllegalArgumentException.class);
         verify(emailSender, never()).send(any(), any(), any());
     }
@@ -100,7 +108,8 @@ class EmailVerificationServiceTest {
         User user = userFixtureWithId(tenant, "ada@example.com");
         when(cooldown.isActive("email-verify:" + user.getId())).thenReturn(true);
 
-        assertThatThrownBy(() -> service().requestVerification(user)).isInstanceOf(TooManyAttemptsException.class);
+        assertThatThrownBy(() -> service().requestVerification(user, clientFixture(tenant)))
+                .isInstanceOf(TooManyAttemptsException.class);
         verify(emailSender, never()).send(any(), any(), any());
     }
 

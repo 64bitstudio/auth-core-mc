@@ -10,12 +10,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.notification.EmailSender;
 import com.mcortes.authcoremc.notification.VerificationLinkFactory;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.RedisTokenStore;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -55,24 +57,31 @@ class EmailChangeServiceTest {
         return user;
     }
 
+    private static IdentityClient clientFixture(Tenant tenant) {
+        return new IdentityClient(tenant, "acme-web-app", null, true, List.of());
+    }
+
     @Test
     void sendsTheConfirmationToTheNewAddressNotTheOldOne() {
         Tenant tenant = tenantFixture();
         User user = userFixture(tenant);
+        IdentityClient client = clientFixture(tenant);
         when(userRepository.findByTenantAndEmail(tenant, "ada.new@example.com")).thenReturn(Optional.empty());
         when(tokenStore.issue(eq("email-change"), anyString(), any())).thenReturn("the-token");
-        when(linkFactory.build(anyString(), eq("the-token"))).thenReturn("https://auth.example.com/confirm?token=the-token");
+        when(linkFactory.build(eq(client), anyString(), eq("the-token")))
+                .thenReturn("https://auth.example.com/confirm?token=the-token");
 
-        service().requestChange(user, "ada.new@example.com");
+        service().requestChange(user, "ada.new@example.com", client);
 
         verify(emailSender).send(eq("ada.new@example.com"), anyString(), contains("the-token"));
     }
 
     @Test
     void rejectsAMalformedNewEmail() {
-        User user = userFixture(tenantFixture());
+        Tenant tenant = tenantFixture();
+        User user = userFixture(tenant);
 
-        assertThatThrownBy(() -> service().requestChange(user, "not-an-email"))
+        assertThatThrownBy(() -> service().requestChange(user, "not-an-email", clientFixture(tenant)))
                 .isInstanceOf(IllegalArgumentException.class);
         verify(emailSender, never()).send(any(), any(), any());
     }
@@ -84,7 +93,7 @@ class EmailChangeServiceTest {
         when(userRepository.findByTenantAndEmail(tenant, "taken@example.com"))
                 .thenReturn(Optional.of(userFixture(tenant)));
 
-        assertThatThrownBy(() -> service().requestChange(user, "taken@example.com"))
+        assertThatThrownBy(() -> service().requestChange(user, "taken@example.com", clientFixture(tenant)))
                 .isInstanceOf(DuplicateIdentifierException.class);
         verify(emailSender, never()).send(any(), any(), any());
     }

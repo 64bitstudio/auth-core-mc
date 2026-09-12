@@ -1,5 +1,6 @@
 package com.mcortes.authcoremc.service;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.notification.EmailSender;
 import com.mcortes.authcoremc.notification.VerificationLinkFactory;
@@ -43,7 +44,7 @@ public class EmailVerificationService {
     }
 
     /** @throws TooManyAttemptsException if called again before the resend cooldown elapses. */
-    public void requestVerification(User user) {
+    public void requestVerification(User user, IdentityClient client) {
         if (user.getEmail() == null) {
             throw new IllegalArgumentException("User has no email to verify");
         }
@@ -56,7 +57,7 @@ public class EmailVerificationService {
         String token = tokenStore.issue(PURPOSE, user.getId().toString(), ttl);
         cooldown.start(cooldownKey, RESEND_COOLDOWN);
 
-        String link = linkFactory.build("/ui/verify-email/confirm", token);
+        String link = linkFactory.build(client, "/ui/verify-email/confirm", token);
         emailSender.send(user.getEmail(), "Verify your account", "<p>Click to verify your account: " + link + "</p>");
     }
 

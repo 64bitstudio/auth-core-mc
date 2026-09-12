@@ -5,6 +5,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
 import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
@@ -12,6 +13,7 @@ import com.mcortes.authcoremc.security.SecurityConfig;
 import com.mcortes.authcoremc.service.InvalidTokenException;
 import com.mcortes.authcoremc.service.PasswordResetService;
 import com.mcortes.authcoremc.service.WeakPasswordException;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -54,10 +56,11 @@ class PasswordResetControllerTest {
     private PasswordResetService passwordResetService;
 
     private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
+    private final IdentityClient client = new IdentityClient(tenant, "acme-web-app", null, true, List.of());
 
     @Test
     void requestAlwaysReturns202EvenForAnUnknownIdentifier() {
-        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
+        when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(client);
 
         mvc.post()
                 .uri("/api/v1/password-reset/request")
@@ -68,7 +71,7 @@ class PasswordResetControllerTest {
                 .assertThat()
                 .hasStatus(202);
 
-        verify(passwordResetService).requestReset(tenant, "ghost@example.com");
+        verify(passwordResetService).requestReset(client, "ghost@example.com");
     }
 
     @Test

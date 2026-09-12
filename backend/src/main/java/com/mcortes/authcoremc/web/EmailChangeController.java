@@ -1,6 +1,6 @@
 package com.mcortes.authcoremc.web;
 
-import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.service.EmailChangeService;
 import jakarta.validation.Valid;
@@ -31,9 +31,9 @@ public class EmailChangeController {
     @PostMapping("/request")
     public ResponseEntity<Void> request(
             @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody RequestEmailChangeRequest request) {
-        Tenant tenant = clientContextResolver.resolveTenant(clientId);
-        User user = userResolver.resolve(tenant, request.userId());
-        emailChangeService.requestChange(user, request.newEmail());
+        IdentityClient client = clientContextResolver.resolveClient(clientId);
+        User user = userResolver.resolve(client.getTenant(), request.userId());
+        emailChangeService.requestChange(user, request.newEmail(), client);
         return ResponseEntity.accepted().build();
     }
 

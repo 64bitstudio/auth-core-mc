@@ -1783,3 +1783,43 @@ Ver `platform/pending/007-exponer-vault-desarrollo-local.md` (o
 para el diseño completo de la exposición pública de Vault (allowlist de
 rutas, rate limiting, por qué sin Basic Auth compartido) — ese lado del
 trabajo vive en el repo `platform`, no aquí.
+
+## Ticket 056: redirect configurable para links de verificación/reset/cambio de email
+
+**Objetivo**: mismo hallazgo del ticket 055, pero para los links que
+`VerificationLinkFactory` manda por correo/SMS. Un cliente con
+`hosts_own_login_ui=true` (galgoth-studio) ya recibía el login social de
+vuelta en su propio dominio desde el ticket 055, pero sus correos de
+verificación de cuenta, cambio de email y recuperación de contraseña
+seguían apuntando siempre a las páginas hospedadas `/ui/**` de
+auth-core-mc — inconsistente, y un problema real para cualquier cliente
+que hospede su propia UI de principio a fin.
+
+**Decisión de Marco (misma sesión)**: no se agrega columna nueva —
+`IdentityClient.ownUiOrigin()` deriva el **origen** (scheme+host+puerto,
+vía `java.net.URI`) del mismo `redirect_uris[0]` que ya usa el login
+social, y `VerificationLinkFactory.build(client, hostedPath, token)`
+decide entre ese origen + la ruta hospedada **sin el prefijo `/ui`**
+(`/verify-email/confirm`, `/change-email/confirm`,
+`/password-reset/confirm`) o, si el cliente no hostea su propia UI (o no
+tiene `redirect_uris` configurado pese a la bandera), el comportamiento de
+siempre (`app.base-url` + ruta hospedada).
+
+**Plumbing**: `EmailVerificationController`, `EmailChangeController` y
+`PasswordResetController` pasaron de `ClientContextResolver.resolveTenant`
+a `resolveClient` en su endpoint `/request` (ya existía, ticket 007 lo
+había agregado para el flag `firstParty` pero nadie más lo usaba) y
+plumban el `IdentityClient` resuelto hasta el servicio correspondiente —
+`EmailVerificationService.requestVerification`,
+`EmailChangeService.requestChange` ganan un parámetro `IdentityClient`;
+`PasswordResetService.requestReset` reemplaza su parámetro `Tenant` por
+`IdentityClient` (deriva el tenant internamente vía
+`client.getTenant()`, ya no hace falta que el controller resuelva ambos
+por separado). Los endpoints `/confirm` de los tres (que no llevan
+`X-Client-Id`, el token solo ya identifica al usuario) no cambian — la
+decisión de a dónde apunta el link se toma enteramente en el momento del
+`/request`, cuando el `IdentityClient` sí está disponible.
+
+Ver `docs/API.md` (sección "A dónde apunta el link del correo") para el
+contrato completo, y el ticket `done/056-...` para la verificación en vivo
+contra dev/qa/prod.

@@ -1,6 +1,6 @@
 package com.mcortes.authcoremc.web;
 
-import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.service.EmailVerificationService;
 import jakarta.validation.Valid;
@@ -31,9 +31,9 @@ public class EmailVerificationController {
     @PostMapping("/request")
     public ResponseEntity<Void> request(
             @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody RequestVerificationRequest request) {
-        Tenant tenant = clientContextResolver.resolveTenant(clientId);
-        User user = userResolver.resolve(tenant, request.userId());
-        verificationService.requestVerification(user);
+        IdentityClient client = clientContextResolver.resolveClient(clientId);
+        User user = userResolver.resolve(client.getTenant(), request.userId());
+        verificationService.requestVerification(user, client);
         return ResponseEntity.accepted().build();
     }
 
