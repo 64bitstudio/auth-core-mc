@@ -11,6 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.notification.EmailSender;
@@ -19,6 +20,7 @@ import com.mcortes.authcoremc.notification.VerificationLinkFactory;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.Cooldown;
 import com.mcortes.authcoremc.security.RedisTokenStore;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -63,12 +65,17 @@ class PasswordResetServiceTest {
         return tenant;
     }
 
+    private static IdentityClient clientFixture(Tenant tenant) {
+        return new IdentityClient(tenant, "acme-web-app", null, true, List.of());
+    }
+
     @Test
     void doesNothingObservableForAnUnknownIdentifier() {
         Tenant tenant = tenantFixture();
         when(userRepository.findByTenantAndEmail(tenant, "ghost@example.com")).thenReturn(Optional.empty());
 
-        assertThatCode(() -> service().requestReset(tenant, "ghost@example.com")).doesNotThrowAnyException();
+        assertThatCode(() -> service().requestReset(clientFixture(tenant), "ghost@example.com"))
+                .doesNotThrowAnyException();
         verify(emailSender, never()).send(any(), any(), any());
         verify(smsSender, never()).send(any(), any());
     }
@@ -76,13 +83,15 @@ class PasswordResetServiceTest {
     @Test
     void sendsAnEmailWhenTheUserHasOneEvenIfAPhoneAlsoExists() {
         Tenant tenant = tenantFixture();
+        IdentityClient client = clientFixture(tenant);
         User user = new User(tenant, "ada@example.com", "+525512345678", "Ada", "Lovelace", "hash");
         ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
         when(userRepository.findByTenantAndEmail(tenant, "ada@example.com")).thenReturn(Optional.of(user));
         when(tokenStore.issue(eq("password-reset"), anyString(), any())).thenReturn("the-token");
-        when(linkFactory.build(anyString(), eq("the-token"))).thenReturn("https://auth.example.com/reset?token=the-token");
+        when(linkFactory.build(eq(client), anyString(), eq("the-token")))
+                .thenReturn("https://auth.example.com/reset?token=the-token");
 
-        service().requestReset(tenant, "ada@example.com");
+        service().requestReset(client, "ada@example.com");
 
         verify(emailSender).send(eq("ada@example.com"), anyString(), org.mockito.ArgumentMatchers.contains("the-token"));
         verify(smsSender, never()).send(any(), any());
@@ -91,13 +100,15 @@ class PasswordResetServiceTest {
     @Test
     void sendsAnSmsForAPhoneOnlyAccount() {
         Tenant tenant = tenantFixture();
+        IdentityClient client = clientFixture(tenant);
         User user = new User(tenant, null, "+525512345678", "Ada", "Lovelace", "hash");
         ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
         when(userRepository.findByTenantAndPhone(tenant, "+525512345678")).thenReturn(Optional.of(user));
         when(tokenStore.issue(eq("password-reset"), anyString(), any())).thenReturn("the-token");
-        when(linkFactory.build(anyString(), eq("the-token"))).thenReturn("https://auth.example.com/reset?token=the-token");
+        when(linkFactory.build(eq(client), anyString(), eq("the-token")))
+                .thenReturn("https://auth.example.com/reset?token=the-token");
 
-        service().requestReset(tenant, "+525512345678");
+        service().requestReset(client, "+525512345678");
 
         verify(smsSender).send(eq("+525512345678"), org.mockito.ArgumentMatchers.contains("the-token"));
         verify(emailSender, never()).send(any(), any(), any());
@@ -108,7 +119,7 @@ class PasswordResetServiceTest {
         Tenant tenant = tenantFixture();
         when(cooldown.isActive("password-reset:" + tenant.getId() + ":ada@example.com")).thenReturn(true);
 
-        service().requestReset(tenant, "ada@example.com");
+        service().requestReset(clientFixture(tenant), "ada@example.com");
 
         verify(userRepository, never()).findByTenantAndEmail(any(), any());
         verify(emailSender, never()).send(any(), any(), any());

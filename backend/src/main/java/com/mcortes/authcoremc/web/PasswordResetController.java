@@ -1,6 +1,6 @@
 package com.mcortes.authcoremc.web;
 
-import com.mcortes.authcoremc.domain.Tenant;
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.service.PasswordResetService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -31,8 +31,8 @@ public class PasswordResetController {
     @PostMapping("/request")
     public ResponseEntity<Void> request(
             @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody RequestPasswordResetRequest request) {
-        Tenant tenant = clientContextResolver.resolveTenant(clientId);
-        passwordResetService.requestReset(tenant, request.identifier());
+        IdentityClient client = clientContextResolver.resolveClient(clientId);
+        passwordResetService.requestReset(client, request.identifier());
         return ResponseEntity.accepted().build();
     }
 

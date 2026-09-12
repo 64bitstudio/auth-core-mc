@@ -56,4 +56,37 @@ class IdentityClientTest {
 
         assertThat(client.ownLoginUiRedirectUri()).isEmpty();
     }
+
+    /**
+     * Ticket 056: {@code ownUiOrigin()} strips the path from
+     * {@code ownLoginUiRedirectUri()} — {@code VerificationLinkFactory}
+     * needs to land on a different path than the OAuth callback.
+     */
+    @Test
+    void aClientHostingItsOwnUiExposesOnlyTheOriginOfItsRedirectUri() {
+        IdentityClient client = IdentityClient.builder(
+                        tenantFixture(), "galgoth-studio", true, List.of("https://studio.galgoth.64bitstudio.com/auth/callback"))
+                .hostsOwnLoginUi(true)
+                .build();
+
+        assertThat(client.ownUiOrigin()).contains("https://studio.galgoth.64bitstudio.com");
+    }
+
+    @Test
+    void aClientHostingItsOwnUiOnANonDefaultPortKeepsThePortInItsOrigin() {
+        IdentityClient client = IdentityClient.builder(
+                        tenantFixture(), "local-client", true, List.of("http://localhost:5173/auth/callback"))
+                .hostsOwnLoginUi(true)
+                .build();
+
+        assertThat(client.ownUiOrigin()).contains("http://localhost:5173");
+    }
+
+    @Test
+    void aClientThatDoesNotHostItsOwnUiHasNoOwnOrigin() {
+        IdentityClient client = new IdentityClient(
+                tenantFixture(), "acme-web-app", null, true, List.of("https://acme.example.com/callback"));
+
+        assertThat(client.ownUiOrigin()).isEmpty();
+    }
 }
