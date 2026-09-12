@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -212,5 +213,23 @@ public class IdentityClient {
             return Optional.empty();
         }
         return Optional.of(redirectUris.get(0));
+    }
+
+    /**
+     * Ticket 056: same signal as {@link #ownLoginUiRedirectUri()}, but for
+     * callers that need to land on a DIFFERENT path on the client's own
+     * domain than the exact OAuth {@code redirect_uri} (e.g.
+     * {@code VerificationLinkFactory} building an email-verification link,
+     * not a social-login callback) — only the origin (scheme+host+port) of
+     * {@code redirect_uris[0]} is reusable there, not its path.
+     */
+    public Optional<String> ownUiOrigin() {
+        return ownLoginUiRedirectUri().map(IdentityClient::originOf);
+    }
+
+    private static String originOf(String uri) {
+        URI parsed = URI.create(uri);
+        String authority = parsed.getPort() == -1 ? parsed.getHost() : parsed.getHost() + ":" + parsed.getPort();
+        return parsed.getScheme() + "://" + authority;
     }
 }

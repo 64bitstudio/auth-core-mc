@@ -1783,3 +1783,70 @@ Ver `platform/pending/007-exponer-vault-desarrollo-local.md` (o
 para el diseño completo de la exposición pública de Vault (allowlist de
 rutas, rate limiting, por qué sin Basic Auth compartido) — ese lado del
 trabajo vive en el repo `platform`, no aquí.
+
+## Ticket 056: redirect configurable para links de verificación/reset/cambio de email
+
+**Objetivo**: mismo hallazgo del ticket 055, pero para los links que
+`VerificationLinkFactory` manda por correo/SMS. Un cliente con
+`hosts_own_login_ui=true` (galgoth-studio) ya recibía el login social de
+vuelta en su propio dominio desde el ticket 055, pero sus correos de
+verificación de cuenta, cambio de email y recuperación de contraseña
+seguían apuntando siempre a las páginas hospedadas `/ui/**` de
+auth-core-mc — inconsistente, y un problema real para cualquier cliente
+que hospede su propia UI de principio a fin.
+
+**Decisión de Marco (misma sesión)**: no se agrega columna nueva —
+`IdentityClient.ownUiOrigin()` deriva el **origen** (scheme+host+puerto,
+vía `java.net.URI`) del mismo `redirect_uris[0]` que ya usa el login
+social, y `VerificationLinkFactory.build(client, hostedPath, token)`
+decide entre ese origen + la ruta hospedada **sin el prefijo `/ui`**
+(`/verify-email/confirm`, `/change-email/confirm`,
+`/password-reset/confirm`) o, si el cliente no hostea su propia UI (o no
+tiene `redirect_uris` configurado pese a la bandera), el comportamiento de
+siempre (`app.base-url` + ruta hospedada).
+
+**Plumbing**: `EmailVerificationController`, `EmailChangeController` y
+`PasswordResetController` pasaron de `ClientContextResolver.resolveTenant`
+a `resolveClient` en su endpoint `/request` (ya existía, ticket 007 lo
+había agregado para el flag `firstParty` pero nadie más lo usaba) y
+plumban el `IdentityClient` resuelto hasta el servicio correspondiente —
+`EmailVerificationService.requestVerification`,
+`EmailChangeService.requestChange` ganan un parámetro `IdentityClient`;
+`PasswordResetService.requestReset` reemplaza su parámetro `Tenant` por
+`IdentityClient` (deriva el tenant internamente vía
+`client.getTenant()`, ya no hace falta que el controller resuelva ambos
+por separado). Los endpoints `/confirm` de los tres (que no llevan
+`X-Client-Id`, el token solo ya identifica al usuario) no cambian — la
+decisión de a dónde apunta el link se toma enteramente en el momento del
+`/request`, cuando el `IdentityClient` sí está disponible.
+
+Ver `docs/API.md` (sección "A dónde apunta el link del correo") para el
+contrato completo, y el ticket `done/056-...` para la verificación en vivo
+contra dev/qa/prod.
+
+**Verificación en vivo real contra DEV, dos hallazgos no relacionados con
+el código de este ticket, encontrados en el camino**:
+
+1. **`RESEND_API_KEY` nunca había estado configurado en dev** — el primer
+   intento real de `/verify-email/request` contra `galgoth-studio` dio
+   `500` con exactamente el error que `ResendEmailSender` documenta que
+   debía dar (falla ruidosa, no silenciosa). Gap de infraestructura
+   preexistente (ya señalado en este mismo documento, sección del ticket
+   046: "un error 500 real (falta RESEND_API_KEY en este entorno —
+   limitación preexistente, no relacionada)"), no algo que introdujo este
+   ticket — la traza confirma que el código nuevo (`linkFactory.build(...)`)
+   corrió sin excepción antes de llegar al punto que sí falló.
+2. **El dominio "obvio" para verificar en Resend (`mail.64bitstudio.com`)
+   ya es del `mail-core-mc`** (su propio `docker-mailserver`, con
+   DKIM/SPF/VERP configurados ahí — ver `mail-core-mc/docs/ARQUITECTURA.md`).
+   Verificarlo también en Resend habría hecho competir dos sistemas de
+   correo distintos por los mismos registros DNS. Decisión de Marco:
+   `mail.auth.64bitstudio.com` en su lugar (pendiente de verificar en
+   Resend + Cloudflare — seguimiento fuera de este ticket). Mientras tanto,
+   dev usa el remitente sandbox `onboarding@resend.dev` de Resend (válido
+   sin verificar dominio, solo hacia el email del dueño de la cuenta) para
+   no bloquear la verificación de este ticket.
+
+Con el sandbox configurado, el correo real llegó y el link fue
+`https://studio-dev.galgoth.64bitstudio.com/verify-email/confirm?token=...`
+— confirmado por Marco, no simulado.

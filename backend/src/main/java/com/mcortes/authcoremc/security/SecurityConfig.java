@@ -57,6 +57,19 @@ public class SecurityConfig {
             SocialLoginFailureHandler socialLoginFailureHandler,
             CorsConfigurationSource corsConfigurationSource) {
         try {
+            // SonarQube flags disabling CSRF as a Security Hotspot
+            // (java:S4502) — the concern that rule targets is a
+            // cookie/session-authenticated browser app where a forged
+            // cross-site request rides the victim's session cookie. This
+            // API is stateless: every request is authenticated by a Bearer
+            // JWT the caller must already possess and attach itself (never
+            // an ambient cookie a browser would replay automatically), so
+            // there's no session for a forged request to ride. The one
+            // Spring Security session this config creates (.oauth2Login,
+            // ticket 037) is a short-lived redirect/callback correlation,
+            // never used as ongoing auth (see its own Javadoc below) — it
+            // doesn't reintroduce the risk this rule protects against.
+            // Reviewed and accepted as a Security Hotspot, not a bug.
             http.csrf(csrf -> csrf.disable())
                     // Ticket 054: CORS allowlist for /api/v1/** (see CorsConfig) —
                     // must run before authorizeHttpRequests so a real preflight

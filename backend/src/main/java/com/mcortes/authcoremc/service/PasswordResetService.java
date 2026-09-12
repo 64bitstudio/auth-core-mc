@@ -1,5 +1,6 @@
 package com.mcortes.authcoremc.service;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.notification.EmailSender;
@@ -58,7 +59,8 @@ public class PasswordResetService {
     }
 
     /** Never throws — see class Javadoc. Silently does nothing for an unknown identifier or an active cooldown. */
-    public void requestReset(Tenant tenant, String identifier) {
+    public void requestReset(IdentityClient client, String identifier) {
+        Tenant tenant = client.getTenant();
         String cooldownKey = PURPOSE + ":" + tenant.getId() + ":" + identifier.toLowerCase();
         if (cooldown.isActive(cooldownKey)) {
             return;
@@ -75,7 +77,7 @@ public class PasswordResetService {
 
         Duration ttl = Duration.ofSeconds(tenant.getPasswordResetTtlSeconds());
         String token = tokenStore.issue(PURPOSE, user.getId().toString(), ttl);
-        String link = linkFactory.build("/ui/password-reset/confirm", token);
+        String link = linkFactory.build(client, "/ui/password-reset/confirm", token);
 
         // Prefer email when available; SMS only for phone-only accounts.
         if (user.getEmail() != null) {

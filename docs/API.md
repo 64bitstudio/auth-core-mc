@@ -109,6 +109,9 @@ Reenvía el código OTP mientras un `pendingToken` (el mismo que emite `202 twoF
 ### ⚠️ `/password-reset/request` nunca revela si la cuenta existe
 A diferencia de `/verify-email/request` (que sí puede responder `429` porque el llamador ya "posee" el `userId`), aquí el llamador solo aporta una adivinanza de email/teléfono — así que ni el código HTTP, ni el tiempo de respuesta ni el comportamiento pueden diferir entre "existe" y "no existe". El servicio nunca lanza una excepción distinguible para este caso; ver `PasswordResetService` en `docs/ARQUITECTURA.md`.
 
+### A dónde apunta el link del correo (ticket `056`)
+Mismo mecanismo del ticket `055`, ahora también para estos tres links (no solo el redirect del login social): si `identity_client.hosts_own_login_ui = false` (default, todo cliente anterior al ticket 056), el link va a la página hospedada por auth-core-mc (`app.base-url` + `/ui/verify-email/confirm` / `/ui/change-email/confirm` / `/ui/password-reset/confirm`), igual que siempre. Si `hosts_own_login_ui = true` (ej. `galgoth-studio`), el link va al **origen** de `identity_client.redirect_uris[0]` (mismo campo que ya usa el login social) con la misma ruta **sin el prefijo `/ui`** — `/verify-email/confirm`, `/change-email/confirm`, `/password-reset/confirm` en el dominio propio del cliente, que el frontend de ese cliente debe implementar (`VerificationLinkFactory.build(...)`, `IdentityClient.ownUiOrigin()`). El `?token=...` es idéntico en ambos casos y los endpoints `/confirm` (que no llevan `X-Client-Id`) no cambian.
+
 ## 2FA (ticket `005`)
 Mismo header `X-Client-Id` + `userId` en el body que el resto de endpoints "temporales" (ver advertencia arriba, aplica igual aquí).
 

@@ -1,5 +1,6 @@
 package com.mcortes.authcoremc.service;
 
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.notification.EmailSender;
 import com.mcortes.authcoremc.notification.VerificationLinkFactory;
@@ -40,7 +41,7 @@ public class EmailChangeService {
         this.linkFactory = linkFactory;
     }
 
-    public void requestChange(User user, String newEmail) {
+    public void requestChange(User user, String newEmail, IdentityClient client) {
         if (!IdentifierFormat.isValidEmail(newEmail)) {
             throw new IllegalArgumentException("Invalid email format");
         }
@@ -51,7 +52,7 @@ public class EmailChangeService {
         Duration ttl = Duration.ofSeconds(user.getTenant().getEmailVerificationTtlSeconds());
         String token = tokenStore.issue(PURPOSE, user.getId() + SEPARATOR + newEmail, ttl);
 
-        String link = linkFactory.build("/ui/change-email/confirm", token);
+        String link = linkFactory.build(client, "/ui/change-email/confirm", token);
         emailSender.send(newEmail, "Confirm your new email", "<p>Click to confirm your new email: " + link + "</p>");
     }
 
