@@ -87,8 +87,8 @@ public class PasswordResetService {
                     tenant,
                     "Restablece",
                     "tu contraseña",
-                    "Recibimos una solicitud para restablecer la contraseña de tu cuenta en {appName}. Haz clic en el botón para elegir una nueva.",
-                    "Restablecer contraseña",
+                    "Recibimos una solicitud para restablecer la contraseña de tu cuenta en {appName}. Si fuiste tú, haz clic en el botón para crear una nueva contraseña.",
+                    "Restablecer mi contraseña",
                     link,
                     expiryHours);
             emailSender.send(user.getEmail(), tenant.getAppName() + ": restablece tu contraseña", html);
