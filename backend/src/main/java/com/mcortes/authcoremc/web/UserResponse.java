@@ -18,7 +18,9 @@ public record UserResponse(
         String apellidos,
         boolean emailVerified,
         boolean phoneVerified,
-        boolean hasPassword) {
+        boolean hasPassword,
+        String country,
+        String username) {
 
     public static UserResponse from(User user) {
         return new UserResponse(
@@ -29,6 +31,8 @@ public record UserResponse(
                 user.getApellidos(),
                 user.isEmailVerified(),
                 user.isPhoneVerified(),
-                user.getPasswordHash() != null);
+                user.getPasswordHash() != null,
+                user.getCountry(),
+                user.getUsername());
     }
 }

@@ -132,6 +132,18 @@ A diferencia de `/2fa` y `/change-email` de arriba, **este endpoint sí requiere
 
 `UserResponse` (el mismo objeto que devuelven `/register`, `/login` y este endpoint) incluye desde este ticket el campo `hasPassword` (booleano, derivado de `password_hash != null`) — es lo que `/ui/cuenta` usa para decidir si ofrece esta acción.
 
+## Perfil de cuenta: leer/editar información personal (ticket `060`, "Mi Perfil" de galgoth-studio)
+Mismo criterio de autenticación que `/api/v1/account/password` (Bearer real, `userId` del `sub` del JWT, nunca del body ni de `X-Client-Id`).
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| GET | `/api/v1/account/profile` | Header `Authorization: Bearer <accessToken>` | `200` + `UserResponse` (incluye `country`/`username`, `null` si no están configurados) |
+| PATCH | `/api/v1/account/profile` | Header `Authorization: Bearer <accessToken>`; body: `nombre`, `apellidos` (obligatorios), `country`, `username` (opcionales, `null`/vacío los borra) | `200` + `UserResponse` actualizado, o `409 duplicate_identifier` si `username` ya está tomado por otro usuario del mismo tenant (la unicidad es por tenant — el mismo `username` en tenants distintos no choca), o `401` sin un Bearer token válido |
+
+El correo **no** se edita acá — sigue el flujo de 2 pasos ya existente
+(`/api/v1/change-email/request` + `/confirm`, ver arriba). `UserResponse`
+gana los campos `country`/`username` desde este ticket.
+
 ## Configuración de login social por tenant (ticket `006`)
 Requiere autenticación (ver advertencia arriba). Header `X-Client-Id` (no un `tenantId` en la ruta — el tenant siempre es el que resuelve el header, así un cliente nunca puede tocar la configuración de otro).
 
