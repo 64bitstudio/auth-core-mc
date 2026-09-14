@@ -58,5 +58,7 @@ cambiarla, confirmando la actual.
   rechazada sin cambiar nada, nueva contraseña débil rechazada, cuenta
   social-only recibe `no_password_set`, 401 sin auth. Suite completa en
   verde.
-- **Verificación en vivo contra DEV**: pendiente (se completa tras el
-  deploy de este PR).
+- **Verificación en vivo contra DEV**: cuenta de prueba real, contraseña
+  actual incorrecta → `401 incorrect_current_password`; cambio correcto
+  → `200`; login con la contraseña nueva → `200` con tokens reales.
+  Datos de prueba limpiados.
