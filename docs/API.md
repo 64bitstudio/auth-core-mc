@@ -132,6 +132,17 @@ A diferencia de `/2fa` y `/change-email` de arriba, **este endpoint sí requiere
 
 `UserResponse` (el mismo objeto que devuelven `/register`, `/login` y este endpoint) incluye desde este ticket el campo `hasPassword` (booleano, derivado de `password_hash != null`) — es lo que `/ui/cuenta` usa para decidir si ofrece esta acción.
 
+## Cambiar contraseña, autenticado (ticket `061`, "Mi Perfil" de galgoth-studio)
+Tercer caso junto a "establecer" (arriba, cuenta social-only sin password) y "olvidé mi contraseña" (`/password-reset`, sin sesión): un usuario CON contraseña que la cambia confirmando la actual. Mismo criterio de auth (Bearer real, `userId` del `sub`).
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| PATCH | `/api/v1/account/password` | Header `Authorization: Bearer <accessToken>`; body: `currentPassword`, `newPassword` (misma política que `/register`) | `200` + el usuario actualizado, o `401 incorrect_current_password` si `currentPassword` no coincide, o `409 no_password_set` si la cuenta es social-only (usar `POST` de arriba en su lugar), o `400 weak_password`, o `401` sin un Bearer token válido |
+
+Cambiar la contraseña **no** revoca las demás sesiones automáticamente
+— son dos acciones independientes, cada una explícita (ver ticket `062`,
+"cerrar sesión en todos los dispositivos").
+
 ## Perfil de cuenta: leer/editar información personal (ticket `060`, "Mi Perfil" de galgoth-studio)
 Mismo criterio de autenticación que `/api/v1/account/password` (Bearer real, `userId` del `sub` del JWT, nunca del body ni de `X-Client-Id`).
 
