@@ -82,9 +82,16 @@ public class PasswordResetService {
 
         // Prefer email when available; SMS only for phone-only accounts.
         if (user.getEmail() != null) {
+            int expiryHours = Math.max(1, tenant.getPasswordResetTtlSeconds() / 3600);
             String html = BrandedEmailTemplate.build(
-                    tenant, "Reset your password", "Click the button below to choose a new password.", "Reset password", link);
-            emailSender.send(user.getEmail(), tenant.getAppName() + ": reset your password", html);
+                    tenant,
+                    "Restablece",
+                    "tu contraseña",
+                    "Recibimos una solicitud para restablecer la contraseña de tu cuenta en {appName}. Haz clic en el botón para elegir una nueva.",
+                    "Restablecer contraseña",
+                    link,
+                    expiryHours);
+            emailSender.send(user.getEmail(), tenant.getAppName() + ": restablece tu contraseña", html);
         } else if (user.getPhone() != null) {
             smsSender.send(user.getPhone(), "Reset your password: " + link);
         }

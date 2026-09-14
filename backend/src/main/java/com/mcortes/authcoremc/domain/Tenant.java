@@ -7,6 +7,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -63,6 +64,40 @@ public class Tenant {
     // (physically purges 90 days after this timestamp).
     @Column(name = "deactivated_at")
     private Instant deactivatedAt;
+
+    // Ticket 058: rich per-tenant email branding (see EmailTheme) — all
+    // nullable, additive on top of app_name/primary_color (ticket 057). A
+    // tenant with heroImageUrl unset gets the simple template instead; see
+    // getEmailTheme().
+    @Column(name = "email_logo_url")
+    private String emailLogoUrl;
+
+    @Column(name = "email_hero_image_url")
+    private String emailHeroImageUrl;
+
+    @Column(name = "email_side_image_url")
+    private String emailSideImageUrl;
+
+    @Column(name = "email_header_subtitle")
+    private String emailHeaderSubtitle;
+
+    @Column(name = "email_header_tagline")
+    private String emailHeaderTagline;
+
+    @Column(name = "email_footer_tagline")
+    private String emailFooterTagline;
+
+    @Column(name = "email_discord_url")
+    private String emailDiscordUrl;
+
+    @Column(name = "email_youtube_url")
+    private String emailYoutubeUrl;
+
+    @Column(name = "email_twitter_url")
+    private String emailTwitterUrl;
+
+    @Column(name = "email_github_url")
+    private String emailGithubUrl;
 
     protected Tenant() {
         // JPA
@@ -175,5 +210,44 @@ public class Tenant {
         this.emailVerificationTtlSeconds = emailVerificationTtlSeconds;
         this.passwordResetTtlSeconds = passwordResetTtlSeconds;
         this.otpTtlSeconds = otpTtlSeconds;
+    }
+
+    /**
+     * Ticket 058: {@link Optional#empty()} means "no rich theme configured
+     * for this tenant" — {@code BrandedEmailTemplate} falls back to the
+     * simple app_name/primary_color layout. {@code heroImageUrl} is the
+     * signal field: a tenant with everything else set but no hero image
+     * isn't ready to render the rich layout (the hero is the one element
+     * with no sane placeholder).
+     */
+    public Optional<EmailTheme> getEmailTheme() {
+        if (emailHeroImageUrl == null || emailHeroImageUrl.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(new EmailTheme(
+                emailLogoUrl,
+                emailHeroImageUrl,
+                emailSideImageUrl,
+                emailHeaderSubtitle,
+                emailHeaderTagline,
+                emailFooterTagline,
+                emailDiscordUrl,
+                emailYoutubeUrl,
+                emailTwitterUrl,
+                emailGithubUrl));
+    }
+
+    /** Replaces this tenant's email theme wholesale — pass {@code null} for any field the tenant doesn't use. */
+    public void updateEmailTheme(EmailTheme theme) {
+        this.emailLogoUrl = theme.logoUrl();
+        this.emailHeroImageUrl = theme.heroImageUrl();
+        this.emailSideImageUrl = theme.sideImageUrl();
+        this.emailHeaderSubtitle = theme.headerSubtitle();
+        this.emailHeaderTagline = theme.headerTagline();
+        this.emailFooterTagline = theme.footerTagline();
+        this.emailDiscordUrl = theme.discordUrl();
+        this.emailYoutubeUrl = theme.youtubeUrl();
+        this.emailTwitterUrl = theme.twitterUrl();
+        this.emailGithubUrl = theme.githubUrl();
     }
 }

@@ -61,9 +61,16 @@ public class EmailVerificationService {
 
         String link = linkFactory.build(client, "/ui/verify-email/confirm", token);
         Tenant tenant = user.getTenant();
+        int expiryHours = Math.max(1, tenant.getEmailVerificationTtlSeconds() / 3600);
         String html = BrandedEmailTemplate.build(
-                tenant, "Verify your account", "Click the button below to verify your account.", "Verify account", link);
-        emailSender.send(user.getEmail(), tenant.getAppName() + ": verify your account", html);
+                tenant,
+                "Confirma",
+                "tu correo",
+                "Gracias por unirte a {appName}. Confirma tu dirección de correo electrónico para completar tu registro.",
+                "Confirmar mi correo",
+                link,
+                expiryHours);
+        emailSender.send(user.getEmail(), tenant.getAppName() + ": confirma tu correo", html);
     }
 
     @Transactional
