@@ -44,3 +44,18 @@ ajuste real es afinar el copy del cuerpo y el botón en
   contra su mockup.
 
 ## Hecho
+- `PasswordResetService.requestReset` actualizado: `bodyText` → "Recibimos
+  una solicitud para restablecer la contraseña de tu cuenta en {appName}.
+  Si fuiste tú, haz clic en el botón para crear una nueva contraseña.",
+  `ctaLabel` → "Restablecer mi contraseña" (antes "Restablecer
+  contraseña"). Sin cambios de arquitectura ni de modelo de datos — el
+  diseño rico del ticket 058 ya se activaba automáticamente aquí (mismo
+  `EmailTheme` por tenant, mismo hero/header/footer que verificación),
+  confirmado explícitamente por Marco vía AskUserQuestion antes de tocar
+  código.
+- Suite completa del backend en verde (`./gradlew test`).
+- **Verificación en vivo**: `POST /api/v1/password-reset/request`
+  disparado contra dev real (`X-Client-Id: galgoth-studio`, identifier
+  `marcocortes1234.mc@gmail.com`) → `202 Accepted`. Marco confirmó
+  ("todo correcto") que el correo recibido coincide con su mockup
+  "Restablece tu contraseña".
