@@ -1,7 +1,9 @@
 package com.mcortes.authcoremc.service;
 
 import com.mcortes.authcoremc.domain.IdentityClient;
+import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
+import com.mcortes.authcoremc.notification.BrandedEmailTemplate;
 import com.mcortes.authcoremc.notification.EmailSender;
 import com.mcortes.authcoremc.notification.VerificationLinkFactory;
 import com.mcortes.authcoremc.repository.UserRepository;
@@ -58,7 +60,10 @@ public class EmailVerificationService {
         cooldown.start(cooldownKey, RESEND_COOLDOWN);
 
         String link = linkFactory.build(client, "/ui/verify-email/confirm", token);
-        emailSender.send(user.getEmail(), "Verify your account", "<p>Click to verify your account: " + link + "</p>");
+        Tenant tenant = user.getTenant();
+        String html = BrandedEmailTemplate.build(
+                tenant, "Verify your account", "Click the button below to verify your account.", "Verify account", link);
+        emailSender.send(user.getEmail(), tenant.getAppName() + ": verify your account", html);
     }
 
     @Transactional

@@ -1,7 +1,9 @@
 package com.mcortes.authcoremc.service;
 
 import com.mcortes.authcoremc.domain.IdentityClient;
+import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
+import com.mcortes.authcoremc.notification.BrandedEmailTemplate;
 import com.mcortes.authcoremc.notification.EmailSender;
 import com.mcortes.authcoremc.notification.VerificationLinkFactory;
 import com.mcortes.authcoremc.repository.UserRepository;
@@ -53,7 +55,10 @@ public class EmailChangeService {
         String token = tokenStore.issue(PURPOSE, user.getId() + SEPARATOR + newEmail, ttl);
 
         String link = linkFactory.build(client, "/ui/change-email/confirm", token);
-        emailSender.send(newEmail, "Confirm your new email", "<p>Click to confirm your new email: " + link + "</p>");
+        Tenant tenant = user.getTenant();
+        String html = BrandedEmailTemplate.build(
+                tenant, "Confirm your new email", "Click the button below to confirm your new email address.", "Confirm email", link);
+        emailSender.send(newEmail, tenant.getAppName() + ": confirm your new email", html);
     }
 
     @Transactional
