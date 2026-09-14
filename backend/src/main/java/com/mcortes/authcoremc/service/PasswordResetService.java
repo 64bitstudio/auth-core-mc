@@ -3,6 +3,7 @@ package com.mcortes.authcoremc.service;
 import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
+import com.mcortes.authcoremc.notification.BrandedEmailTemplate;
 import com.mcortes.authcoremc.notification.EmailSender;
 import com.mcortes.authcoremc.notification.SmsSender;
 import com.mcortes.authcoremc.notification.VerificationLinkFactory;
@@ -81,7 +82,9 @@ public class PasswordResetService {
 
         // Prefer email when available; SMS only for phone-only accounts.
         if (user.getEmail() != null) {
-            emailSender.send(user.getEmail(), "Reset your password", "<p>Click to reset your password: " + link + "</p>");
+            String html = BrandedEmailTemplate.build(
+                    tenant, "Reset your password", "Click the button below to choose a new password.", "Reset password", link);
+            emailSender.send(user.getEmail(), tenant.getAppName() + ": reset your password", html);
         } else if (user.getPhone() != null) {
             smsSender.send(user.getPhone(), "Reset your password: " + link);
         }
