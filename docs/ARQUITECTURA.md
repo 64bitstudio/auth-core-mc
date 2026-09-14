@@ -1824,6 +1824,73 @@ Ver `docs/API.md` (sección "A dónde apunta el link del correo") para el
 contrato completo, y el ticket `done/056-...` para la verificación en vivo
 contra dev/qa/prod.
 
+## Ticket 057: correos con marca por tenant + dominio Resend propio
+
+**Objetivo**: los tres correos transaccionales (verificación, reset,
+cambio de email) salían con el diseño genérico de Resend, sin marca de
+ningún tenant, y desde `onboarding@resend.dev` (sandbox, solo llega al
+dueño de la cuenta). Marco pidió personalización por tenant y dominio
+propio verificado.
+
+**Decisión de Marco**: theming simple reutilizando campos ya existentes
+de `Tenant` (`appName`, `primaryColor`) — no un diseño único fijo para
+todos los tenants, pero tampoco (todavía) el theming rico del ticket
+`058`. `BrandedEmailTemplate.build(tenant, heading, bodyText, ctaLabel,
+ctaUrl)` genera un HTML basado en tablas (compatible con Outlook) con el
+nombre y color del tenant, validando el color con un regex
+(`HEX_COLOR`) y cayendo a un acento por defecto (`#0057FF`) si no es un
+hex válido — dato administrado por un admin, pero igual nunca se inserta
+sin validar en un atributo HTML.
+
+**Dominio Resend**: `mail.auth.64bitstudio.com` verificado desde cero vía
+la API de Resend (`POST /domains`, `GET /domains/{id}` para los registros
+DNS requeridos, `POST /domains/{id}/verify`), con los registros DKIM/SPF
+reales agregados a Cloudflare (zona `64bitstudio.com`) tras confirmación
+explícita de Marco. `RESEND_FROM_ADDRESS` de dev actualizado al dominio
+verificado. Verificado con un correo de prueba real end-to-end.
+
+## Ticket 058: theming rico de correo por tenant
+
+**Objetivo**: Marco compartió un diseño completo (arte propio: hero,
+fondo lateral, header/footer con redes sociales) para el correo de
+verificación de galgoth-studio — mucho más específico que el theming
+genérico del ticket `057`.
+
+**Decisión de Marco**: en vez de hardcodear el diseño de un tenant
+específico dentro del servicio compartido, se construyó un **sistema de
+theming por tenant** — 10 columnas nuevas opcionales en `Tenant`
+(migración `V11`: logo/hero/fondo lateral, subtítulo/tagline de header,
+tagline de footer, 4 URLs de redes sociales), expuestas como
+`Tenant.getEmailTheme()` (`Optional<EmailTheme>`, vacío salvo que
+`heroImageUrl` esté configurado — esa es la señal de "theme listo") que
+alimentan un layout FIJO que `BrandedEmailTemplate` sigue controlando:
+nunca HTML arbitrario del tenant, solo imágenes y texto corto en espacios
+predefinidos. Un tenant sin estos campos sigue usando el diseño simple
+del `057` sin ningún cambio de código adicional.
+
+**Alcance de esta primera pasada** ("comencemos con ese", palabras de
+Marco): solo el correo de verificación de cuenta tiene copy propio del
+mockup; password-reset y change-email comparten el mismo
+`BrandedEmailTemplate.build(...)` (firma ampliada con `headingAccent` y
+`expiryHours` real, ya no un valor fijo) con copy genérico — el layout
+rico se activa automáticamente para ellos también en cuanto un tenant
+tenga el theme configurado.
+
+**Copy en español, sin acoplar producto**: el mockup traía copy
+específico ("mobs de Minecraft"); mantenerlo en el servicio compartido
+habría reintroducido el acoplamiento que esta decisión buscaba evitar.
+El copy que quedó en los tres servicios es genérico, en español, con el
+nombre del tenant en negritas vía el placeholder `{appName}` (sustitución
+seguro-controlada, nunca HTML arbitrario).
+
+**Sin endpoint admin todavía**: el theme de galgoth-studio se pobló
+directo en la base de dev vía SQL (mismo criterio operativo que el alta
+original del tenant/cliente en el ticket `052`). Falta un endpoint admin
+para editar esto sin acceso a base de datos.
+
+Ver `done/058-theming-correos-por-tenant.md` para la verificación en vivo
+(correo real recibido y confirmado visualmente contra el mockup).
+
 **Verificación en vivo real contra DEV, dos hallazgos no relacionados con
 el código de este ticket, encontrados en el camino**:
 
