@@ -56,9 +56,16 @@ public class EmailChangeService {
 
         String link = linkFactory.build(client, "/ui/change-email/confirm", token);
         Tenant tenant = user.getTenant();
+        int expiryHours = Math.max(1, tenant.getEmailVerificationTtlSeconds() / 3600);
         String html = BrandedEmailTemplate.build(
-                tenant, "Confirm your new email", "Click the button below to confirm your new email address.", "Confirm email", link);
-        emailSender.send(newEmail, tenant.getAppName() + ": confirm your new email", html);
+                tenant,
+                "Confirma",
+                "tu nuevo correo",
+                "Confirma que quieres usar esta dirección como tu nuevo correo en {appName}.",
+                "Confirmar correo",
+                link,
+                expiryHours);
+        emailSender.send(newEmail, tenant.getAppName() + ": confirma tu nuevo correo", html);
     }
 
     @Transactional
