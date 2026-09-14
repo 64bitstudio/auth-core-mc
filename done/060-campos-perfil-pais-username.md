@@ -53,5 +53,8 @@ no en galgoth-studio — ver Diseño técnico §2 del documento).
   en GET, username duplicado en el mismo tenant rechazado sin sobrescribir,
   mismo username en tenant distinto sin conflicto, 401 sin auth. Suite
   completa en verde.
-- **Verificación en vivo contra DEV**: pendiente (se completa tras el
-  deploy de este PR).
+- **Verificación en vivo contra DEV**: cuenta de prueba real registrada,
+  `country`/`username` confirmados `null` al registrar; `PATCH
+  /api/v1/account/profile` con datos reales → `200` con los 4 campos
+  actualizados; `GET` subsecuente los refleja. Datos de prueba limpiados
+  al terminar.
