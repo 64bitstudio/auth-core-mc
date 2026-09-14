@@ -41,3 +41,22 @@ cambiarla, confirmando la actual.
 - Verificación en vivo contra DEV.
 
 ## Hecho
+- `ChangePasswordService` + `PATCH /api/v1/account/password` (no `POST
+  /change-password` como decía el borrador inicial del ticket — mismo
+  path que `SetPasswordController`, distinto verbo HTTP: `POST` =
+  primera vez, `PATCH` = cambio; evita dos rutas para el mismo recurso).
+- `IncorrectCurrentPasswordException` (401, distinta de
+  `InvalidCredentialsException` — esa es específicamente para no revelar
+  detalles de un intento de LOGIN anónimo, no aplica aquí) y
+  `NoPasswordSetException` (409, espejo de `PasswordAlreadySetException`)
+  nuevas, mapeadas en `GlobalExceptionHandler`.
+- No revoca otras sesiones (decisión del documento, acción
+  independiente — ticket `062`).
+- `docs/API.md` actualizado.
+- Tests: `ChangePasswordControllerTest` (real JWT/DB) — cambio exitoso
+  (login viejo falla, nuevo funciona), contraseña actual incorrecta
+  rechazada sin cambiar nada, nueva contraseña débil rechazada, cuenta
+  social-only recibe `no_password_set`, 401 sin auth. Suite completa en
+  verde.
+- **Verificación en vivo contra DEV**: pendiente (se completa tras el
+  deploy de este PR).

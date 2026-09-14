@@ -2,8 +2,10 @@ package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.TotpNotEnrolledException;
 import com.mcortes.authcoremc.service.DuplicateIdentifierException;
+import com.mcortes.authcoremc.service.IncorrectCurrentPasswordException;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
 import com.mcortes.authcoremc.service.InvalidTokenException;
+import com.mcortes.authcoremc.service.NoPasswordSetException;
 import com.mcortes.authcoremc.service.NotFirstPartyClientException;
 import com.mcortes.authcoremc.service.PasswordAlreadySetException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
@@ -68,6 +70,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(PasswordAlreadySetException.class)
     public ResponseEntity<ErrorResponse> handlePasswordAlreadySet(PasswordAlreadySetException e) {
         return error(HttpStatus.CONFLICT, "password_already_set", e.getMessage());
+    }
+
+    @ExceptionHandler(NoPasswordSetException.class)
+    public ResponseEntity<ErrorResponse> handleNoPasswordSet(NoPasswordSetException e) {
+        return error(HttpStatus.CONFLICT, "no_password_set", e.getMessage());
+    }
+
+    @ExceptionHandler(IncorrectCurrentPasswordException.class)
+    public ResponseEntity<ErrorResponse> handleIncorrectCurrentPassword(IncorrectCurrentPasswordException e) {
+        return error(HttpStatus.UNAUTHORIZED, "incorrect_current_password", e.getMessage());
     }
 
     @ExceptionHandler(TotpNotEnrolledException.class)
