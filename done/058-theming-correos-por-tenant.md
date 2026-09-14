@@ -80,3 +80,42 @@ hace falta, pero hoy todo el trabajo de este dominio es en español.
   cargando de verdad, no rotas).
 
 ## Hecho
+- Migración `V11` aplicada (10 columnas nullable en `tenant`), `EmailTheme`
+  (record) + `Tenant.getEmailTheme()`/`updateEmailTheme(...)` implementados
+  — `heroImageUrl` como señal de "theme listo".
+- `BrandedEmailTemplate` reescrito con `build(tenant, headingPlain,
+  headingAccent, bodyText, ctaLabel, ctaUrl, expiryHours)`: diseño rico
+  (`buildRich`) cuando el tenant tiene theme, simple (`buildSimple`, sin
+  cambios del ticket 057) cuando no. `EmailVerificationService`,
+  `PasswordResetService` y `EmailChangeService` migrados a la firma nueva
+  con copy genérico en español y `{appName}` en negritas vía el
+  tenant que corresponda.
+- Suite de `BrandedEmailTemplateTest` en verde, incluyendo los casos
+  nuevos: sin theme usa el simple, theme sin `heroImageUrl` se trata como
+  no configurado, redes sociales solo aparecen si su URL está configurada,
+  vencimiento mostrado = TTL real del tenant (no fijo).
+- Imágenes (`galgoth-studio` PR #113): `logo.png`, `hero-verify.jpg`,
+  `side-bg.jpg` publicadas en `frontend/public/email/` y verificadas
+  accesibles en `https://studio-dev.galgoth.64bitstudio.com/email/*`
+  (200 OK, `curl -I` a las 3) antes de disparar cualquier correo real.
+- Theme de galgoth-studio poblado en la base de **dev** (mismo criterio
+  operativo que el alta del tenant en el ticket 052 — SQL directo, sin
+  endpoint admin todavía): `email_logo_url`, `email_hero_image_url`,
+  `email_side_image_url`, `email_header_subtitle` ("CREA · EDITA · DA
+  VIDA"), `email_header_tagline` ("Tu mundo. / Tus criaturas. / Sin
+  límites."), `email_footer_tagline` ("Edición. Creatividad. Mundos
+  infinitos."). Las URLs de redes sociales (Discord/YouTube/X/GitHub)
+  quedaron en `NULL` a petición explícita de Marco — todavía no existen
+  esas cuentas/enlaces listos para publicar; el template ya maneja esto
+  sin romperse (el footer simplemente omite los links ausentes). Pendiente
+  poblarlas con un `UPDATE` cuando Marco las tenga.
+- **Verificación en vivo**: `POST /api/v1/verify-email/request` disparado
+  contra dev real (`X-Client-Id: galgoth-studio`, la cuenta de prueba
+  `marcocortes1234.mc@gmail.com`) → `202 Accepted`. Marco confirmó
+  visualmente que el correo recibido coincide con su mockup "Confirma tu
+  correo" (header, hero, footer, botón, caja de copiar-link, todo
+  cargando correctamente).
+- Solo dev quedó poblado con el theme — qa/prod de galgoth-studio siguen
+  sin estos campos (usarán el diseño simple del ticket 057 hasta que se
+  pida promoverlos), consistente con que esta ronda de trabajo no
+  incluyó promoción a esos ambientes.
