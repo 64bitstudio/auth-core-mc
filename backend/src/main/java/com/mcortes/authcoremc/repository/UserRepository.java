@@ -13,6 +13,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByTenantAndPhone(Tenant tenant, String phone);
 
+    /** Ticket 060 -- unicidad de `username` por tenant, chequeada en la app antes de guardar (el CHECK de la BD es defensa en profundidad). */
+    Optional<User> findByTenantAndUsername(Tenant tenant, String username);
+
     /** Ticket 013: TenantPurgeService's dependency-ordered physical delete. */
     List<User> findByTenant(Tenant tenant);
 }

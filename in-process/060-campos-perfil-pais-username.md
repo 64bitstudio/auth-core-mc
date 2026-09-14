@@ -39,3 +39,19 @@ no en galgoth-studio — ver Diseño técnico §2 del documento).
 - Verificación en vivo contra DEV.
 
 ## Hecho
+- Migración `V12`: `app_user.country`/`app_user.username` (nullable) +
+  `UNIQUE (tenant_id, username)`.
+- `User.updateProfile(...)` + `AccountProfileService` (chequea unicidad
+  de `username` antes de guardar, reutiliza `DuplicateIdentifierException`/
+  `UserNotFoundException` ya manejadas por `GlobalExceptionHandler`).
+- `GET`/`PATCH /api/v1/account/profile` (`AccountProfileController`,
+  mismo mecanismo de auth que `SetPasswordController`). `UserResponse`
+  gana `country`/`username`.
+- `docs/API.md`/`docs/BASE_DE_DATOS.md` actualizados.
+- Tests: `AccountProfileControllerTest` (real JWT, real DB, mismo patrón
+  que `SetPasswordControllerTest`) — GET inicial, PATCH exitoso reflejado
+  en GET, username duplicado en el mismo tenant rechazado sin sobrescribir,
+  mismo username en tenant distinto sin conflicto, 401 sin auth. Suite
+  completa en verde.
+- **Verificación en vivo contra DEV**: pendiente (se completa tras el
+  deploy de este PR).

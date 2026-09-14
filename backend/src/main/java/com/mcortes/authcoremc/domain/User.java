@@ -48,6 +48,13 @@ public class User {
     @Column(name = "password_hash")
     private String passwordHash;
 
+    /** Ticket 060 -- ambos nullable, editables desde "Mi Perfil" (galgoth-studio). Datos de identidad de la persona, no de producto (a diferencia de las preferencias, que viven en galgoth-studio). */
+    @Column
+    private String country;
+
+    @Column
+    private String username;
+
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified;
 
@@ -113,6 +120,14 @@ public class User {
 
     public String getPasswordHash() {
         return passwordHash;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public String getUsername() {
+        return username;
     }
 
     public boolean isEmailVerified() {
@@ -194,5 +209,29 @@ public class User {
         }
         this.email = newEmail;
         this.emailVerified = true;
+    }
+
+    /**
+     * Ticket 060 ("Mi Perfil", galgoth-studio) -- {@code country}/{@code
+     * username} are optional (blank/null clears them); the caller
+     * (AccountProfileService) owns username-uniqueness validation before
+     * calling this — the DB constraint (`app_user_tenant_username_unique`)
+     * is defense in depth, not the primary error path.
+     */
+    public void updateProfile(String nombre, String apellidos, String country, String username) {
+        if (nombre == null || nombre.isBlank()) {
+            throw new IllegalArgumentException("nombre must not be blank");
+        }
+        if (apellidos == null || apellidos.isBlank()) {
+            throw new IllegalArgumentException("apellidos must not be blank");
+        }
+        this.nombre = nombre;
+        this.apellidos = apellidos;
+        this.country = blankToNull(country);
+        this.username = blankToNull(username);
+    }
+
+    private static String blankToNull(String value) {
+        return (value == null || value.isBlank()) ? null : value;
     }
 }
