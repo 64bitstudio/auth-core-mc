@@ -26,6 +26,13 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
+/**
+ * Ticket 071 -- este endpoint se quedó deliberadamente sin migrar a JWT
+ * (ver Javadoc de {@link EmailVerificationController}), así que sus tests
+ * originales (@WebMvcTest, servicio mockeado) siguen siendo el patrón
+ * correcto acá -- a diferencia de {@code EmailChangeControllerTest}/
+ * {@code TwoFactorControllerTest}, que sí pasaron a end-to-end reales.
+ */
 @WebMvcTest(EmailVerificationController.class)
 @Import(SecurityConfig.class)
 class EmailVerificationControllerTest {

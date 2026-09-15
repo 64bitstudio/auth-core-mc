@@ -32,18 +32,24 @@ import org.springframework.web.bind.annotation.RequestParam;
  * ticket 007's {@code /oauth2/authorize} already uses a {@code client_id}
  * query parameter for the same reason.
  *
- * <p><b>Why {@code /ui/cuenta} doesn't ask for a userId</b>: the flows it
- * exposes (resend verification, change email, 2FA) all need one, but
- * asking a visitor to type their own UUID would be poor UX and pointless
- * to expose as a raw field. Instead, a successful {@code /ui/register} or
- * {@code /ui/login} stores it in {@code sessionStorage} client-side (see
- * {@code api.js}), and this page reads it back from there. This is a
- * client-side convenience, NOT a real server-enforced session — it
- * extends the same deliberate, documented temporary trust boundary
- * tickets 003/005 already accepted for these same endpoints (see
- * docs/ARQUITECTURA.md, ticket 009, for the full rationale and what a
- * real session-based integration with ticket 007's tokens would still
- * need to add).
+ * <p><b>Why {@code /ui/cuenta} still remembers a userId</b> (hallazgo real
+ * de seguridad, 2026-09-15, ticket 071, corregido para 2 de 3 flujos):
+ * hasta esa fecha, change email y 2FA de verdad CONFIABAN un {@code
+ * userId} mandado desde el body sin ninguna autenticación real (el
+ * "deliberate, temporary trust boundary" de tickets 003/005/{@code
+ * TenantScopedUserResolver}, nunca migrado tras el Authorization Server
+ * real del ticket 007) — encadenado con que galgoth-studio expone el UUID
+ * real del dueño de un proyecto público (`ProjectSummary.avatarUrl`), esto
+ * permitía secuestro completo de cuenta. Esos 2 controllers ahora sacan
+ * el usuario exclusivamente del JWT verificado, nunca del body — ver el
+ * docstring de {@code EmailChangeController} para el detalle completo.
+ * {@code verify-email/request} se queda deliberadamente como estaba (ver
+ * Javadoc de {@code EmailVerificationController} para el porqué exacto),
+ * así que esta página TODAVÍA necesita el {@code userId} de {@code
+ * sessionStorage} para ese único caso — el resto de sus usos aquí (decidir
+ * si mostrar la página o mandar a {@code /ui/login} vía
+ * {@code requireSession()}) siguen siendo pura conveniencia de UI, nunca
+ * la puerta real de la API (ver {@code api.js}).
  */
 @Controller
 @RequestMapping("/ui")

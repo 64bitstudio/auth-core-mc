@@ -8,20 +8,29 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * Loads a user by id and verifies it belongs to the tenant resolved for the
- * request — used by every endpoint that (until ticket 007 adds real
- * bearer-token authentication) has no session/principal to read "the
- * current user" from, and so has to accept a client-supplied userId
- * instead.
+ * Loads a user by id and verifies it belongs to the tenant resolved for
+ * the request -- the one remaining caller (after ticket 071) is {@link
+ * EmailVerificationController}, which accepts a client-supplied {@code
+ * userId} deliberately and permanently, not as a stopgap anymore.
  *
- * <p>THIS IS A DELIBERATE, TEMPORARY TRUST BOUNDARY, not an oversight: a
- * caller who knows (or guesses) someone else's userId can trigger a
- * verification/change-email *request* for them — annoying (email spam,
- * bounded by {@link com.mcortes.authcoremc.security.Cooldown}) but not
- * exploitable, because completing any of these flows still requires
- * possessing the token sent to an inbox the caller doesn't control. Ticket
- * 007 replaces the client-supplied userId with the authenticated principal
- * from a real access token, closing even that annoyance-level gap.
+ * <p>Originally (tickets 003/005) this backed {@code
+ * EmailChangeController} and {@code TwoFactorController} too, as a
+ * temporary trust boundary meant to be replaced once a real Authorization
+ * Server existed (ticket 007). It was never migrated after 007 landed,
+ * and ticket 071 (2026-09-15, real security finding) found that gap
+ * genuinely exploitable for those two: {@code change-email} sends its
+ * confirmation to whatever new address the CALLER chooses, and {@code
+ * 2fa/totp/enroll} hands the secret straight back in the response without
+ * involving any channel the account owner controls -- both migrated to
+ * a real Bearer JWT.
+ *
+ * <p>{@code verify-email/request} stayed on this resolver, deliberately:
+ * it only ever resends to the address ALREADY on the account, rate-limited
+ * by its own cooldown -- guessing someone else's userId here is bounded
+ * annoyance (an unwanted email), never a path to hijacking anything. See
+ * {@link EmailVerificationController}'s Javadoc for the full reasoning,
+ * including the real caller (galgoth-studio's post-registration
+ * auto-send) that a Bearer-only requirement would have broken outright.
  */
 @Component
 public class TenantScopedUserResolver {

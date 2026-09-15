@@ -90,10 +90,24 @@ public class SecurityConfig {
                                     // real credential (peeked, not consumed — see
                                     // TwoFactorLoginController).
                                     "/api/v1/login/2fa-resend",
+                                    // Hallazgo real de seguridad (2026-09-15, ticket 071): SOLO
+                                    // change-email/confirm sigue público de estos dos -- ese paso ya
+                                    // usa el token emailado como única credencial real (mismo
+                                    // criterio que 2fa-verify arriba). change-email/request se movió
+                                    // a autenticado (JWT real) porque confiaba un userId del body sin
+                                    // verificar nada, mandando la confirmación a una dirección que EL
+                                    // ATACANTE elige -- ver el docstring de EmailChangeController
+                                    // para el detalle completo. /api/v1/2fa/** por la misma razón ya
+                                    // NO está en esta lista -- las 5 rutas caen bajo
+                                    // anyRequest().authenticated() de abajo.
+                                    //
+                                    // /api/v1/verify-email/** SÍ se queda completo aquí (a propósito,
+                                    // no un descuido): a diferencia de change-email/2fa, ese endpoint
+                                    // solo reenvía a la dirección YA registrada de la cuenta -- ver el
+                                    // docstring de EmailVerificationController para el porqué exacto.
                                     "/api/v1/verify-email/**",
-                                    "/api/v1/change-email/**",
+                                    "/api/v1/change-email/confirm",
                                     "/api/v1/password-reset/**",
-                                    "/api/v1/2fa/**",
                                     "/api/v1/token/**",
                                     // Ticket 018: break-glass — deliberately NOT gated by the JWT/role
                                     // rule below, on purpose: it exists specifically for when that

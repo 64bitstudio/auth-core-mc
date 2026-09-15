@@ -166,6 +166,10 @@
     });
 
     const status = document.getElementById("status");
+    // Ticket 071: el único caller restante de este trust boundary --
+    // verify-email/request se quedó deliberadamente sin migrar a JWT (ver
+    // Javadoc de EmailVerificationController), así que sigue necesitando
+    // el userId leído de sessionStorage.
     const userId = () => AuthCoreUi.currentUserId();
 
     // Ticket 041 (HU-5): reveal "Establecer contraseña" only when this
@@ -194,6 +198,16 @@
       }
     });
 
+    // Hallazgo real de seguridad (2026-09-15, ticket 071): las otras 6
+    // llamadas de abajo (change-email + las 5 de 2FA) usaban AuthCoreUi.call
+    // (X-Client-Id + userId del body, sin autenticación real) -- migradas a
+    // callAuthenticated (Bearer JWT real), mismo patrón que "Establecer
+    // contraseña" ya usaba desde el ticket 041. El servidor ya no acepta
+    // userId en ninguno de esos bodies. verify-email/request, justo abajo,
+    // es la excepción deliberada -- se queda con AuthCoreUi.call/userId()
+    // a propósito (ver Javadoc de EmailVerificationController). Ver el
+    // docstring de EmailChangeController/TwoFactorController para el
+    // detalle completo de por qué las otras 6 sí eran explotables.
     const resendBtn = document.getElementById("resend-verification-btn");
     resendBtn.addEventListener("click", async () => {
       try {
@@ -210,8 +224,7 @@
       e.preventDefault();
       try {
         await AuthCoreUi.withBusy(e.submitter, async () => {
-          await AuthCoreUi.call("/api/v1/change-email/request", {
-            userId: userId(),
+          await AuthCoreUi.callAuthenticated("POST", "/api/v1/change-email/request", {
             newEmail: e.target.newEmail.value,
           });
           AuthCoreUi.showStatus(status, "Confirmación enviada al nuevo correo.", false);
@@ -225,7 +238,7 @@
       e.preventDefault();
       try {
         await AuthCoreUi.withBusy(e.submitter, async () => {
-          await AuthCoreUi.call("/api/v1/2fa/otp/request", { userId: userId() });
+          await AuthCoreUi.callAuthenticated("POST", "/api/v1/2fa/otp/request");
           AuthCoreUi.showStatus(status, "Código OTP enviado.", false);
         });
       } catch (err) {
@@ -237,7 +250,7 @@
       e.preventDefault();
       try {
         await AuthCoreUi.withBusy(e.submitter, async () => {
-          await AuthCoreUi.call("/api/v1/2fa/otp/verify", { userId: userId(), code: e.target.code.value });
+          await AuthCoreUi.callAuthenticated("POST", "/api/v1/2fa/otp/verify", { code: e.target.code.value });
           AuthCoreUi.showStatus(status, "Código OTP verificado.", false);
         });
       } catch (err) {
@@ -249,7 +262,7 @@
       e.preventDefault();
       try {
         await AuthCoreUi.withBusy(e.submitter, async () => {
-          const result = await AuthCoreUi.call("/api/v1/2fa/totp/enroll", { userId: userId() });
+          const result = await AuthCoreUi.callAuthenticated("POST", "/api/v1/2fa/totp/enroll");
           const secretEl = document.getElementById("totp-secret");
           secretEl.textContent =
             "Secreto (guárdalo/escanéalo ahora, no se vuelve a mostrar): " + result.secret;
@@ -265,7 +278,7 @@
       e.preventDefault();
       try {
         await AuthCoreUi.withBusy(e.submitter, async () => {
-          await AuthCoreUi.call("/api/v1/2fa/totp/verify", { userId: userId(), code: e.target.code.value });
+          await AuthCoreUi.callAuthenticated("POST", "/api/v1/2fa/totp/verify", { code: e.target.code.value });
           AuthCoreUi.showStatus(status, "Código TOTP verificado.", false);
         });
       } catch (err) {
@@ -277,7 +290,7 @@
       e.preventDefault();
       try {
         await AuthCoreUi.withBusy(e.submitter, async () => {
-          await AuthCoreUi.call("/api/v1/2fa/method", { userId: userId(), method: e.target.method.value });
+          await AuthCoreUi.callAuthenticated("POST", "/api/v1/2fa/method", { method: e.target.method.value });
           AuthCoreUi.showStatus(status, "Método de 2FA actualizado.", false);
         });
       } catch (err) {
