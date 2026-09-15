@@ -8,6 +8,7 @@ import com.mcortes.authcoremc.service.InvalidTokenException;
 import com.mcortes.authcoremc.service.NoPasswordSetException;
 import com.mcortes.authcoremc.service.NotFirstPartyClientException;
 import com.mcortes.authcoremc.service.PasswordAlreadySetException;
+import com.mcortes.authcoremc.service.ProviderAlreadyLinkedException;
 import com.mcortes.authcoremc.service.SessionNotFoundException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
 import com.mcortes.authcoremc.service.UnsupportedProviderException;
@@ -71,6 +72,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SessionNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleSessionNotFound(SessionNotFoundException e) {
         return error(HttpStatus.NOT_FOUND, "session_not_found", e.getMessage());
+    }
+
+    @ExceptionHandler(ProviderAlreadyLinkedException.class)
+    public ResponseEntity<ErrorResponse> handleProviderAlreadyLinked(ProviderAlreadyLinkedException e) {
+        return error(HttpStatus.CONFLICT, "provider_already_linked", e.getMessage());
     }
 
     @ExceptionHandler(PasswordAlreadySetException.class)

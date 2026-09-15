@@ -176,6 +176,25 @@ fila se marca como actual (la lista sigue funcionando igual).
 | DELETE | `/api/v1/account/sessions/{id}` | Header `Authorization: Bearer <accessToken>` | `204`, o `404 session_not_found` si no existe o no pertenece al usuario autenticado (nunca se distingue cuál de las dos) |
 | POST | `/api/v1/account/sessions/revoke-others` | Header `Authorization: Bearer <accessToken>`; opcional `X-Current-Refresh-Token: <refreshToken>` | `204` — revoca todas las sesiones del usuario excepto la que coincide con el header (sin el header, revoca todas) |
 
+## Vincular una cuenta social nueva desde el perfil (ticket `063`, "Mi Perfil" de galgoth-studio)
+A diferencia del login social (ticket 037+), acá el usuario YA tiene una
+sesión válida — solo Google/Facebook están soportados (Apple queda fuera
+de alcance, `400 unsupported_provider`). El `client_id` se toma del claim
+`aud` del propio JWT, no de un header aparte.
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| GET | `/api/v1/account/connected-providers` | Header `Authorization: Bearer <accessToken>` | `200` + lista de `ConnectedProviderSummary` (`provider`, `linked`) para Google y Facebook, reflejando `external_identity` real |
+| POST | `/api/v1/account/link-provider/{provider}` | Header `Authorization: Bearer <accessToken>`; `{provider}` = `google` o `facebook` | `200` + `{redirectUrl}` — el FRONTEND navega el navegador completo a esa URL (mismo mecanismo `/oauth2/authorization/{registrationId}` que ya usa el login social), o `400 unsupported_provider` |
+
+Al volver de Google/Facebook, el resultado aterriza en
+`{origin propio del cliente}/usuario` con `?linked={provider}` (éxito) o
+`?link_error={no_email|already_linked|user_not_found}` — nunca emite
+tokens nuevos (la sesión ya era válida desde antes de salir al
+proveedor). `already_linked` significa que esa cuenta social ya
+pertenece a OTRO usuario del mismo tenant — nunca se reasigna ni se
+desvincula del original.
+
 ## Configuración de login social por tenant (ticket `006`)
 Requiere autenticación (ver advertencia arriba). Header `X-Client-Id` (no un `tenantId` en la ruta — el tenant siempre es el que resuelve el header, así un cliente nunca puede tocar la configuración de otro).
 
