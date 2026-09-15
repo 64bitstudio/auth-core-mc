@@ -69,16 +69,22 @@ public class DirectTokenService {
         this.refreshTokenRepository = refreshTokenRepository;
     }
 
-    /** Sin `userAgent` -- preserva el comportamiento histórico para callers/tests que no lo tienen a mano (ver {@link #issueTokens(IdentityClient, User, String)}). */
+    /** Sin `userAgent`/`clientIp` -- preserva el comportamiento histórico para callers/tests que no los tienen a mano (ver {@link #issueTokens(IdentityClient, User, String, String)}). */
     @Transactional
     public TokenPair issueTokens(IdentityClient client, User user) {
-        return doIssueTokens(client, user, null);
+        return doIssueTokens(client, user, null, null);
     }
 
-    /** Ticket 062 -- {@code userAgent} (header `User-Agent` del request real de login/2FA-verify, nullable) queda registrado en `refresh_token` para "Sesiones activas". */
+    /** Ticket 062 -- {@code userAgent} (header `User-Agent` del request real de login/2FA-verify, nullable) queda registrado en `refresh_token` para "Sesiones activas". Sin `clientIp` -- preserva el comportamiento histórico para callers/tests de antes del ticket 070. */
     @Transactional
     public TokenPair issueTokens(IdentityClient client, User user, String userAgent) {
-        return doIssueTokens(client, user, userAgent);
+        return doIssueTokens(client, user, userAgent, null);
+    }
+
+    /** Ticket 070 -- {@code clientIp} (nullable, {@code request.getRemoteAddr()} del request real de login/2FA-verify) queda registrado en `refresh_token` para geolocalizar "Sesiones activas". */
+    @Transactional
+    public TokenPair issueTokens(IdentityClient client, User user, String userAgent, String clientIp) {
+        return doIssueTokens(client, user, userAgent, clientIp);
     }
 
     /**
@@ -99,7 +105,7 @@ public class DirectTokenService {
      * posterior falla igual por "token inválido/revocado", sin necesidad
      * de duplicar la regla.
      */
-    private TokenPair doIssueTokens(IdentityClient client, User user, String userAgent) {
+    private TokenPair doIssueTokens(IdentityClient client, User user, String userAgent, String clientIp) {
         if (!client.isFirstParty()) {
             throw new NotFirstPartyClientException();
         }
@@ -114,7 +120,7 @@ public class DirectTokenService {
         Instant expiresAt = Instant.now().plusSeconds(
                 registeredClient.getTokenSettings().getRefreshTokenTimeToLive().getSeconds());
         refreshTokenRepository.save(
-                new RefreshToken(user, client, TokenHasher.sha256(rawRefreshToken), expiresAt, userAgent));
+                new RefreshToken(user, client, TokenHasher.sha256(rawRefreshToken), expiresAt, userAgent, clientIp));
 
         long expiresInSeconds = registeredClient.getTokenSettings().getAccessTokenTimeToLive().getSeconds();
         return new TokenPair(accessToken.getTokenValue(), rawRefreshToken, "Bearer", expiresInSeconds);

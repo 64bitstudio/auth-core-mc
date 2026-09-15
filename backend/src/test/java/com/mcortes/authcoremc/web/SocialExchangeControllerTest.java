@@ -100,7 +100,7 @@ class SocialExchangeControllerTest {
         when(redisTokenStore.consume(SocialLoginSuccessHandler.EXCHANGE_PURPOSE, "one-time-code"))
                 .thenReturn(Optional.of(user.getId().toString()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any()))
+        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any(), any()))
                 .thenReturn(LoginCompletionResult.completed(
                         user, new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900)));
 
@@ -136,7 +136,7 @@ class SocialExchangeControllerTest {
         when(redisTokenStore.consume(SocialLoginSuccessHandler.EXCHANGE_PURPOSE, "one-time-code"))
                 .thenReturn(Optional.of(user.getId().toString()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any()))
+        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any(), any()))
                 .thenReturn(LoginCompletionResult.twoFactorRequired("pending-token-abc", TwoFactorMethod.OTP_EMAIL));
 
         mvc.post()
@@ -176,7 +176,7 @@ class SocialExchangeControllerTest {
                 .contains("invalid_token");
 
         verify(userRepository, never()).findById(any());
-        verify(loginCompletionService, never()).complete(any(), any());
+        verify(loginCompletionService, never()).complete(any(), any(), any(), any());
     }
 
     @Test
@@ -262,7 +262,7 @@ class SocialExchangeControllerTest {
                 .bodyText()
                 .contains("invalid_token");
 
-        verify(loginCompletionService, never()).complete(any(), any());
+        verify(loginCompletionService, never()).complete(any(), any(), any(), any());
     }
 
     /** Same regression shape as AuthControllerTest's — see SecurityConfig's Javadoc. */

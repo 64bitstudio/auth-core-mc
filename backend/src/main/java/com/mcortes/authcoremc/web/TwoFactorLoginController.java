@@ -11,6 +11,7 @@ import com.mcortes.authcoremc.service.LoginCompletionService;
 import com.mcortes.authcoremc.service.OtpService;
 import com.mcortes.authcoremc.service.TokenPair;
 import com.mcortes.authcoremc.service.TotpService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -88,7 +89,8 @@ public class TwoFactorLoginController {
     public ResponseEntity<LoginResponse> verify(
             @RequestHeader("X-Client-Id") String clientId,
             @RequestHeader(value = "User-Agent", required = false) String userAgent,
-            @Valid @RequestBody TwoFactorVerifyRequest request) {
+            @Valid @RequestBody TwoFactorVerifyRequest request,
+            HttpServletRequest servletRequest) {
         String value = redisTokenStore
                 .consume(LoginCompletionService.PENDING_2FA_PURPOSE, request.pendingToken())
                 .orElseThrow(TwoFactorLoginController::invalidPendingToken);
@@ -100,7 +102,8 @@ public class TwoFactorLoginController {
 
         verifyCode(user, request.code());
 
-        TokenPair tokens = directTokenService.issueTokens(client, user, userAgent);
+        // Ticket 070 -- ver docstring de AuthController.login sobre por qué getRemoteAddr() ya es confiable acá.
+        TokenPair tokens = directTokenService.issueTokens(client, user, userAgent, servletRequest.getRemoteAddr());
         return ResponseEntity.ok(new LoginResponse(UserResponse.from(user), tokens));
     }
 

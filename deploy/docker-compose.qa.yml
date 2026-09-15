@@ -45,6 +45,10 @@ services:
       BREAKGLASS_SECRET: ${BREAKGLASS_SECRET:-}
       BREAKGLASS_TOTP_SECRET: ${BREAKGLASS_TOTP_SECRET:-}
       BREAKGLASS_ALLOWED_IPS: ${BREAKGLASS_ALLOWED_IPS:-}
+      # Ticket 070: ver docker-compose.dev.yml para el detalle completo.
+      GEOIP_DATABASE_PATH: /data/geoip/GeoLite2-City.mmdb
+    volumes:
+      - auth_core_mc_qa_geoip:/data/geoip:ro
     ports:
       - "8082:8080"
     networks:
@@ -97,6 +101,18 @@ services:
       timeout: 5s
       retries: 10
 
+  # Ticket 070: ver docker-compose.dev.yml para el detalle completo.
+  geoipupdate:
+    image: ghcr.io/maxmind/geoipupdate:v8.0.0
+    restart: on-failure
+    environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID:-}
+      GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+      GEOIPUPDATE_EDITION_IDS: GeoLite2-City
+      GEOIPUPDATE_FREQUENCY: "168"
+    volumes:
+      - auth_core_mc_qa_geoip:/usr/share/GeoIP
+
 networks:
   edge:
     external: true
@@ -106,3 +122,4 @@ networks:
 volumes:
   auth_core_mc_qa_pgdata:
   auth_core_mc_qa_redisdata:
+  auth_core_mc_qa_geoip:

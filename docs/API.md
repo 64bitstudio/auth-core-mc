@@ -174,7 +174,7 @@ fila se marca como actual (la lista sigue funcionando igual).
 
 | Método | Ruta | Qué recibe | Qué responde |
 |---|---|---|---|
-| GET | `/api/v1/account/sessions` | Header `Authorization: Bearer <accessToken>`; opcional `X-Current-Refresh-Token: <refreshToken>` | `200` + lista de `SessionSummary` (id, browser, os, createdAt, lastUsedAt, current), más recientes primero. Solo sesiones no revocadas y no expiradas. |
+| GET | `/api/v1/account/sessions` | Header `Authorization: Bearer <accessToken>`; opcional `X-Current-Refresh-Token: <refreshToken>` | `200` + lista de `SessionSummary` (id, browser, os, city, country, createdAt, lastUsedAt, current), más recientes primero. Solo sesiones no revocadas y no expiradas. `city`/`country` (ticket `070`, revierte la decisión explícita del ticket `062` de no geolocalizar) son `null` de forma independiente si la IP no resuelve (privada, no reconocida, o la base de datos GeoLite2 todavía no está disponible) — nunca un error. |
 | DELETE | `/api/v1/account/sessions/{id}` | Header `Authorization: Bearer <accessToken>` | `204`, o `404 session_not_found` si no existe o no pertenece al usuario autenticado (nunca se distingue cuál de las dos) |
 | POST | `/api/v1/account/sessions/revoke-others` | Header `Authorization: Bearer <accessToken>`; opcional `X-Current-Refresh-Token: <refreshToken>` | `204` — revoca todas las sesiones del usuario excepto la que coincide con el header (sin el header, revoca todas) |
 
