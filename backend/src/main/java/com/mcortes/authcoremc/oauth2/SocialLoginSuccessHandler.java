@@ -5,8 +5,11 @@ import com.mcortes.authcoremc.domain.IdentityProviderType;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.repository.IdentityClientRepository;
+import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.RedisTokenStore;
+import com.mcortes.authcoremc.service.ExternalIdentityLinkService;
 import com.mcortes.authcoremc.service.LoginEventRecorder;
+import com.mcortes.authcoremc.service.ProviderAlreadyLinkedException;
 import com.mcortes.authcoremc.service.SocialLoginBlockedException;
 import com.mcortes.authcoremc.service.SocialLoginUserResolver;
 import com.mcortes.authcoremc.service.SocialProfile;
@@ -14,13 +17,16 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * What happens when Google/Facebook hand back a confirmed identity (ticket
@@ -82,16 +88,22 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
     private final SocialLoginUserResolver socialLoginUserResolver;
     private final RedisTokenStore redisTokenStore;
     private final LoginEventRecorder loginEventRecorder;
+    private final UserRepository userRepository;
+    private final ExternalIdentityLinkService externalIdentityLinkService;
 
     public SocialLoginSuccessHandler(
             IdentityClientRepository identityClientRepository,
             SocialLoginUserResolver socialLoginUserResolver,
             RedisTokenStore redisTokenStore,
-            LoginEventRecorder loginEventRecorder) {
+            LoginEventRecorder loginEventRecorder,
+            UserRepository userRepository,
+            ExternalIdentityLinkService externalIdentityLinkService) {
         this.identityClientRepository = identityClientRepository;
         this.socialLoginUserResolver = socialLoginUserResolver;
         this.redisTokenStore = redisTokenStore;
         this.loginEventRecorder = loginEventRecorder;
+        this.userRepository = userRepository;
+        this.externalIdentityLinkService = externalIdentityLinkService;
     }
 
     @Override
@@ -119,13 +131,29 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
         Tenant tenant = identityClient.getTenant();
         IdentityProviderType provider = parsed.get().provider();
 
+        // Ticket 063 -- consumido ANTES del chequeo de perfil/email de abajo,
+        // para que un intento de vínculo sin permiso de email también
+        // aterrice en la pantalla de perfil (no en la de login) con su
+        // propio error, y para que la intención vieja nunca sobreviva a un
+        // login normal posterior en la misma sesión de navegador.
+        Optional<UUID> linkIntentUserId = LinkIntentSession.consume(request);
+
         SocialProfile profile = extractProfile(authentication.getPrincipal());
         if (profile == null) {
             // HU-1: Facebook without the email permission (or, defensively,
             // an unrecognized principal type) — never invent an identifier.
+            if (linkIntentUserId.isPresent()) {
+                redirectLinkOutcome(response, identityClient, "link_error", "no_email");
+                return;
+            }
             long elapsed = System.currentTimeMillis() - startedAt;
             loginEventRecorder.recordFailure(tenant, provider.name(), elapsed);
             redirectToError(response, identityClient, "social_login_no_email");
+            return;
+        }
+
+        if (linkIntentUserId.isPresent()) {
+            handleLinkOutcome(response, identityClient, tenant, provider, profile, linkIntentUserId.get());
             return;
         }
 
@@ -172,5 +200,53 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
     private static void redirectToError(HttpServletResponse response, IdentityClient identityClient, String errorCode)
             throws IOException {
         response.sendRedirect(SocialLoginRedirect.buildUri(identityClient, LOGIN_PATH, "error", errorCode));
+    }
+
+    /**
+     * Ticket 063 -- a diferencia del login (que mintea tokens vía el código
+     * de intercambio), acá la sesión del usuario YA era válida desde antes
+     * de salir a Google/Facebook — no hace falta emitir nada, solo
+     * confirmar el vínculo y volver a la pantalla de perfil.
+     */
+    private void handleLinkOutcome(
+            HttpServletResponse response,
+            IdentityClient identityClient,
+            Tenant tenant,
+            IdentityProviderType provider,
+            SocialProfile profile,
+            UUID userId)
+            throws IOException {
+        Optional<User> user = userRepository.findById(userId);
+        if (user.isEmpty()) {
+            // Defensivo -- la sesión sobrevivió pero el usuario ya no existe (p. ej. cuenta eliminada, ticket 064).
+            redirectLinkOutcome(response, identityClient, "link_error", "user_not_found");
+            return;
+        }
+        try {
+            externalIdentityLinkService.link(tenant, user.get(), provider, profile);
+            redirectLinkOutcome(response, identityClient, "linked", provider.name().toLowerCase(Locale.ROOT));
+        } catch (ProviderAlreadyLinkedException e) {
+            redirectLinkOutcome(response, identityClient, "link_error", "already_linked");
+        }
+    }
+
+    /**
+     * A diferencia de {@link SocialLoginRedirect#buildUri} (que aterriza en
+     * el {@code redirect_uri} exacto del login social), esto vuelve a la
+     * pantalla de perfil del cliente ({@code ownUiOrigin() + "/usuario"}) —
+     * un destino distinto en el mismo dominio propio del cliente. Sin
+     * dominio propio configurado, cae al login hospedado con el error, un
+     * fallback razonable ya que hoy solo galgoth-studio (que sí hostea su
+     * propia UI) usa esta función.
+     */
+    private static void redirectLinkOutcome(
+            HttpServletResponse response, IdentityClient identityClient, String paramName, String paramValue)
+            throws IOException {
+        UriComponentsBuilder builder = identityClient
+                .ownUiOrigin()
+                .map(origin -> UriComponentsBuilder.fromUriString(origin).path("/usuario"))
+                .orElseGet(() ->
+                        UriComponentsBuilder.fromPath(LOGIN_PATH).queryParam("client_id", identityClient.getClientId()));
+        response.sendRedirect(builder.queryParam(paramName, paramValue).encode().build().toUriString());
     }
 }

@@ -56,3 +56,47 @@ ya construido para el login social (tickets 036-038).
   `external_identity` y que la sesión original sigue intacta.
 
 ## Hecho
+- **Desviación deliberada del documento de definición, documentada aquí
+  en vez de aplicada en silencio**: el diseño original proponía llevar la
+  intención de vínculo en el `state` de la request OAuth (vía
+  `RedisTokenStore`). Al implementar se encontró un mecanismo más simple
+  y ya existente: Spring ya crea una sesión HTTP para correlacionar el
+  redirect de `oauth2Login` con su callback (ver el propio Javadoc de
+  `SecurityConfig`, "no se usa como auth continua, solo como
+  correlación"). `LinkIntentSession` reutiliza esa MISMA sesión (un
+  atributo de un solo uso) en vez de tocar el `state` de OAuth2 (que es
+  responsabilidad interna de Spring Security, un CSRF token, no un lugar
+  para meter datos de negocio) o construir un resolver de autorización
+  OAuth2 a medida. Mismo resultado funcional, superficie de cambio mucho
+  más chica.
+- `GET /api/v1/account/connected-providers`, `POST
+  /api/v1/account/link-provider/{provider}` (`AccountLinkProviderController`)
+  — `client_id` se lee del claim `aud` del JWT, no de un header aparte.
+  Apple explícitamente rechazado (`UnsupportedProviderException`, mismo
+  patrón que `TenantIdentityProviderService`).
+- `ExternalIdentityLinkService`: `link(...)` (conflicto real vs. no-op
+  idempotente vs. inserción nueva) + `listConnected(...)`.
+- `SocialLoginSuccessHandler` bifurca al inicio: con intención de vínculo
+  en la sesión, nunca llama a `SocialLoginUserResolver.resolve(...)` ni
+  emite tokens — llama a `ExternalIdentityLinkService.link(...)` y
+  redirige a `{origen propio del cliente}/usuario` con
+  `linked=`/`link_error=`. La intención se consume (borra) al leerla, así
+  que un login normal posterior en la misma sesión de navegador nunca la
+  hereda (probado explícitamente).
+- `docs/API.md` actualizado.
+- Tests: 4 casos nuevos en `SocialLoginSuccessHandlerTest` (vínculo
+  exitoso sin tocar el resolver de login, proveedor ya vinculado a otro
+  usuario rechazado, consumo de un solo uso, sin email redirige al
+  perfil no al login) — mismo patrón que los tests de login social ya
+  existentes (simulan el `Authentication` que Spring produce tras el
+  consentimiento real, no hay forma de automatizar el consentimiento de
+  un proveedor externo en un test). `AccountLinkProviderControllerTest`
+  (real JWT/DB) para las 2 piezas puramente REST. Suite completa en
+  verde.
+- **Verificación en vivo contra DEV**: pendiente (se completa tras el
+  deploy de este PR — dado que completar el consentimiento real de
+  Google/Facebook requiere un humano en un navegador, se verifica lo
+  automatizable por HTTP: `connected-providers` real y que
+  `link-provider` devuelve una URL real de
+  `/oauth2/authorization/{registrationId}` que en efecto redirige a
+  Google).

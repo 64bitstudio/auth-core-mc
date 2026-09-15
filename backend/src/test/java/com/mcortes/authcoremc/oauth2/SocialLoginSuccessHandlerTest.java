@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -13,8 +14,11 @@ import com.mcortes.authcoremc.domain.IdentityProviderType;
 import com.mcortes.authcoremc.domain.Tenant;
 import com.mcortes.authcoremc.domain.User;
 import com.mcortes.authcoremc.repository.IdentityClientRepository;
+import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.RedisTokenStore;
+import com.mcortes.authcoremc.service.ExternalIdentityLinkService;
 import com.mcortes.authcoremc.service.LoginEventRecorder;
+import com.mcortes.authcoremc.service.ProviderAlreadyLinkedException;
 import com.mcortes.authcoremc.service.SocialLoginBlockedException;
 import com.mcortes.authcoremc.service.SocialLoginUserResolver;
 import com.mcortes.authcoremc.service.SocialProfile;
@@ -51,9 +55,16 @@ class SocialLoginSuccessHandlerTest {
     @Mock
     private LoginEventRecorder loginEventRecorder;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private ExternalIdentityLinkService externalIdentityLinkService;
+
     private SocialLoginSuccessHandler handler() {
         return new SocialLoginSuccessHandler(
-                identityClientRepository, socialLoginUserResolver, redisTokenStore, loginEventRecorder);
+                identityClientRepository, socialLoginUserResolver, redisTokenStore, loginEventRecorder,
+                userRepository, externalIdentityLinkService);
     }
 
     private static Tenant tenantFixture() {
@@ -249,5 +260,108 @@ class SocialLoginSuccessHandlerTest {
                 request, response, new UsernamePasswordAuthenticationToken("someone", null, List.of()));
 
         assertThat(response.getRedirectedUrl()).isEqualTo("/ui/social-login-error");
+    }
+
+    // -- Ticket 063: vincular cuenta social nueva desde el perfil --------
+
+    @Test
+    void withALinkIntentInTheSessionLinksToThatUserAndRedirectsToTheProfileInsteadOfLoggingIn() throws Exception {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = ownUiClientFixture(tenant);
+        String registrationId = client.getId() + "::google";
+        User currentUser = new User(tenant, "current@example.com", null, "Current", "User", "hash");
+        ReflectionTestUtils.setField(currentUser, "id", UUID.randomUUID());
+
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+        when(userRepository.findById(currentUser.getId())).thenReturn(Optional.of(currentUser));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        LinkIntentSession.store(request, currentUser.getId());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler().onAuthenticationSuccess(request, response, googleToken(registrationId, "ada@example.com", true));
+
+        verify(externalIdentityLinkService)
+                .link(eq(tenant), eq(currentUser), eq(IdentityProviderType.GOOGLE), any(SocialProfile.class));
+        verify(socialLoginUserResolver, never()).resolve(any(), any(), any());
+        assertThat(response.getRedirectedUrl())
+                .startsWith("https://studio.galgoth.64bitstudio.com/usuario")
+                .contains("linked=google");
+    }
+
+    @Test
+    void aProviderAlreadyLinkedToAnotherUserRedirectsWithAnError() throws Exception {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = ownUiClientFixture(tenant);
+        String registrationId = client.getId() + "::google";
+        User currentUser = new User(tenant, "current@example.com", null, "Current", "User", "hash");
+        ReflectionTestUtils.setField(currentUser, "id", UUID.randomUUID());
+
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+        when(userRepository.findById(currentUser.getId())).thenReturn(Optional.of(currentUser));
+        doThrow(new ProviderAlreadyLinkedException())
+                .when(externalIdentityLinkService)
+                .link(eq(tenant), eq(currentUser), eq(IdentityProviderType.GOOGLE), any(SocialProfile.class));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        LinkIntentSession.store(request, currentUser.getId());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler().onAuthenticationSuccess(request, response, googleToken(registrationId, "ada@example.com", true));
+
+        assertThat(response.getRedirectedUrl())
+                .startsWith("https://studio.galgoth.64bitstudio.com/usuario")
+                .contains("link_error=already_linked");
+    }
+
+    @Test
+    void aLinkIntentIsConsumedOnceAndASubsequentCallBehavesAsANormalLogin() throws Exception {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = identityClientFixture(tenant);
+        String registrationId = client.getId() + "::google";
+        User currentUser = new User(tenant, "current@example.com", null, "Current", "User", "hash");
+        ReflectionTestUtils.setField(currentUser, "id", UUID.randomUUID());
+        User resolvedUser = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", null);
+        ReflectionTestUtils.setField(resolvedUser, "id", UUID.randomUUID());
+
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+        when(userRepository.findById(currentUser.getId())).thenReturn(Optional.of(currentUser));
+        when(socialLoginUserResolver.resolve(eq(tenant), eq(IdentityProviderType.GOOGLE), any(SocialProfile.class)))
+                .thenReturn(resolvedUser);
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        LinkIntentSession.store(request, currentUser.getId());
+        MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+        handler().onAuthenticationSuccess(request, firstResponse, googleToken(registrationId, "ada@example.com", true));
+        verify(externalIdentityLinkService).link(any(), any(), any(), any());
+
+        // Misma request/sesión -- la intención ya se consumió, una segunda pasada es un login normal.
+        MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+        handler().onAuthenticationSuccess(request, secondResponse, googleToken(registrationId, "ada@example.com", true));
+
+        verify(socialLoginUserResolver).resolve(eq(tenant), eq(IdentityProviderType.GOOGLE), any(SocialProfile.class));
+        assertThat(secondResponse.getRedirectedUrl()).startsWith("/ui/social-callback");
+    }
+
+    @Test
+    void aLinkAttemptWithoutAnEmailRedirectsToTheProfileNotTheLoginPage() throws Exception {
+        Tenant tenant = tenantFixture();
+        IdentityClient client = ownUiClientFixture(tenant);
+        String registrationId = client.getId() + "::facebook";
+        User currentUser = new User(tenant, "current@example.com", null, "Current", "User", "hash");
+        ReflectionTestUtils.setField(currentUser, "id", UUID.randomUUID());
+
+        when(identityClientRepository.findById(client.getId())).thenReturn(Optional.of(client));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        LinkIntentSession.store(request, currentUser.getId());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler().onAuthenticationSuccess(request, response, facebookTokenWithoutEmail(registrationId));
+
+        assertThat(response.getRedirectedUrl())
+                .startsWith("https://studio.galgoth.64bitstudio.com/usuario")
+                .contains("link_error=no_email");
+        verify(loginEventRecorder, never()).recordFailure(any(), any(), anyLong());
     }
 }
