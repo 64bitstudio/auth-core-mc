@@ -13,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,14 +37,17 @@ public class AccountLinkProviderController {
     private final ClientContextResolver clientContextResolver;
     private final UserRepository userRepository;
     private final ExternalIdentityLinkService externalIdentityLinkService;
+    private final String baseUrl;
 
     public AccountLinkProviderController(
             ClientContextResolver clientContextResolver,
             UserRepository userRepository,
-            ExternalIdentityLinkService externalIdentityLinkService) {
+            ExternalIdentityLinkService externalIdentityLinkService,
+            @Value("${app.base-url:http://localhost:8080}") String baseUrl) {
         this.clientContextResolver = clientContextResolver;
         this.userRepository = userRepository;
         this.externalIdentityLinkService = externalIdentityLinkService;
+        this.baseUrl = baseUrl;
     }
 
     @GetMapping("/connected-providers")
@@ -58,6 +62,19 @@ public class AccountLinkProviderController {
      * navegar el navegador COMPLETO (no una llamada XHR) — el mismo
      * mecanismo `/oauth2/authorization/{registrationId}` que ya usa el
      * login social.
+     *
+     * <p>Hallazgo real (galgoth-studio ticket 093, verificación en vivo):
+     * antes devolvía una ruta relativa (`/oauth2/authorization/...`), que
+     * un caller same-origin (las páginas `/ui/**` propias de auth-core-mc,
+     * el único caller que existía hasta ticket 063) resuelve bien, pero que
+     * un caller cross-origin con `hosts_own_login_ui = true` (galgoth-
+     * studio, ticket 056) resuelve contra SU PROPIO origen —
+     * {@code window.location.href} terminaba navegando a
+     * {@code studio-dev.../oauth2/authorization/...}, una ruta que no
+     * existe ahí. Mismo patrón que {@link
+     * com.mcortes.authcoremc.notification.VerificationLinkFactory}: la URL
+     * que se manda a navegar debe ser siempre absoluta, con {@code
+     * app.base-url} como origen.
      */
     @PostMapping("/link-provider/{provider}")
     public LinkProviderResponse linkProvider(
@@ -71,7 +88,7 @@ public class AccountLinkProviderController {
         LinkIntentSession.store(request, UUID.fromString(jwt.getSubject()));
 
         String registrationId = SocialRegistrationId.of(client.getId(), providerType).toString();
-        return new LinkProviderResponse("/oauth2/authorization/" + registrationId);
+        return new LinkProviderResponse(baseUrl + "/oauth2/authorization/" + registrationId);
     }
 
     private static IdentityProviderType parseSupportedProvider(String raw) {

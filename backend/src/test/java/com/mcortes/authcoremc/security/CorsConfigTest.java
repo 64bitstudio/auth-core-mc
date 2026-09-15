@@ -43,6 +43,13 @@ class CorsConfigTest {
         assertThat(config.getAllowedHeaders()).contains("X-Current-Refresh-Token");
     }
 
+    /** Ticket 093 de galgoth-studio -- segundo hallazgo real, ver docstring de {@link CorsConfig}. */
+    @Test
+    void credentialsAreAllowedForLinkProviderSSessionCookie() {
+        CorsConfiguration config = configurationFor("https://a.example.com");
+        assertThat(config.getAllowCredentials()).isTrue();
+    }
+
     @Test
     void onlyApiV1PathsGetAConfiguration() {
         CorsConfigurationSource source = new CorsConfig("https://a.example.com").corsConfigurationSource();
