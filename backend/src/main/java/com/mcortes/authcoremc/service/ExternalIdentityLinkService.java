@@ -56,6 +56,29 @@ public class ExternalIdentityLinkService {
                                 new ExternalIdentity(tenant, user, provider, profile.providerUserId())));
     }
 
+    /**
+     * Ticket 069 -- hallazgo real de galgoth-studio#079: no existía ninguna
+     * forma de desvincular, ni protección contra quedarse sin forma de
+     * entrar. Ver {@link CannotUnlinkLastLoginMethodException}.
+     *
+     * @throws ProviderNotLinkedException si {@code provider} nunca estuvo vinculado a este usuario.
+     * @throws CannotUnlinkLastLoginMethodException si el usuario no tiene contraseña y este es su único proveedor.
+     */
+    @Transactional
+    public void unlink(User user, IdentityProviderType provider) {
+        ExternalIdentity identity = externalIdentityRepository
+                .findByUserAndProvider(user, provider)
+                .orElseThrow(ProviderNotLinkedException::new);
+
+        boolean hasPassword = user.getPasswordHash() != null;
+        long linkedCount = externalIdentityRepository.countByUser(user);
+        if (!hasPassword && linkedCount <= 1) {
+            throw new CannotUnlinkLastLoginMethodException();
+        }
+
+        externalIdentityRepository.delete(identity);
+    }
+
     @Transactional(readOnly = true)
     public List<ConnectedProviderSummary> listConnected(User user) {
         Set<IdentityProviderType> linked = externalIdentityRepository.findByUser(user).stream()

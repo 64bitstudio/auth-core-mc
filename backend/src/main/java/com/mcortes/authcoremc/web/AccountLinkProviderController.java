@@ -14,8 +14,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -89,6 +92,21 @@ public class AccountLinkProviderController {
 
         String registrationId = SocialRegistrationId.of(client.getId(), providerType).toString();
         return new LinkProviderResponse(baseUrl + "/oauth2/authorization/" + registrationId);
+    }
+
+    /**
+     * Ticket 069 -- hallazgo real de galgoth-studio#079 (el mockup de "Mi
+     * Perfil" trae un menú "···" junto a cada proveedor conectado, que no
+     * tenía ninguna acción real detrás). Nunca deja al usuario sin forma de
+     * entrar — ver {@link ExternalIdentityLinkService#unlink} y
+     * {@link com.mcortes.authcoremc.service.CannotUnlinkLastLoginMethodException}.
+     */
+    @DeleteMapping("/connected-providers/{provider}")
+    public ResponseEntity<Void> unlinkProvider(@AuthenticationPrincipal Jwt jwt, @PathVariable String provider) {
+        IdentityProviderType providerType = parseSupportedProvider(provider);
+        User user = userRepository.findById(UUID.fromString(jwt.getSubject())).orElseThrow(UserNotFoundException::new);
+        externalIdentityLinkService.unlink(user, providerType);
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 
     private static IdentityProviderType parseSupportedProvider(String raw) {

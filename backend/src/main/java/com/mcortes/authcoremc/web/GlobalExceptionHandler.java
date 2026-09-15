@@ -2,6 +2,7 @@ package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.TotpNotEnrolledException;
 import com.mcortes.authcoremc.service.AccountDeletionFailedException;
+import com.mcortes.authcoremc.service.CannotUnlinkLastLoginMethodException;
 import com.mcortes.authcoremc.service.ConfirmationMismatchException;
 import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.IncorrectCurrentPasswordException;
@@ -11,6 +12,7 @@ import com.mcortes.authcoremc.service.NoPasswordSetException;
 import com.mcortes.authcoremc.service.NotFirstPartyClientException;
 import com.mcortes.authcoremc.service.PasswordAlreadySetException;
 import com.mcortes.authcoremc.service.ProviderAlreadyLinkedException;
+import com.mcortes.authcoremc.service.ProviderNotLinkedException;
 import com.mcortes.authcoremc.service.SessionNotFoundException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
 import com.mcortes.authcoremc.service.UnsupportedProviderException;
@@ -80,6 +82,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ProviderAlreadyLinkedException.class)
     public ResponseEntity<ErrorResponse> handleProviderAlreadyLinked(ProviderAlreadyLinkedException e) {
         return error(HttpStatus.CONFLICT, "provider_already_linked", e.getMessage());
+    }
+
+    @ExceptionHandler(ProviderNotLinkedException.class)
+    public ResponseEntity<ErrorResponse> handleProviderNotLinked(ProviderNotLinkedException e) {
+        return error(HttpStatus.NOT_FOUND, "provider_not_linked", e.getMessage());
+    }
+
+    @ExceptionHandler(CannotUnlinkLastLoginMethodException.class)
+    public ResponseEntity<ErrorResponse> handleCannotUnlinkLastLoginMethod(CannotUnlinkLastLoginMethodException e) {
+        return error(HttpStatus.CONFLICT, "cannot_unlink_last_login_method", e.getMessage());
     }
 
     @ExceptionHandler(PasswordAlreadySetException.class)
