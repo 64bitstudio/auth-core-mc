@@ -1,8 +1,6 @@
 package com.mcortes.authcoremc.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -55,8 +53,9 @@ class ExternalIdentityLinkServiceTest {
         Tenant tenant = tenantFixture();
         User user = userFixture(tenant, "hashed-password");
         when(externalIdentityRepository.findByUserAndProvider(user, IdentityProviderType.GOOGLE)).thenReturn(Optional.empty());
+        ExternalIdentityLinkService service = service();
 
-        assertThatThrownBy(() -> service().unlink(user, IdentityProviderType.GOOGLE))
+        assertThatThrownBy(() -> service.unlink(user, IdentityProviderType.GOOGLE))
                 .isInstanceOf(ProviderNotLinkedException.class);
     }
 
@@ -93,10 +92,11 @@ class ExternalIdentityLinkServiceTest {
         ExternalIdentity identity = new ExternalIdentity(tenant, user, IdentityProviderType.GOOGLE, "google-sub-1");
         when(externalIdentityRepository.findByUserAndProvider(user, IdentityProviderType.GOOGLE)).thenReturn(Optional.of(identity));
         when(externalIdentityRepository.countByUser(user)).thenReturn(1L);
+        ExternalIdentityLinkService service = service();
 
-        assertThatThrownBy(() -> service().unlink(user, IdentityProviderType.GOOGLE))
+        assertThatThrownBy(() -> service.unlink(user, IdentityProviderType.GOOGLE))
                 .isInstanceOf(CannotUnlinkLastLoginMethodException.class);
 
-        verify(externalIdentityRepository, never()).delete(eq(identity));
+        verify(externalIdentityRepository, never()).delete(identity);
     }
 }
