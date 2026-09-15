@@ -1,6 +1,8 @@
 package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.TotpNotEnrolledException;
+import com.mcortes.authcoremc.service.AccountDeletionFailedException;
+import com.mcortes.authcoremc.service.ConfirmationMismatchException;
 import com.mcortes.authcoremc.service.DuplicateIdentifierException;
 import com.mcortes.authcoremc.service.IncorrectCurrentPasswordException;
 import com.mcortes.authcoremc.service.InvalidCredentialsException;
@@ -12,6 +14,7 @@ import com.mcortes.authcoremc.service.ProviderAlreadyLinkedException;
 import com.mcortes.authcoremc.service.SessionNotFoundException;
 import com.mcortes.authcoremc.service.TooManyAttemptsException;
 import com.mcortes.authcoremc.service.UnsupportedProviderException;
+import com.mcortes.authcoremc.service.UserDeactivatedException;
 import com.mcortes.authcoremc.service.UserNotFoundException;
 import com.mcortes.authcoremc.service.WeakPasswordException;
 import org.springframework.http.HttpStatus;
@@ -117,6 +120,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(TenantDeactivatedException.class)
     public ResponseEntity<ErrorResponse> handleTenantDeactivated(TenantDeactivatedException e) {
         return error(HttpStatus.FORBIDDEN, "tenant_deactivated", e.getMessage());
+    }
+
+    @ExceptionHandler(UserDeactivatedException.class)
+    public ResponseEntity<ErrorResponse> handleUserDeactivated(UserDeactivatedException e) {
+        return error(HttpStatus.FORBIDDEN, "user_deactivated", e.getMessage());
+    }
+
+    @ExceptionHandler(ConfirmationMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleConfirmationMismatch(ConfirmationMismatchException e) {
+        return error(HttpStatus.BAD_REQUEST, "confirmation_mismatch", e.getMessage());
+    }
+
+    @ExceptionHandler(AccountDeletionFailedException.class)
+    public ResponseEntity<ErrorResponse> handleAccountDeletionFailed(AccountDeletionFailedException e) {
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, "account_deletion_failed", e.getMessage());
     }
 
     @ExceptionHandler(DuplicateTenantNameException.class)

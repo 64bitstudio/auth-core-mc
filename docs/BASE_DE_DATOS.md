@@ -50,6 +50,7 @@ Un usuario final, siempre asociado a un `tenant`.
 | `country` | text, nullable | País/región (ticket `060`, "Mi Perfil" de galgoth-studio, migración `V12`) |
 | `username` | text, nullable | Nombre de usuario, único por tenant (ticket `060`, migración `V12`) |
 | `created_at` | timestamp | Auditoría |
+| `deactivated_at` | timestamptz, nullable | Ticket `064` ("eliminar cuenta", migración `V14`) — `NULL` = activo, mismo patrón que `tenant.deactivated_at` (ticket `013`). Sin purga física automática a diferencia de `Tenant` (fuera de alcance de ese ticket). |
 
 _Constraint `app_user_email_or_phone_required`: `email IS NOT NULL OR phone IS NOT NULL`. También hay UNIQUE por tenant en `email` y en `phone` (`app_user_tenant_email_unique`, `app_user_tenant_phone_unique`) — Postgres trata cada `NULL` como distinto, así que cualquier cantidad de usuarios "solo teléfono" o "solo correo" puede coexistir sin chocar entre sí. Mismo criterio para `username` (`app_user_tenant_username_unique`, ticket `060`) — cualquier cantidad de usuarios sin `username` configurado coexiste sin problema._
 

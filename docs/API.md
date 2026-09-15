@@ -195,6 +195,39 @@ proveedor). `already_linked` significa que esa cuenta social ya
 pertenece a OTRO usuario del mismo tenant — nunca se reasigna ni se
 desvincula del original.
 
+## Eliminar cuenta (ticket `064`, "Mi Perfil" de galgoth-studio)
+`app_user` gana `deactivated_at` (`V14`, nullable, `NULL` = activo) — mismo
+patrón que `tenant.deactivated_at` (ticket 013). A diferencia de `Tenant`,
+sin purga física automática (fuera de alcance de este ticket).
+
+Orden estricto, en este orden exacto: (1) valida `confirmIdentifier`
+contra el email/teléfono real del usuario -- nunca por un clic accidental;
+(2) llama SÍNCRONAMENTE `POST {GALGOTH_STUDIO_INTERNAL_URL}/api/internal/users/{userId}/purge-projects`
+(mismo secreto compartido `X-Internal-Secret`/`GALGOTH_INTERNAL_SECRET`
+que galgoth-studio ya definió en su propio ticket 091 -- coordinado a
+mano, mismo valor por ambiente en ambos repos) -- si esta llamada falla
+(no configurado, red, timeout, respuesta no-2xx), la cuenta NUNCA queda
+desactivada (decisión explícita de Marco: nunca dejar proyectos públicos
+huérfanos visibles en Explorar); (3) solo si la purga tuvo éxito:
+`User.deactivate()` + revoca TODOS los refresh tokens del usuario
+(reutiliza `AccountSessionsService.revokeOthers(userId, null)`, ticket
+062 -- mismo mecanismo que "Cerrar sesión en todos los dispositivos",
+sin duplicar esa lógica).
+
+**Rechazo de tokens nuevos para una cuenta desactivada** -- único punto
+real de decisión: `DirectTokenService.doIssueTokens`, el método interno
+compartido por TODO camino que emite un token nuevo (login directo,
+login social, verificación de 2FA) -- mismo criterio de "un solo punto
+de decisión" que `ClientContextResolver` ya usa para tenants
+desactivados. `POST /api/v1/token/refresh` no repite este chequeo a
+propósito: ya queda cubierto por la revocación del paso (3) de arriba
+(un refresh token revocado ya falla con `invalid_token`).
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| DELETE | `/api/v1/account` | Header `Authorization: Bearer <accessToken>`; body `{confirmIdentifier}` | `204` en éxito. `400 confirmation_mismatch` si `confirmIdentifier` no coincide con el email/teléfono real (nada cambia). `500 account_deletion_failed` si la purga de galgoth-studio falla o la integración no está configurada (nada cambia). |
+| POST | `/api/v1/login` (y `/social-exchange`, `/login/2fa-verify`) | — | `403 user_deactivated` si el usuario ya eliminó su cuenta (mismo criterio que `403 tenant_deactivated`) |
+
 ## Configuración de login social por tenant (ticket `006`)
 Requiere autenticación (ver advertencia arriba). Header `X-Client-Id` (no un `tenantId` en la ruta — el tenant siempre es el que resuelve el header, así un cliente nunca puede tocar la configuración de otro).
 

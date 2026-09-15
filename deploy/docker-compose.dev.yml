@@ -38,6 +38,12 @@ services:
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      # Ticket 064: eliminar cuenta purga los proyectos de galgoth-studio
+      # antes de desactivar la cuenta -- mismo GALGOTH_INTERNAL_SECRET que
+      # galgoth-studio ya desplegó para este ambiente (ticket 091 de ese
+      # repo), coordinado a mano entre ambos.
+      GALGOTH_STUDIO_INTERNAL_URL: ${GALGOTH_STUDIO_INTERNAL_URL:-https://studio-dev.galgoth.64bitstudio.com}
+      GALGOTH_INTERNAL_SECRET: ${GALGOTH_INTERNAL_SECRET:-}
       VAULT_ADDR: ${VAULT_ADDR:-}
       # Ticket platform/005: AppRole en vez de token estático --
       # VAULT_ROLE_ID no es secreto, tiene default hardcodeado en

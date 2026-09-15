@@ -30,6 +30,9 @@ services:
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+      # Ticket 064: ver docker-compose.dev.yml -- mismo criterio, secreto distinto por ambiente.
+      GALGOTH_STUDIO_INTERNAL_URL: ${GALGOTH_STUDIO_INTERNAL_URL:-https://studio.galgoth.64bitstudio.com}
+      GALGOTH_INTERNAL_SECRET: ${GALGOTH_INTERNAL_SECRET:-}
       VAULT_ADDR: ${VAULT_ADDR:-}
       # Ticket platform/005: AppRole en vez de token estático -- ver
       # docker-compose.dev.yml para el detalle completo del porqué.

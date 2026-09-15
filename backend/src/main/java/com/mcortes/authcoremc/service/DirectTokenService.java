@@ -81,10 +81,30 @@ public class DirectTokenService {
         return doIssueTokens(client, user, userAgent);
     }
 
-    /** Cuerpo real compartido por ambos overloads -- deliberadamente sin `@Transactional` propio: un método privado no pasa por el proxy de Spring de todas formas, y evita el auto-invocación entre métodos `@Transactional` públicos de la misma clase (java:S6809) que tener uno llamar al otro vía `this` causaría. */
+    /**
+     * Cuerpo real compartido por ambos overloads -- deliberadamente sin
+     * {@code @Transactional} propio: un método privado no pasa por el
+     * proxy de Spring de todas formas, y evita el auto-invocación entre
+     * métodos {@code @Transactional} públicos de la misma clase (java:S6809)
+     * que tener uno llamar al otro vía {@code this} causaría.
+     *
+     * <p>Ticket 064 -- único punto real donde TODO camino que emite un
+     * token nuevo converge (login directo y social vía {@code
+     * LoginCompletionService}, verificación de 2FA vía {@code
+     * TwoFactorLoginController}) -- mismo criterio de "un solo punto de
+     * decisión" que {@code ClientContextResolver} ya usa para tenants
+     * desactivados. {@code refresh()} de abajo NO repite este chequeo a
+     * propósito: eliminar la cuenta ya revoca todos los refresh tokens
+     * (ver {@code AccountDeletionService}), así que un intento de refresh
+     * posterior falla igual por "token inválido/revocado", sin necesidad
+     * de duplicar la regla.
+     */
     private TokenPair doIssueTokens(IdentityClient client, User user, String userAgent) {
         if (!client.isFirstParty()) {
             throw new NotFirstPartyClientException();
+        }
+        if (!user.isActive()) {
+            throw new UserDeactivatedException();
         }
 
         RegisteredClient registeredClient = registeredClientRepository.findByClientId(client.getClientId());
