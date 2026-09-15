@@ -19,7 +19,7 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.context.annotation.Import;
 
 /**
- * Ticket 008's central acceptance criterion: "todo dato de negocio está
+ * Ticket 008's central acceptance criterion: "cada dato de negocio está
  * particionado por tenant_id (ninguna consulta cruza tenants por
  * accidente)". This class is the one place that proves that property
  * holistically, across every repository — instead of trusting that each

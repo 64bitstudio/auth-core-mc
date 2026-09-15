@@ -75,6 +75,10 @@ public class User {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** Ticket 064 -- mismo patrón que {@code Tenant.deactivatedAt} (ticket 013): null significa activo. */
+    @Column(name = "deactivated_at")
+    private Instant deactivatedAt;
+
     protected User() {
         // JPA
     }
@@ -233,5 +237,20 @@ public class User {
 
     private static String blankToNull(String value) {
         return (value == null || value.isBlank()) ? null : value;
+    }
+
+    public Instant getDeactivatedAt() {
+        return deactivatedAt;
+    }
+
+    public boolean isActive() {
+        return deactivatedAt == null;
+    }
+
+    /** Ticket 064 -- eliminar cuenta. Idempotente, mismo criterio que {@code Tenant.deactivate()}: no reinicia nada si ya estaba desactivado. */
+    public void deactivate() {
+        if (deactivatedAt == null) {
+            this.deactivatedAt = Instant.now();
+        }
     }
 }

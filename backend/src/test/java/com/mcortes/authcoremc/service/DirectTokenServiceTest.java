@@ -137,6 +137,17 @@ class DirectTokenServiceTest {
         verify(refreshTokenRepository, never()).save(any());
     }
 
+    // Ticket 064 -- único punto de decisión real para cualquier camino que emite un token nuevo (login directo/social/2FA).
+    @Test
+    void issuingTokensForADeactivatedUserIsRejected() {
+        when(identityClientRepository.findByClientId("acme-web-app")).thenReturn(Optional.of(firstPartyClient));
+        user.deactivate();
+        DirectTokenService service = service();
+
+        assertThatThrownBy(() -> service.issueTokens(firstPartyClient, user)).isInstanceOf(UserDeactivatedException.class);
+        verify(refreshTokenRepository, never()).save(any());
+    }
+
     @Test
     void refreshingAValidTokenReturnsANewAccessToken() {
         when(identityClientRepository.findByClientId("acme-web-app")).thenReturn(Optional.of(firstPartyClient));
