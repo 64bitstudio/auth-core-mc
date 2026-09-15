@@ -85,5 +85,9 @@ geolocalización de IP.
   revocar una sesión ajena rechazado, revocar una sesión propia invalida
   su refresh token, `revoke-others` deja solo la actual, 401 sin auth.
   Suite completa: 415/415 en verde.
-- **Verificación en vivo contra DEV**: pendiente (se completa tras el
-  deploy de este PR).
+- **Verificación en vivo contra DEV**: dos logins reales con
+  `User-Agent` distintos (Chrome/macOS, Safari/iOS) → `GET /sessions`
+  las muestra correctamente parseadas, con `current` marcado en la
+  correcta vía `X-Current-Refresh-Token`; `DELETE` de un id inventado →
+  `404`; `revoke-others` deja inválido el refresh token de la otra
+  sesión y funcional el de la actual. Datos de prueba limpiados.
