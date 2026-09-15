@@ -107,3 +107,6 @@ Una aplicación registrada que puede pedir tokens a este servicio (ver nota de n
 | `token_hash` | text | Nunca se guarda el token en claro |
 | `revoked` | boolean | Revocación (también reflejada en Redis para efecto inmediato) |
 | `expires_at` | timestamp | Expiración |
+| `user_agent` | text, nullable | Ticket `062`, "Sesiones activas" — capturado al emitir, nunca guardado ya parseado (ver `UserAgentParser`) |
+| `created_at` | timestamp | Ticket `062`, migración `V13`. `DEFAULT now()` para no dejar nulas las filas ya existentes |
+| `last_used_at` | timestamp | Ticket `062` — se actualiza en cada `POST /api/v1/token/refresh` exitoso sobre ese token |

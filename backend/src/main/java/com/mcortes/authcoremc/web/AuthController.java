@@ -73,7 +73,9 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<Object> login(
-            @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody LoginRequest request) {
+            @RequestHeader("X-Client-Id") String clientId,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent,
+            @Valid @RequestBody LoginRequest request) {
         IdentityClient client = clientContextResolver.resolveClient(clientId);
         if (!client.isFirstParty()) {
             throw new NotFirstPartyClientException();
@@ -90,7 +92,7 @@ public class AuthController {
         }
         loginEventRecorder.recordSuccess(tenant, user, PASSWORD_PROVIDER, System.currentTimeMillis() - startedAt);
 
-        LoginCompletionResult result = loginCompletionService.complete(client, user);
+        LoginCompletionResult result = loginCompletionService.complete(client, user, userAgent);
         if (result.twoFactorRequired()) {
             return ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(new TwoFactorRequiredResponse(result.pendingToken(), result.method()));
