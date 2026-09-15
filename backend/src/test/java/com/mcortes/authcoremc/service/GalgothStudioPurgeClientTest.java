@@ -12,8 +12,9 @@ class GalgothStudioPurgeClientTest {
     @Test
     void failsLoudlyInsteadOfSilentlySkippingThePurgeWhenNotConfigured() {
         GalgothStudioPurgeClient client = new GalgothStudioPurgeClient(RestClient.builder(), "", "");
+        UUID userId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> client.purgeProjects(UUID.randomUUID()))
+        assertThatThrownBy(() -> client.purgeProjects(userId))
                 .isInstanceOf(AccountDeletionFailedException.class)
                 .hasMessageContaining("GALGOTH_STUDIO_INTERNAL_URL")
                 .hasMessageContaining("GALGOTH_INTERNAL_SECRET");
@@ -23,7 +24,8 @@ class GalgothStudioPurgeClientTest {
     void failsLoudlyWhenUrlIsSetButSecretIsMissing() {
         GalgothStudioPurgeClient client =
                 new GalgothStudioPurgeClient(RestClient.builder(), "https://studio-dev.galgoth.64bitstudio.com", "");
+        UUID userId = UUID.randomUUID();
 
-        assertThatThrownBy(() -> client.purgeProjects(UUID.randomUUID())).isInstanceOf(AccountDeletionFailedException.class);
+        assertThatThrownBy(() -> client.purgeProjects(userId)).isInstanceOf(AccountDeletionFailedException.class);
     }
 }

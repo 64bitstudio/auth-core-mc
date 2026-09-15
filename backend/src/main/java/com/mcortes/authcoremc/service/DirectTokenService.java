@@ -88,7 +88,7 @@ public class DirectTokenService {
      * métodos {@code @Transactional} públicos de la misma clase (java:S6809)
      * que tener uno llamar al otro vía {@code this} causaría.
      *
-     * <p>Ticket 064 -- único punto real donde TODO camino que emite un
+     * <p>Ticket 064 -- único punto real donde cualquier camino que emite un
      * token nuevo converge (login directo y social vía {@code
      * LoginCompletionService}, verificación de 2FA vía {@code
      * TwoFactorLoginController}) -- mismo criterio de "un solo punto de
@@ -107,7 +107,7 @@ public class DirectTokenService {
             throw new UserDeactivatedException();
         }
 
-        RegisteredClient registeredClient = registeredClientRepository.findByClientId(client.getClientId());
+        RegisteredClient registeredClient = requireRegisteredClient(client.getClientId());
         Jwt accessToken = generateAccessToken(registeredClient, user);
 
         String rawRefreshToken = generateOpaqueToken();
@@ -128,8 +128,7 @@ public class DirectTokenService {
                 .filter(token -> token.getExpiresAt().isAfter(Instant.now()))
                 .orElseThrow(() -> new InvalidTokenException("Refresh token is invalid, expired, or revoked"));
 
-        RegisteredClient registeredClient =
-                registeredClientRepository.findByClientId(stored.getClient().getClientId());
+        RegisteredClient registeredClient = requireRegisteredClient(stored.getClient().getClientId());
         Jwt accessToken = generateAccessToken(registeredClient, stored.getUser());
         long expiresInSeconds = registeredClient.getTokenSettings().getAccessTokenTimeToLive().getSeconds();
 
@@ -181,6 +180,27 @@ public class DirectTokenService {
         } finally {
             AuthorizationServerContextHolder.resetContext();
         }
+    }
+
+    /**
+     * {@code TenantAwareRegisteredClientRepository.findByClientId} returns
+     * {@code null} (not {@code Optional}, matching Spring Security's own
+     * {@code RegisteredClientRepository} contract) when the underlying
+     * {@code IdentityClient} isn't found — SonarQube (S2259) correctly
+     * flags the two call sites above as a real NPE risk if that null ever
+     * reaches {@link #generateAccessToken}. In practice the caller has
+     * already resolved the same {@code IdentityClient} moments earlier
+     * (via {@code ClientContextResolver} or a stored {@code RefreshToken}),
+     * so this should never actually be null — this is defense in depth
+     * against that invariant ever silently breaking, not a normal,
+     * user-facing error path.
+     */
+    private RegisteredClient requireRegisteredClient(String clientId) {
+        RegisteredClient registeredClient = registeredClientRepository.findByClientId(clientId);
+        if (registeredClient == null) {
+            throw new IllegalStateException("No RegisteredClient found for clientId '" + clientId + "'");
+        }
+        return registeredClient;
     }
 
     private static String generateOpaqueToken() {
