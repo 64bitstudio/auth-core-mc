@@ -93,10 +93,18 @@ ya construido para el login social (tickets 036-038).
   un proveedor externo en un test). `AccountLinkProviderControllerTest`
   (real JWT/DB) para las 2 piezas puramente REST. Suite completa en
   verde.
-- **Verificación en vivo contra DEV**: pendiente (se completa tras el
-  deploy de este PR — dado que completar el consentimiento real de
-  Google/Facebook requiere un humano en un navegador, se verifica lo
-  automatizable por HTTP: `connected-providers` real y que
-  `link-provider` devuelve una URL real de
-  `/oauth2/authorization/{registrationId}` que en efecto redirige a
-  Google).
+- **Verificación en vivo contra DEV**: cuenta de prueba real —
+  `GET /connected-providers` recién creada → ambos `false`;
+  `POST /link-provider/google` → `200` con una URL real de
+  `/oauth2/authorization/{registrationId}`; esa URL, seguida de verdad,
+  responde `302` a `https://accounts.google.com/o/oauth2/v2/auth` con
+  `client_id`/PKCE/`state` reales (confirmado con el `client_id` de
+  Google real de dev); `link-provider/apple` → `400
+  unsupported_provider`. Completar el consentimiento real de Google
+  requiere un humano en un navegador (no se puede automatizar ni debe
+  automatizarse con credenciales) — el mecanismo hasta ese punto (sesión,
+  redirect, rechazo de Apple) está verificado en vivo; el vínculo en sí
+  tras el consentimiento está cubierto por los 4 tests de
+  `SocialLoginSuccessHandlerTest` que simulan el `Authentication` real
+  que Spring produce (mismo patrón ya establecido por los tests de login
+  social del ticket 037). Datos de prueba limpiados.
