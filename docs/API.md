@@ -12,8 +12,10 @@ Este documento describe la superficie **JSON** (`/api/v1/**`, `/oauth2/**`). La 
 ### ⚠️ `/identity-providers/*` requiere autenticación (a propósito, no es un descuido)
 A diferencia de todos los demás endpoints de este documento, estos **no** están en la lista `permitAll` de `SecurityConfig`. Configurar credenciales OAuth de un tenant es una acción de administración real — dejarla abierta con el mismo modelo de confianza temporal que `/verify-email` o `/2fa` (solo `X-Client-Id`) sería un riesgo real, no uno acotado. Como no existe todavía autenticación de tenant-admin (llega con ticket `007` o uno nuevo), Spring Security la protege con su comportamiento por defecto: **401 para cualquiera**, fail-closed. Es una limitación intencional, no un bug — no la debilites sin agregar autenticación real primero.
 
-### ⚠️ Límite temporal de confianza (hasta ticket 007)
-`/verify-email/request` y `/change-email/request` reciben el `userId` directamente en el body — no hay todavía un token de acceso real que identifique "al usuario actual" (eso lo trae ticket `007`). Cualquiera que conozca (o adivine) un `userId` puede disparar el envío de un correo de verificación/cambio para ese usuario — molesto (spam, mitigado por el cooldown de 60s), pero no explotable: completar el flujo requiere poseer el token que llega a esa bandeja de entrada. Documentado también en `TenantScopedUserResolver.java`.
+### ✅ Hallazgo de seguridad real, corregido para 2 de 3 endpoints (2026-09-15, ticket 071)
+`/verify-email/request`, `/change-email/request` y **todo `/2fa/*`** recibían el `userId` directamente en el body — un límite de confianza temporal aceptado desde antes de que existiera el Authorization Server real (ticket `007`), documentado en `TenantScopedUserResolver.java`, y nunca migrado después de que `007` sí llegó. La razón original ("adivinar un `userId` es molesto, no explotable, porque completar el flujo exige poseer el correo/SMS de la víctima") dejó de sostenerse para 2 de los 3: (1) `change-email` manda su correo de confirmación a la dirección NUEVA que el atacante elige, no a la real, así que el atacante sí posee ese "segundo factor" trivialmente; (2) `2fa/totp/enroll` devuelve el secreto directo en la respuesta, sin mandar nada a ningún canal de la víctima — un atacante podía enrolar su propio secreto en la cuenta de otra persona y activarlo, bloqueándola afuera sin su consentimiento. Encadenado con que `ProjectSummary.avatarUrl` de galgoth-studio expone el UUID real del dueño en un endpoint público, esto permitía secuestro completo de cuenta de punta a punta. Esos 2 endpoints ahora exigen un Bearer access token real (igual que `/account/password` siempre exigió) — el usuario sale del claim `sub` del JWT verificado, nunca del body. Ver el Javadoc de `EmailChangeController`/`TwoFactorController` para el detalle completo.
+
+**`/verify-email/request` se queda tal cual, a propósito**: a diferencia de los otros 2, este solo reenvía a la dirección YA registrada de la cuenta (nunca a una que el llamador elija), con cooldown de 60s — la razón original sí se sostiene aquí. Migrarlo habría roto además el único caller real que lo usa sin sesión (galgoth-studio dispara el primer correo de verificación justo después de `/api/v1/register`, que deliberadamente no entrega tokens). Ver el Javadoc de `EmailVerificationController`/`TenantScopedUserResolver`.
 
 ## Convenciones
 - **Cómo se identifica el tenant en cada request**: header `X-Client-Id` con el `client_id` de un `IdentityClient` registrado (ver `BASE_DE_DATOS.md`). Si el header no corresponde a ningún cliente registrado, la respuesta es `401 unknown_client`. Esta fue la decisión pendiente que ticket `001` dejó abierta; ticket `002` la resolvió así — el flujo `/oauth2/authorize` de ticket `007` usará en cambio el parámetro estándar `client_id` de OAuth2, no este header (son superficies distintas: esta es la API "directa", esa es el flujo redirect).
@@ -97,7 +99,7 @@ Reenvía el código OTP mientras un `pendingToken` (el mismo que emite `202 twoF
 ## Cambio de correo (ticket `003`)
 | Método | Ruta | Qué recibe | Qué responde |
 |---|---|---|---|
-| POST | `/api/v1/change-email/request` | Header `X-Client-Id`; body: `userId`, `newEmail` | `202` (correo de confirmación enviado **al correo nuevo**, el actual sigue activo) o `409 duplicate_identifier` si `newEmail` ya existe en el tenant |
+| POST | `/api/v1/change-email/request` | Header `Authorization: Bearer <accessToken>`; body: `newEmail` | `202` (correo de confirmación enviado **al correo nuevo**, el actual sigue activo) o `409 duplicate_identifier` si `newEmail` ya existe en el tenant |
 | POST | `/api/v1/change-email/confirm` | body: `token` | `200` (aplica el cambio y marca el correo nuevo como verificado) o `400 invalid_token` / `409 duplicate_identifier` (si alguien más tomó ese correo mientras el link estaba pendiente) |
 
 ## Recuperación de contraseña (ticket `004`)
@@ -113,18 +115,18 @@ A diferencia de `/verify-email/request` (que sí puede responder `429` porque el
 Mismo mecanismo del ticket `055`, ahora también para estos tres links (no solo el redirect del login social): si `identity_client.hosts_own_login_ui = false` (default, todo cliente anterior al ticket 056), el link va a la página hospedada por auth-core-mc (`app.base-url` + `/ui/verify-email/confirm` / `/ui/change-email/confirm` / `/ui/password-reset/confirm`), igual que siempre. Si `hosts_own_login_ui = true` (ej. `galgoth-studio`), el link va al **origen** de `identity_client.redirect_uris[0]` (mismo campo que ya usa el login social) con la misma ruta **sin el prefijo `/ui`** — `/verify-email/confirm`, `/change-email/confirm`, `/password-reset/confirm` en el dominio propio del cliente, que el frontend de ese cliente debe implementar (`VerificationLinkFactory.build(...)`, `IdentityClient.ownUiOrigin()`). El `?token=...` es idéntico en ambos casos y los endpoints `/confirm` (que no llevan `X-Client-Id`) no cambian.
 
 ## 2FA (ticket `005`)
-Mismo header `X-Client-Id` + `userId` en el body que el resto de endpoints "temporales" (ver advertencia arriba, aplica igual aquí).
+**Bearer access token real** en los 5 (header `Authorization: Bearer <accessToken>`, el mismo que emite `/api/v1/login`) — hasta el 2026-09-15 usaban `X-Client-Id` + `userId` en el body, ver la nota de seguridad de arriba para el porqué se corrigió.
 
 | Método | Ruta | Qué recibe | Qué responde |
 |---|---|---|---|
-| POST | `/api/v1/2fa/otp/request` | `userId` | `202` o `429 too_many_attempts` (cooldown de 30s) |
-| POST | `/api/v1/2fa/otp/verify` | `userId`, `code` | `200` o `400 invalid_token` (código incorrecto/expirado/ya usado) o `429` (más de 5 intentos fallidos) |
-| POST | `/api/v1/2fa/totp/enroll` | `userId` | `200` + `{ "secret": "..." }` — mostrar una sola vez como QR/código manual, nunca se vuelve a exponer en claro |
-| POST | `/api/v1/2fa/totp/verify` | `userId`, `code` | `200` o `400 invalid_token` (incluye el caso "este código ya se usó") |
-| POST | `/api/v1/2fa/method` | `userId`, `method` (`NONE`\|`OTP_EMAIL`\|`OTP_SMS`\|`TOTP`) | `200` o `400 totp_not_enrolled` si se intenta activar `TOTP` sin haber hecho `enroll` antes |
+| POST | `/api/v1/2fa/otp/request` | (sin body, el usuario sale del JWT) | `202` o `429 too_many_attempts` (cooldown de 30s) |
+| POST | `/api/v1/2fa/otp/verify` | `code` | `200` o `400 invalid_token` (código incorrecto/expirado/ya usado) o `429` (más de 5 intentos fallidos) |
+| POST | `/api/v1/2fa/totp/enroll` | (sin body, el usuario sale del JWT) | `200` + `{ "secret": "..." }` — mostrar una sola vez como QR/código manual, nunca se vuelve a exponer en claro |
+| POST | `/api/v1/2fa/totp/verify` | `code` | `200` o `400 invalid_token` (incluye el caso "este código ya se usó") |
+| POST | `/api/v1/2fa/method` | `method` (`NONE`\|`OTP_EMAIL`\|`OTP_SMS`\|`TOTP`) | `200` o `400 totp_not_enrolled` si se intenta activar `TOTP` sin haber hecho `enroll` antes |
 
 ## Establecer contraseña de una cuenta social-only (ticket `041`, HU-5)
-A diferencia de `/2fa` y `/change-email` de arriba, **este endpoint sí requiere un Bearer access token real** (header `Authorization: Bearer <accessToken>`, el mismo que emite `/api/v1/login` o, cuando el resto de la épica de login social esté mergeada, el intercambio social) — no el header `X-Client-Id` ni un `userId` en el body. La razón: completar `/2fa`/`/change-email` con solo un `userId` adivinado sigue exigiendo poseer el correo/SMS de la víctima; establecer una password no tiene ese segundo factor — surte efecto de inmediato y permitiría iniciar sesión como esa cuenta en el acto. El `userId` se toma del claim `sub` del JWT verificado, nunca del body.
+Mismo criterio que el resto de `/account/**` y, desde el 2026-09-15, que `/2fa`/`/change-email`/`/verify-email` también: **Bearer access token real** (header `Authorization: Bearer <accessToken>`), nunca `X-Client-Id` ni un `userId` en el body. El `userId` se toma del claim `sub` del JWT verificado.
 
 | Método | Ruta | Qué recibe | Qué responde |
 |---|---|---|---|

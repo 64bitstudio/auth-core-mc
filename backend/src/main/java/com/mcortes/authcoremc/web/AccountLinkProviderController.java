@@ -84,9 +84,7 @@ public class AccountLinkProviderController {
             @AuthenticationPrincipal Jwt jwt, @PathVariable String provider, HttpServletRequest request) {
         IdentityProviderType providerType = parseSupportedProvider(provider);
 
-        List<String> audience = jwt.getAudience();
-        String clientId = (audience == null || audience.isEmpty()) ? null : audience.get(0);
-        IdentityClient client = clientContextResolver.resolveClient(clientId);
+        IdentityClient client = clientContextResolver.resolveClient(JwtAudience.firstClientId(jwt));
 
         LinkIntentSession.store(request, UUID.fromString(jwt.getSubject()));
 

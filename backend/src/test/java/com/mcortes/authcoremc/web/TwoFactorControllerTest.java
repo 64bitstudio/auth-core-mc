@@ -1,206 +1,216 @@
 package com.mcortes.authcoremc.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.mcortes.authcoremc.TestcontainersConfiguration;
+import com.mcortes.authcoremc.domain.IdentityClient;
 import com.mcortes.authcoremc.domain.Tenant;
-import com.mcortes.authcoremc.domain.TotpNotEnrolledException;
 import com.mcortes.authcoremc.domain.TwoFactorMethod;
 import com.mcortes.authcoremc.domain.User;
-import com.mcortes.authcoremc.oauth2.SocialLoginFailureHandler;
-import com.mcortes.authcoremc.oauth2.SocialLoginSuccessHandler;
-import com.mcortes.authcoremc.security.SecurityConfig;
-import com.mcortes.authcoremc.service.InvalidTokenException;
-import com.mcortes.authcoremc.service.OtpService;
-import com.mcortes.authcoremc.service.TooManyAttemptsException;
-import com.mcortes.authcoremc.service.TotpService;
-import com.mcortes.authcoremc.service.TwoFactorPreferenceService;
+import com.mcortes.authcoremc.notification.EmailSender;
+import com.mcortes.authcoremc.repository.IdentityClientRepository;
+import com.mcortes.authcoremc.repository.TenantRepository;
+import com.mcortes.authcoremc.repository.UserRepository;
+import com.mcortes.authcoremc.security.Totp;
+import com.mcortes.authcoremc.service.DirectTokenService;
+import com.mcortes.authcoremc.service.TokenPair;
+import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest(TwoFactorController.class)
-@Import(SecurityConfig.class)
+/**
+ * Hallazgo real de seguridad (2026-09-15, ver docstring de {@link
+ * TwoFactorController} -- el más grave de los 3 controllers corregidos):
+ * real end-to-end, mismo criterio que {@code AccountProfileControllerTest}.
+ * {@code totp/enroll} sin autenticación permitía enrolar el secreto DEL
+ * ATACANTE en la cuenta de otro usuario y activarlo -- los tests de abajo
+ * demuestran que el flujo completo (enroll → verify → activate) ahora
+ * exige el JWT de la propia cuenta en cada paso.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@Import(TestcontainersConfiguration.class)
 class TwoFactorControllerTest {
 
     @Autowired
-    private MockMvcTester mvc;
+    private MockMvc mvc;
 
-    // Ticket 012: SecurityConfig's .oauth2ResourceServer(...) needs a JwtDecoder
-    // bean to build the filter chain at all — never stubbed, just satisfies DI.
-    @MockitoBean
-    private JwtDecoder jwtDecoder;
+    @Autowired
+    private TenantRepository tenantRepository;
 
-    // Ticket 036: SecurityConfig's .oauth2Login(...) needs a ClientRegistrationRepository
-    // bean to build the filter chain at all — never stubbed, just satisfies DI.
-    @MockitoBean
-    private ClientRegistrationRepository clientRegistrationRepository;
+    @Autowired
+    private IdentityClientRepository identityClientRepository;
 
-    // Ticket 037: SecurityConfig's .oauth2Login(...) needs the Social*Handler
-    // beans to build the filter chain at all — never stubbed, just satisfies DI.
-    @MockitoBean
-    private SocialLoginSuccessHandler socialLoginSuccessHandler;
+    @Autowired
+    private UserRepository userRepository;
 
-    @MockitoBean
-    private SocialLoginFailureHandler socialLoginFailureHandler;
+    @Autowired
+    private DirectTokenService directTokenService;
+
+    @Autowired
+    private StringRedisTemplate redis;
 
     @MockitoBean
-    private ClientContextResolver clientContextResolver;
+    private EmailSender emailSender;
 
-    @MockitoBean
-    private TenantScopedUserResolver userResolver;
+    private IdentityClient firstPartyClient;
 
-    @MockitoBean
-    private OtpService otpService;
-
-    @MockitoBean
-    private TotpService totpService;
-
-    @MockitoBean
-    private TwoFactorPreferenceService preferenceService;
-
-    private final Tenant tenant = new Tenant("Acme", "Acme App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300);
-    private final UUID userId = UUID.randomUUID();
-    private final User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "hash");
-
-    private void stubResolution() {
-        when(clientContextResolver.resolveTenant("acme-web-app")).thenReturn(tenant);
-        when(userResolver.resolve(tenant, userId)).thenReturn(user);
+    @BeforeEach
+    void setUp() {
+        Tenant tenant = tenantRepository.save(new Tenant(
+                "TwoFactor-" + UUID.randomUUID(), "App", "#0057FF", 900, 2_592_000, 86_400, 3_600, 300));
+        firstPartyClient = identityClientRepository.save(new IdentityClient(
+                tenant, "2fa-e2e-" + UUID.randomUUID(), null, true, List.of("https://acme.example.com/callback")));
     }
 
     @Test
-    void otpRequestReturns202() {
-        stubResolution();
+    void otpRequestSendsACodeToTheCallersOwnEmailAndReturns202() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
 
-        mvc.post()
-                .uri("/api/v1/2fa/otp/request")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(202);
+        mvc.perform(post("/api/v1/2fa/otp/request").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isAccepted());
 
-        verify(otpService).requestOtp(user);
+        verify(emailSender).send(org.mockito.ArgumentMatchers.eq("ada@example.com"), any(), any());
     }
 
     @Test
-    void otpRequestReturns429WhenOnCooldown() {
-        stubResolution();
-        doThrow(new TooManyAttemptsException("cooldown")).when(otpService).requestOtp(user);
+    void otpRequestIsRejectedWithoutAValidBearerToken() throws Exception {
+        mvc.perform(post("/api/v1/2fa/otp/request")).andExpect(status().isUnauthorized());
 
-        mvc.post()
-                .uri("/api/v1/2fa/otp/request")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(429);
+        verify(emailSender, never()).send(any(), any(), any());
     }
 
     @Test
-    void otpVerifyReturns200OnSuccess() {
-        stubResolution();
+    void otpVerifySucceedsWithTheRealCodeJustSent() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
+        mvc.perform(post("/api/v1/2fa/otp/request").header("Authorization", "Bearer " + accessToken));
+        String code = redis.opsForValue().get("otp:" + user.getId());
 
-        mvc.post()
-                .uri("/api/v1/2fa/otp/verify")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\",\"code\":\"123456\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(200);
-
-        verify(otpService).verifyOtp(user, "123456");
+        mvc.perform(post("/api/v1/2fa/otp/verify")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"" + code + "\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
-    void otpVerifyReturns400ForAWrongCode() {
-        stubResolution();
-        doThrow(new InvalidTokenException("wrong")).when(otpService).verifyOtp(any(), any());
+    void otpVerifyRejectsAWrongCode() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
+        mvc.perform(post("/api/v1/2fa/otp/request").header("Authorization", "Bearer " + accessToken));
 
-        mvc.post()
-                .uri("/api/v1/2fa/otp/verify")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\",\"code\":\"000000\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(400);
+        mvc.perform(post("/api/v1/2fa/otp/verify")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"000000\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void totpEnrollReturnsTheSecret() {
-        stubResolution();
-        when(totpService.enroll(user)).thenReturn("JBSWY3DPEHPK3PXP");
+    void enrollingTotpPersistsTheSecretOnTheCallersOwnAccountAndReturnsIt() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
 
-        mvc.post()
-                .uri("/api/v1/2fa/totp/enroll")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(200)
-                .bodyText()
-                .contains("JBSWY3DPEHPK3PXP");
+        mvc.perform(post("/api/v1/2fa/totp/enroll").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.secret").isNotEmpty());
+
+        User reloaded = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(reloaded.getTotpSecretEncrypted()).isNotNull();
+    }
+
+    // El hallazgo real que este test demuestra cerrado: antes del fix, este mismo POST
+    // sin Authorization habría enrolado el secreto EN LA CUENTA de cualquier userId que
+    // el atacante pusiera en el body -- ya no hay ningún userId en el body que aceptar.
+    @Test
+    void enrollingTotpIsRejectedWithoutAValidBearerToken() throws Exception {
+        mvc.perform(post("/api/v1/2fa/totp/enroll")).andExpect(status().isUnauthorized());
     }
 
     @Test
-    void totpVerifyReturns200OnSuccess() {
-        stubResolution();
+    void totpVerifySucceedsWithACodeGeneratedFromTheEnrolledSecret() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
+        String enrollResponse = mvc.perform(post("/api/v1/2fa/totp/enroll").header("Authorization", "Bearer " + accessToken))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String secret = extractSecret(enrollResponse);
 
-        mvc.post()
-                .uri("/api/v1/2fa/totp/verify")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\",\"code\":\"123456\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(200);
-
-        verify(totpService).verify(user, "123456");
+        mvc.perform(post("/api/v1/2fa/totp/verify")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"" + Totp.currentCode(secret) + "\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
-    void activateMethodReturns200OnSuccess() {
-        stubResolution();
+    void activatingAMethodPersistsItOnTheCallersOwnAccount() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
 
-        mvc.post()
-                .uri("/api/v1/2fa/method")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\",\"method\":\"OTP_EMAIL\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(200);
+        mvc.perform(post("/api/v1/2fa/method")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"method\":\"OTP_EMAIL\"}"))
+                .andExpect(status().isOk());
 
-        verify(preferenceService).activate(user, TwoFactorMethod.OTP_EMAIL);
+        User reloaded = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(reloaded.getTwoFactorMethod()).isEqualTo(TwoFactorMethod.OTP_EMAIL);
+    }
+
+    // El hallazgo real más grave de los 3: sin este fix, cualquiera podía activar TOTP
+    // en la cuenta de otra persona (con SU PROPIO secreto ya enrolado ahí mismo) y
+    // dejarla bloqueada afuera permanentemente, sin poseer nada que la víctima controle.
+    @Test
+    void activatingTotpWithoutHavingEnrolledItFirstIsRejected() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
+
+        mvc.perform(post("/api/v1/2fa/method")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"method\":\"TOTP\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void activateMethodReturns400WhenTotpIsNotEnrolled() {
-        stubResolution();
-        doThrow(new TotpNotEnrolledException()).when(preferenceService).activate(eq(user), eq(TwoFactorMethod.TOTP));
+    void activatingAMethodIsRejectedWithoutAValidBearerToken() throws Exception {
+        mvc.perform(post("/api/v1/2fa/method")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"method\":\"OTP_EMAIL\"}"))
+                .andExpect(status().isUnauthorized());
+    }
 
-        mvc.post()
-                .uri("/api/v1/2fa/method")
-                .header("X-Client-Id", "acme-web-app")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"userId\":\"" + userId + "\",\"method\":\"TOTP\"}")
-                .exchange()
-                .assertThat()
-                .hasStatus(400);
+    private String mintTokenFor(User user) {
+        TokenPair tokens = directTokenService.issueTokens(firstPartyClient, user);
+        return tokens.accessToken();
+    }
+
+    // Sin `.*` alrededor del grupo (hallazgo real de Sonar, S8786: backtracking
+    // súper-lineal) -- basta con encontrar el primer match de la clave literal.
+    private static String extractSecret(String json) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\"secret\":\"([^\"]+)\"").matcher(json);
+        if (!matcher.find()) {
+            throw new IllegalStateException("No secret found in enroll response: " + json);
+        }
+        return matcher.group(1);
     }
 }

@@ -1,7 +1,6 @@
 package com.mcortes.authcoremc.web;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import java.util.UUID;
 
-public record VerifyCodeRequest(@NotNull UUID userId, @NotBlank String code) {}
+/** Ver docstring de {@link RequestEmailChangeRequest} -- mismo hallazgo, mismo criterio: el usuario sale del JWT, nunca del body. */
+public record VerifyCodeRequest(@NotBlank String code) {}
