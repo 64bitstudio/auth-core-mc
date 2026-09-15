@@ -13,11 +13,13 @@ package com.mcortes.authcoremc.security;
  */
 public final class UserAgentParser {
 
+    private static final String UNKNOWN = "Desconocido";
+
     private UserAgentParser() {}
 
     public static String browser(String userAgent) {
         if (userAgent == null || userAgent.isBlank()) {
-            return "Desconocido";
+            return UNKNOWN;
         }
         // Orden importa: Edge/Chrome incluyen "Safari" en su UA; OPR antes que Chrome.
         if (userAgent.contains("OPR/") || userAgent.contains("Opera")) {
@@ -35,12 +37,12 @@ public final class UserAgentParser {
         if (userAgent.contains("Safari/") && !userAgent.contains("Chrome/")) {
             return "Safari";
         }
-        return "Desconocido";
+        return UNKNOWN;
     }
 
     public static String os(String userAgent) {
         if (userAgent == null || userAgent.isBlank()) {
-            return "Desconocido";
+            return UNKNOWN;
         }
         if (userAgent.contains("iPhone") || userAgent.contains("iPad")) {
             return "iOS";
@@ -57,6 +59,6 @@ public final class UserAgentParser {
         if (userAgent.contains("Linux")) {
             return "Linux";
         }
-        return "Desconocido";
+        return UNKNOWN;
     }
 }

@@ -72,12 +72,17 @@ public class DirectTokenService {
     /** Sin `userAgent` -- preserva el comportamiento histórico para callers/tests que no lo tienen a mano (ver {@link #issueTokens(IdentityClient, User, String)}). */
     @Transactional
     public TokenPair issueTokens(IdentityClient client, User user) {
-        return issueTokens(client, user, null);
+        return doIssueTokens(client, user, null);
     }
 
     /** Ticket 062 -- {@code userAgent} (header `User-Agent` del request real de login/2FA-verify, nullable) queda registrado en `refresh_token` para "Sesiones activas". */
     @Transactional
     public TokenPair issueTokens(IdentityClient client, User user, String userAgent) {
+        return doIssueTokens(client, user, userAgent);
+    }
+
+    /** Cuerpo real compartido por ambos overloads -- deliberadamente sin `@Transactional` propio: un método privado no pasa por el proxy de Spring de todas formas, y evita el auto-invocación entre métodos `@Transactional` públicos de la misma clase (java:S6809) que tener uno llamar al otro vía `this` causaría. */
+    private TokenPair doIssueTokens(IdentityClient client, User user, String userAgent) {
         if (!client.isFirstParty()) {
             throw new NotFirstPartyClientException();
         }
