@@ -1,6 +1,7 @@
 package com.mcortes.authcoremc.web;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -108,7 +109,7 @@ class TwoFactorLoginControllerTest {
         when(redisTokenStore.consume(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
                 .thenReturn(Optional.of("acme-web-app::" + user.getId()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(directTokenService.issueTokens(firstPartyClient, user))
+        when(directTokenService.issueTokens(eq(firstPartyClient), eq(user), any()))
                 .thenReturn(new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900));
 
         mvc.post()
@@ -137,7 +138,7 @@ class TwoFactorLoginControllerTest {
         when(redisTokenStore.consume(LoginCompletionService.PENDING_2FA_PURPOSE, "pending-token-abc"))
                 .thenReturn(Optional.of("acme-web-app::" + user.getId()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(directTokenService.issueTokens(firstPartyClient, user))
+        when(directTokenService.issueTokens(eq(firstPartyClient), eq(user), any()))
                 .thenReturn(new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900));
 
         mvc.post()
@@ -174,7 +175,7 @@ class TwoFactorLoginControllerTest {
                 .contains("invalid_token");
 
         verify(userRepository, never()).findById(any());
-        verify(directTokenService, never()).issueTokens(any(), any());
+        verify(directTokenService, never()).issueTokens(any(), any(), any());
     }
 
     @Test
@@ -224,7 +225,7 @@ class TwoFactorLoginControllerTest {
                 .bodyText()
                 .contains("invalid_token");
 
-        verify(directTokenService, never()).issueTokens(any(), any());
+        verify(directTokenService, never()).issueTokens(any(), any(), any());
     }
 
     @Test

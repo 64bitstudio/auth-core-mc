@@ -1,6 +1,7 @@
 package com.mcortes.authcoremc.web;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -99,7 +100,7 @@ class SocialExchangeControllerTest {
         when(redisTokenStore.consume(SocialLoginSuccessHandler.EXCHANGE_PURPOSE, "one-time-code"))
                 .thenReturn(Optional.of(user.getId().toString()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(loginCompletionService.complete(firstPartyClient, user))
+        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any()))
                 .thenReturn(LoginCompletionResult.completed(
                         user, new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900)));
 
@@ -135,7 +136,7 @@ class SocialExchangeControllerTest {
         when(redisTokenStore.consume(SocialLoginSuccessHandler.EXCHANGE_PURPOSE, "one-time-code"))
                 .thenReturn(Optional.of(user.getId().toString()));
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
-        when(loginCompletionService.complete(firstPartyClient, user))
+        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any()))
                 .thenReturn(LoginCompletionResult.twoFactorRequired("pending-token-abc", TwoFactorMethod.OTP_EMAIL));
 
         mvc.post()

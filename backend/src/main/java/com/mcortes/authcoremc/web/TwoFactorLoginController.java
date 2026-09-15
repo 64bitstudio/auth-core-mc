@@ -86,7 +86,9 @@ public class TwoFactorLoginController {
 
     @PostMapping("/2fa-verify")
     public ResponseEntity<LoginResponse> verify(
-            @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody TwoFactorVerifyRequest request) {
+            @RequestHeader("X-Client-Id") String clientId,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent,
+            @Valid @RequestBody TwoFactorVerifyRequest request) {
         String value = redisTokenStore
                 .consume(LoginCompletionService.PENDING_2FA_PURPOSE, request.pendingToken())
                 .orElseThrow(TwoFactorLoginController::invalidPendingToken);
@@ -98,7 +100,7 @@ public class TwoFactorLoginController {
 
         verifyCode(user, request.code());
 
-        TokenPair tokens = directTokenService.issueTokens(client, user);
+        TokenPair tokens = directTokenService.issueTokens(client, user, userAgent);
         return ResponseEntity.ok(new LoginResponse(UserResponse.from(user), tokens));
     }
 

@@ -69,8 +69,15 @@ public class DirectTokenService {
         this.refreshTokenRepository = refreshTokenRepository;
     }
 
+    /** Sin `userAgent` -- preserva el comportamiento histórico para callers/tests que no lo tienen a mano (ver {@link #issueTokens(IdentityClient, User, String)}). */
     @Transactional
     public TokenPair issueTokens(IdentityClient client, User user) {
+        return issueTokens(client, user, null);
+    }
+
+    /** Ticket 062 -- {@code userAgent} (header `User-Agent` del request real de login/2FA-verify, nullable) queda registrado en `refresh_token` para "Sesiones activas". */
+    @Transactional
+    public TokenPair issueTokens(IdentityClient client, User user, String userAgent) {
         if (!client.isFirstParty()) {
             throw new NotFirstPartyClientException();
         }
@@ -82,7 +89,7 @@ public class DirectTokenService {
         Instant expiresAt = Instant.now().plusSeconds(
                 registeredClient.getTokenSettings().getRefreshTokenTimeToLive().getSeconds());
         refreshTokenRepository.save(
-                new RefreshToken(user, client, TokenHasher.sha256(rawRefreshToken), expiresAt));
+                new RefreshToken(user, client, TokenHasher.sha256(rawRefreshToken), expiresAt, userAgent));
 
         long expiresInSeconds = registeredClient.getTokenSettings().getAccessTokenTimeToLive().getSeconds();
         return new TokenPair(accessToken.getTokenValue(), rawRefreshToken, "Bearer", expiresInSeconds);
@@ -100,6 +107,10 @@ public class DirectTokenService {
                 registeredClientRepository.findByClientId(stored.getClient().getClientId());
         Jwt accessToken = generateAccessToken(registeredClient, stored.getUser());
         long expiresInSeconds = registeredClient.getTokenSettings().getAccessTokenTimeToLive().getSeconds();
+
+        // Ticket 062 -- "última actividad" de esta sesión para "Sesiones activas".
+        stored.touch();
+        refreshTokenRepository.save(stored);
 
         // The refresh token itself is not rotated (TokenSettings.reuseRefreshTokens
         // is effectively true for this direct-grant path) — a simplification;

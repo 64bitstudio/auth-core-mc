@@ -42,16 +42,35 @@ public class RefreshToken {
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
+    /** Ticket 062 -- "Sesiones activas" (Mi Perfil, galgoth-studio). {@code userAgent} nullable (capturado solo cuando el caller lo tiene a mano). */
+    @Column(name = "user_agent")
+    private String userAgent;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @Column(name = "last_used_at", nullable = false)
+    private Instant lastUsedAt;
+
     protected RefreshToken() {
         // JPA
     }
 
+    /** Constructor histórico (ticket 001) -- sigue sin exigir `userAgent` para no romper los callers/tests que ya existían antes del ticket 062. */
     public RefreshToken(User user, IdentityClient client, String tokenHash, Instant expiresAt) {
+        this(user, client, tokenHash, expiresAt, null);
+    }
+
+    public RefreshToken(User user, IdentityClient client, String tokenHash, Instant expiresAt, String userAgent) {
         this.user = user;
         this.client = client;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
         this.revoked = false;
+        this.userAgent = userAgent;
+        Instant now = Instant.now();
+        this.createdAt = now;
+        this.lastUsedAt = now;
     }
 
     public UUID getId() {
@@ -78,7 +97,24 @@ public class RefreshToken {
         return expiresAt;
     }
 
+    public String getUserAgent() {
+        return userAgent;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getLastUsedAt() {
+        return lastUsedAt;
+    }
+
     public void revoke() {
         this.revoked = true;
+    }
+
+    /** Ticket 062 -- se llama en cada `POST /api/v1/token/refresh` exitoso sobre este token. */
+    public void touch() {
+        this.lastUsedAt = Instant.now();
     }
 }

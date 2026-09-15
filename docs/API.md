@@ -155,6 +155,27 @@ El correo **no** se edita acá — sigue el flujo de 2 pasos ya existente
 (`/api/v1/change-email/request` + `/confirm`, ver arriba). `UserResponse`
 gana los campos `country`/`username` desde este ticket.
 
+## Sesiones activas (ticket `062`, "Mi Perfil" de galgoth-studio)
+`refresh_token` gana `user_agent`/`created_at`/`last_used_at` — capturados
+en `POST /api/v1/login`, `/api/v1/oauth2/social-exchange` y
+`/api/v1/login/2fa-verify` (los 3 puntos reales donde se emite un refresh
+token), y actualizados (`last_used_at`) en cada
+`POST /api/v1/token/refresh` exitoso. Sin geolocalización de IP (decisión
+de Marco) — solo navegador/sistema operativo, parseados del `User-Agent`
+crudo en el momento de leer.
+
+"Actual" (cuál sesión es la que hace la request) se determina mandando el
+refresh token crudo que el frontend ya tiene guardado en el header
+opcional `X-Current-Refresh-Token` — el JWT de acceso no lleva ninguna
+referencia a qué refresh token lo emitió, así que sin este header ninguna
+fila se marca como actual (la lista sigue funcionando igual).
+
+| Método | Ruta | Qué recibe | Qué responde |
+|---|---|---|---|
+| GET | `/api/v1/account/sessions` | Header `Authorization: Bearer <accessToken>`; opcional `X-Current-Refresh-Token: <refreshToken>` | `200` + lista de `SessionSummary` (id, browser, os, createdAt, lastUsedAt, current), más recientes primero. Solo sesiones no revocadas y no expiradas. |
+| DELETE | `/api/v1/account/sessions/{id}` | Header `Authorization: Bearer <accessToken>` | `204`, o `404 session_not_found` si no existe o no pertenece al usuario autenticado (nunca se distingue cuál de las dos) |
+| POST | `/api/v1/account/sessions/revoke-others` | Header `Authorization: Bearer <accessToken>`; opcional `X-Current-Refresh-Token: <refreshToken>` | `204` — revoca todas las sesiones del usuario excepto la que coincide con el header (sin el header, revoca todas) |
+
 ## Configuración de login social por tenant (ticket `006`)
 Requiere autenticación (ver advertencia arriba). Header `X-Client-Id` (no un `tenantId` en la ruta — el tenant siempre es el que resuelve el header, así un cliente nunca puede tocar la configuración de otro).
 

@@ -81,7 +81,9 @@ public class SocialExchangeController {
 
     @PostMapping("/social-exchange")
     public ResponseEntity<Object> exchange(
-            @RequestHeader("X-Client-Id") String clientId, @Valid @RequestBody SocialExchangeRequest request) {
+            @RequestHeader("X-Client-Id") String clientId,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent,
+            @Valid @RequestBody SocialExchangeRequest request) {
         IdentityClient client = clientContextResolver.resolveClient(clientId);
         if (!client.isFirstParty()) {
             // Checked before consuming the code (not left to DirectTokenService's
@@ -104,7 +106,7 @@ public class SocialExchangeController {
             throw invalidCode();
         }
 
-        LoginCompletionResult result = loginCompletionService.complete(client, user);
+        LoginCompletionResult result = loginCompletionService.complete(client, user, userAgent);
         if (result.twoFactorRequired()) {
             return ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(new TwoFactorRequiredResponse(result.pendingToken(), result.method()));
