@@ -36,6 +36,13 @@ class CorsConfigTest {
                 .containsExactly("https://a.example.com", "https://b.example.com", "https://c.example.com");
     }
 
+    /** Ticket 093 de galgoth-studio -- hallazgo real: faltaba en el allowlist, ver docstring de {@link CorsConfig}. */
+    @Test
+    void theAllowlistIncludesTheCurrentRefreshTokenHeaderUsedByListSessions() {
+        CorsConfiguration config = configurationFor("https://a.example.com");
+        assertThat(config.getAllowedHeaders()).contains("X-Current-Refresh-Token");
+    }
+
     @Test
     void onlyApiV1PathsGetAConfiguration() {
         CorsConfigurationSource source = new CorsConfig("https://a.example.com").corsConfigurationSource();
