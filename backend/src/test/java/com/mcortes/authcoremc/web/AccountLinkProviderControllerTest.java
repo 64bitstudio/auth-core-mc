@@ -1,5 +1,6 @@
 package com.mcortes.authcoremc.web;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -120,6 +121,49 @@ class AccountLinkProviderControllerTest {
     void isRejectedWithoutAValidBearerToken() throws Exception {
         mvc.perform(get("/api/v1/account/connected-providers")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/account/link-provider/google")).andExpect(status().isUnauthorized());
+    }
+
+    // Ticket 069 -- hallazgo real de galgoth-studio#079: el menú "···" del mockup no tenía ninguna acción real detrás.
+    @Test
+    void unlinkingARealConnectedProviderRemovesItAndReflectsInListConnected() throws Exception {
+        User user = userRepository.save(new User(
+                firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        externalIdentityRepository.save(
+                new ExternalIdentity(firstPartyClient.getTenant(), user, IdentityProviderType.GOOGLE, "google-sub-1"));
+        String accessToken = mintTokenFor(user);
+
+        mvc.perform(delete("/api/v1/account/connected-providers/google")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(get("/api/v1/account/connected-providers").header("Authorization", "Bearer " + accessToken))
+                .andExpect(jsonPath("$[?(@.provider == 'GOOGLE')].linked", org.hamcrest.Matchers.contains(false)));
+    }
+
+    @Test
+    void unlinkingAProviderNeverLinkedIsRejected() throws Exception {
+        User user = userRepository.save(new User(
+                firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
+        String accessToken = mintTokenFor(user);
+
+        mvc.perform(delete("/api/v1/account/connected-providers/google")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNotFound());
+    }
+
+    /** {@code passwordHash} null -- cuenta social-only -- ver {@code CannotUnlinkLastLoginMethodException}. */
+    @Test
+    void aSocialOnlyUserCannotUnlinkTheirOnlyProvider() throws Exception {
+        User user = userRepository.save(new User(
+                firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", null));
+        externalIdentityRepository.save(
+                new ExternalIdentity(firstPartyClient.getTenant(), user, IdentityProviderType.GOOGLE, "google-sub-1"));
+        String accessToken = mintTokenFor(user);
+
+        mvc.perform(delete("/api/v1/account/connected-providers/google")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("cannot_unlink_last_login_method"));
     }
 
     private String mintTokenFor(User user) {
