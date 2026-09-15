@@ -1,5 +1,6 @@
 package com.mcortes.authcoremc.security;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,6 +42,27 @@ class CorsConfigurationIntegrationTest {
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,x-client-id"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN));
+    }
+
+    /**
+     * Ticket 093 de galgoth-studio, hallazgo real de verificación en vivo:
+     * este preflight exacto fallaba antes del fix (Chrome bloqueaba
+     * {@code GET /api/v1/account/sessions} con "Failed to fetch" porque
+     * {@code Access-Control-Allow-Headers} nunca incluía este header, ver
+     * docstring de {@link CorsConfig}).
+     */
+    @Test
+    void aRealPreflightForListSessionsGetsTheCurrentRefreshTokenHeaderAllowed() throws Exception {
+        mvc.perform(options("/api/v1/account/sessions")
+                        .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, HttpMethod.GET.name())
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,x-current-refresh-token"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, ALLOWED_ORIGIN))
+                .andExpect(result -> {
+                    String allowHeaders = result.getResponse().getHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS);
+                    assertThat(allowHeaders).containsIgnoringCase("x-current-refresh-token");
+                });
     }
 
     /**

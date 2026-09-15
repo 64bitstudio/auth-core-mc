@@ -26,6 +26,15 @@ import org.springframework.web.cors.CorsConfigurationSource;
  * default (fail closed, same convention as {@code BreakGlassService}'s
  * {@code allowed-ips}) — no existing deployment behavior changes until an
  * operator sets {@code CORS_ALLOWED_ORIGINS} explicitly.
+ *
+ * <p>Hallazgo real (galgoth-studio ticket 093, verificación en vivo):
+ * {@code X-Current-Refresh-Token} (ticket 062, {@code AccountSessionsController})
+ * nunca se agregó aquí — nadie lo había llamado antes desde un navegador
+ * cruzando origen (las pruebas de backend no pasan por CORS, y hasta
+ * ticket 093 ningún cliente externo consumía {@code listSessions}). El
+ * preflight real lo confirmó: {@code Access-Control-Allow-Headers} solo
+ * traía {@code authorization, content-type}, así que Chrome bloqueaba la
+ * request real con "Failed to fetch" antes de que llegara al backend.
  */
 @Configuration
 public class CorsConfig {
@@ -46,7 +55,7 @@ public class CorsConfig {
         // disabled for this mapping", not "allow everything".
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH"));
-        configuration.setAllowedHeaders(List.of("Content-Type", "X-Client-Id", "Authorization"));
+        configuration.setAllowedHeaders(List.of("Content-Type", "X-Client-Id", "Authorization", "X-Current-Refresh-Token"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/v1/**", configuration);
