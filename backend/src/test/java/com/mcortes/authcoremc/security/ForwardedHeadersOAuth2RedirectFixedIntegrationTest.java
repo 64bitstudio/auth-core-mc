@@ -84,7 +84,7 @@ class ForwardedHeadersOAuth2RedirectFixedIntegrationTest {
         return client;
     }
 
-    private static String extractRedirectUri(MvcResult result) throws Exception {
+    private static String extractRedirectUri(MvcResult result) {
         String location = result.getResponse().getHeader("Location");
         assertThat(location).isNotNull();
         String marker = "redirect_uri=";
