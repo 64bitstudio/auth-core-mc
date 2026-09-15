@@ -71,11 +71,11 @@ public class GeoIpService {
                 return Optional.empty();
             }
             return Optional.of(new GeoLocation(city, country));
-        } catch (AddressNotFoundException _) {
-            // IP privada/reservada (dev local, VPN interna) o simplemente no
-            // está en la base de datos -- no es un error, es "sin ubicación".
-            return Optional.empty();
-        } catch (UnknownHostException _) {
+        } catch (AddressNotFoundException | UnknownHostException _) {
+            // IP privada/reservada (dev local, VPN interna), no resoluble
+            // (UnknownHostException) o simplemente no está en la base de
+            // datos (AddressNotFoundException) -- no es un error, es "sin
+            // ubicación".
             return Optional.empty();
         } catch (IOException | GeoIp2Exception e) {
             log.warn("GeoIP lookup failed for an IP, continuing without location", e);
