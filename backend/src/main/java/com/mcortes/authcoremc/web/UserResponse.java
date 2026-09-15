@@ -1,6 +1,7 @@
 package com.mcortes.authcoremc.web;
 
 import com.mcortes.authcoremc.domain.User;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -9,6 +10,10 @@ import java.util.UUID;
  * derived from {@code password_hash != null} — safe to expose, and what
  * `/ui/cuenta` uses to decide whether to offer "Establecer contraseña"
  * (only for a social-only account) instead of leaking the hash itself.
+ *
+ * <p>Ticket 065 — {@code createdAt}: needed by galgoth-studio's ticket
+ * 093 ("Pantalla Usuario", "Miembro desde"). Purely additive, no existing
+ * consumer of this record is affected.
  */
 public record UserResponse(
         UUID id,
@@ -20,7 +25,8 @@ public record UserResponse(
         boolean phoneVerified,
         boolean hasPassword,
         String country,
-        String username) {
+        String username,
+        Instant createdAt) {
 
     public static UserResponse from(User user) {
         return new UserResponse(
@@ -33,6 +39,7 @@ public record UserResponse(
                 user.isPhoneVerified(),
                 user.getPasswordHash() != null,
                 user.getCountry(),
-                user.getUsername());
+                user.getUsername(),
+                user.getCreatedAt());
     }
 }

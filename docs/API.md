@@ -153,7 +153,9 @@ Mismo criterio de autenticación que `/api/v1/account/password` (Bearer real, `u
 
 El correo **no** se edita acá — sigue el flujo de 2 pasos ya existente
 (`/api/v1/change-email/request` + `/confirm`, ver arriba). `UserResponse`
-gana los campos `country`/`username` desde este ticket.
+gana los campos `country`/`username` desde este ticket, y `createdAt`
+desde el ticket `065` ("Miembro desde", pantalla Usuario de
+galgoth-studio, ticket `093`).
 
 ## Sesiones activas (ticket `062`, "Mi Perfil" de galgoth-studio)
 `refresh_token` gana `user_agent`/`created_at`/`last_used_at` — capturados

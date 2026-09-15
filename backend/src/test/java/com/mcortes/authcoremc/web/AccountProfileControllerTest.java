@@ -70,6 +70,17 @@ class AccountProfileControllerTest {
                 .andExpect(jsonPath("$.username").doesNotExist());
     }
 
+    // Ticket 065 -- "Miembro desde" en la pantalla Usuario de galgoth-studio (ticket 093).
+    @Test
+    void getProfileIncludesCreatedAt() throws Exception {
+        User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", null));
+        String accessToken = mintTokenFor(user);
+
+        mvc.perform(get("/api/v1/account/profile").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.createdAt").exists());
+    }
+
     @Test
     void updatingProfileWithValidDataPersistsAndReflectsInSubsequentGet() throws Exception {
         User user = userRepository.save(new User(firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", null));
