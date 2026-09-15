@@ -9,6 +9,7 @@ import com.mcortes.authcoremc.service.LoginCompletionResult;
 import com.mcortes.authcoremc.service.LoginCompletionService;
 import com.mcortes.authcoremc.service.LoginEventRecorder;
 import com.mcortes.authcoremc.service.NotFirstPartyClientException;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -75,7 +76,8 @@ public class AuthController {
     public ResponseEntity<Object> login(
             @RequestHeader("X-Client-Id") String clientId,
             @RequestHeader(value = "User-Agent", required = false) String userAgent,
-            @Valid @RequestBody LoginRequest request) {
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest servletRequest) {
         IdentityClient client = clientContextResolver.resolveClient(clientId);
         if (!client.isFirstParty()) {
             throw new NotFirstPartyClientException();
@@ -92,7 +94,13 @@ public class AuthController {
         }
         loginEventRecorder.recordSuccess(tenant, user, PASSWORD_PROVIDER, System.currentTimeMillis() - startedAt);
 
-        LoginCompletionResult result = loginCompletionService.complete(client, user, userAgent);
+        // Ticket 070 -- geolocalización de "Sesiones activas". `getRemoteAddr()`
+        // ya refleja la IP real del cliente (no la de Traefik puertas adentro)
+        // gracias a `server.forward-headers-strategy=native` (ver
+        // application-deploy.properties; reemplaza el `framework` del ticket
+        // 068, que solo resolvía esquema/host, nunca la IP remota).
+        LoginCompletionResult result =
+                loginCompletionService.complete(client, user, userAgent, servletRequest.getRemoteAddr());
         if (result.twoFactorRequired()) {
             return ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(new TwoFactorRequiredResponse(result.pendingToken(), result.method()));

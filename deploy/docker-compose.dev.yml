@@ -59,6 +59,13 @@ services:
       BREAKGLASS_SECRET: ${BREAKGLASS_SECRET:-}
       BREAKGLASS_TOTP_SECRET: ${BREAKGLASS_TOTP_SECRET:-}
       BREAKGLASS_ALLOWED_IPS: ${BREAKGLASS_ALLOWED_IPS:-}
+      # Ticket 070: geolocalización de "Sesiones activas" -- lee de un
+      # volumen compartido con el sidecar `geoipupdate` de abajo (que es
+      # quien de verdad descarga/actualiza el archivo). Este backend
+      # nunca llama a MaxMind directamente.
+      GEOIP_DATABASE_PATH: /data/geoip/GeoLite2-City.mmdb
+    volumes:
+      - auth_core_mc_dev_geoip:/data/geoip:ro
     ports:
       - "8081:8080"
     networks:
@@ -119,6 +126,32 @@ services:
       timeout: 5s
       retries: 10
 
+  # Ticket 070: descarga/actualiza GeoLite2-City.mmdb en el volumen
+  # compartido con `app` -- imagen oficial de MaxMind, nunca reimplementada
+  # a mano (protocolo de descarga real con auth/reintentos/verificación de
+  # integridad, mejor dejarlo al binario que MaxMind mantiene).
+  # MAXMIND_ACCOUNT_ID/MAXMIND_LICENSE_KEY deliberadamente CON default
+  # vacío (a diferencia de DB_PASSWORD) -- geolocalización es un campo
+  # opcional (ver GeoIpService), nunca debe poder tumbar el resto del
+  # stack: un `:?falta` aquí abortaría el `docker compose up` COMPLETO
+  # (postgres/redis/app incluidos), no solo este servicio. Sin
+  # credenciales, este contenedor sí falla/reintenta en crashloop
+  # (comportamiento propio de la imagen) -- `restart: on-failure` evita
+  # que eso tumbe nada más, y el resto del backend sigue funcionando
+  # igual, sin geolocalización.
+  geoipupdate:
+    image: ghcr.io/maxmind/geoipupdate:v8.0.0
+    restart: on-failure
+    environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID:-}
+      GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+      GEOIPUPDATE_EDITION_IDS: GeoLite2-City
+      # Una vez por semana -- GeoLite2 se actualiza semanalmente del lado
+      # de MaxMind, no tiene caso pedir más seguido.
+      GEOIPUPDATE_FREQUENCY: "168"
+    volumes:
+      - auth_core_mc_dev_geoip:/usr/share/GeoIP
+
 networks:
   edge:
     external: true
@@ -128,3 +161,4 @@ networks:
 volumes:
   auth_core_mc_dev_pgdata:
   auth_core_mc_dev_redisdata:
+  auth_core_mc_dev_geoip:

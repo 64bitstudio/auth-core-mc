@@ -81,7 +81,7 @@ class AuthControllerTest {
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "argon2-hash");
         when(authenticationService.authenticate(eq(tenant), eq("ada@example.com"), eq("abcd1234")))
                 .thenReturn(user);
-        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any()))
+        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any(), any()))
                 .thenReturn(LoginCompletionResult.completed(
                         user, new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900)));
 
@@ -114,7 +114,7 @@ class AuthControllerTest {
         when(clientContextResolver.resolveClient("acme-web-app")).thenReturn(firstPartyClient);
         User user = new User(tenant, "ada@example.com", null, "Ada", "Lovelace", "argon2-hash");
         when(authenticationService.authenticate(tenant, "ada@example.com", "abcd1234")).thenReturn(user);
-        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any()))
+        when(loginCompletionService.complete(eq(firstPartyClient), eq(user), any(), any()))
                 .thenReturn(LoginCompletionResult.twoFactorRequired("pending-token-abc", TwoFactorMethod.TOTP));
 
         mvc.post()

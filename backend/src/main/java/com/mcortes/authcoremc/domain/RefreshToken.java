@@ -52,22 +52,33 @@ public class RefreshToken {
     @Column(name = "last_used_at", nullable = false)
     private Instant lastUsedAt;
 
+    /** Ticket 070 -- revierte la decisión explícita del ticket 062 de no geolocalizar. Nullable por el mismo motivo que {@code userAgent}: algunos callers/tests históricos no lo tienen a mano. Nunca se resuelve a ciudad aquí -- ver {@code GeoIpService}, resuelto en caliente al leer. */
+    @Column(name = "client_ip")
+    private String clientIp;
+
     protected RefreshToken() {
         // JPA
     }
 
-    /** Constructor histórico (ticket 001) -- sigue sin exigir `userAgent` para no romper los callers/tests que ya existían antes del ticket 062. */
+    /** Constructor histórico (ticket 001) -- sigue sin exigir `userAgent`/`clientIp` para no romper los callers/tests que ya existían antes de los tickets 062/070. */
     public RefreshToken(User user, IdentityClient client, String tokenHash, Instant expiresAt) {
-        this(user, client, tokenHash, expiresAt, null);
+        this(user, client, tokenHash, expiresAt, null, null);
     }
 
+    /** Constructor del ticket 062 -- sigue sin exigir `clientIp` para no romper los callers/tests que ya existían antes del ticket 070. */
     public RefreshToken(User user, IdentityClient client, String tokenHash, Instant expiresAt, String userAgent) {
+        this(user, client, tokenHash, expiresAt, userAgent, null);
+    }
+
+    public RefreshToken(
+            User user, IdentityClient client, String tokenHash, Instant expiresAt, String userAgent, String clientIp) {
         this.user = user;
         this.client = client;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
         this.revoked = false;
         this.userAgent = userAgent;
+        this.clientIp = clientIp;
         Instant now = Instant.now();
         this.createdAt = now;
         this.lastUsedAt = now;
@@ -99,6 +110,10 @@ public class RefreshToken {
 
     public String getUserAgent() {
         return userAgent;
+    }
+
+    public String getClientIp() {
+        return clientIp;
     }
 
     public Instant getCreatedAt() {

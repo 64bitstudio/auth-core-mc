@@ -61,7 +61,7 @@ class LoginCompletionServiceTest {
     void mintsTokensRightAwayWhenTheUserHasNoTwoFactorMethod() {
         User user = userFixture(TwoFactorMethod.NONE);
         TokenPair tokens = new TokenPair("jwt-access-token", "opaque-refresh-token", "Bearer", 900);
-        when(directTokenService.issueTokens(eq(client), eq(user), any())).thenReturn(tokens);
+        when(directTokenService.issueTokens(eq(client), eq(user), any(), any())).thenReturn(tokens);
 
         LoginCompletionResult result = service().complete(client, user);
 
@@ -86,7 +86,7 @@ class LoginCompletionServiceTest {
         assertThat(result.method()).isEqualTo(TwoFactorMethod.TOTP);
         assertThat(result.user()).isNull();
         assertThat(result.tokens()).isNull();
-        verify(directTokenService, never()).issueTokens(any(), any(), any());
+        verify(directTokenService, never()).issueTokens(any(), any(), any(), any());
         verify(otpService, never()).requestOtp(any()); // TOTP never needs a code sent
     }
 

@@ -2,6 +2,8 @@ package com.mcortes.authcoremc.service;
 
 import com.mcortes.authcoremc.domain.RefreshToken;
 import com.mcortes.authcoremc.domain.User;
+import com.mcortes.authcoremc.geoip.GeoIpService;
+import com.mcortes.authcoremc.geoip.GeoLocation;
 import com.mcortes.authcoremc.repository.RefreshTokenRepository;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.security.TokenHasher;
@@ -9,6 +11,7 @@ import com.mcortes.authcoremc.security.UserAgentParser;
 import com.mcortes.authcoremc.web.SessionSummary;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,10 +30,13 @@ public class AccountSessionsService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final GeoIpService geoIpService;
 
-    public AccountSessionsService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository) {
+    public AccountSessionsService(
+            UserRepository userRepository, RefreshTokenRepository refreshTokenRepository, GeoIpService geoIpService) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
+        this.geoIpService = geoIpService;
     }
 
     @Transactional(readOnly = true)
@@ -71,10 +77,13 @@ public class AccountSessionsService {
 
     private SessionSummary toSummary(RefreshToken token, String currentHash) {
         boolean current = currentHash != null && currentHash.equals(token.getTokenHash());
+        Optional<GeoLocation> location = geoIpService.lookup(token.getClientIp());
         return new SessionSummary(
                 token.getId(),
                 UserAgentParser.browser(token.getUserAgent()),
                 UserAgentParser.os(token.getUserAgent()),
+                location.map(GeoLocation::city).orElse(null),
+                location.map(GeoLocation::country).orElse(null),
                 token.getCreatedAt(),
                 token.getLastUsedAt(),
                 current);

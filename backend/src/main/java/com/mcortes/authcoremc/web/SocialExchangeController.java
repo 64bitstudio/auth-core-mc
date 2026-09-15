@@ -9,6 +9,7 @@ import com.mcortes.authcoremc.service.InvalidTokenException;
 import com.mcortes.authcoremc.service.LoginCompletionResult;
 import com.mcortes.authcoremc.service.LoginCompletionService;
 import com.mcortes.authcoremc.service.NotFirstPartyClientException;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -83,7 +84,8 @@ public class SocialExchangeController {
     public ResponseEntity<Object> exchange(
             @RequestHeader("X-Client-Id") String clientId,
             @RequestHeader(value = "User-Agent", required = false) String userAgent,
-            @Valid @RequestBody SocialExchangeRequest request) {
+            @Valid @RequestBody SocialExchangeRequest request,
+            HttpServletRequest servletRequest) {
         IdentityClient client = clientContextResolver.resolveClient(clientId);
         if (!client.isFirstParty()) {
             // Checked before consuming the code (not left to DirectTokenService's
@@ -106,7 +108,9 @@ public class SocialExchangeController {
             throw invalidCode();
         }
 
-        LoginCompletionResult result = loginCompletionService.complete(client, user, userAgent);
+        // Ticket 070 -- ver docstring de AuthController.login sobre por qué getRemoteAddr() ya es confiable acá.
+        LoginCompletionResult result =
+                loginCompletionService.complete(client, user, userAgent, servletRequest.getRemoteAddr());
         if (result.twoFactorRequired()) {
             return ResponseEntity.status(HttpStatus.ACCEPTED)
                     .body(new TwoFactorRequiredResponse(result.pendingToken(), result.method()));

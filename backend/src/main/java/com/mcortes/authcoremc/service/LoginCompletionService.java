@@ -70,16 +70,22 @@ public class LoginCompletionService {
         this.otpService = otpService;
     }
 
-    /** Sin `userAgent` -- preserva el comportamiento histórico para tests que no lo tienen a mano. */
+    /** Sin `userAgent`/`clientIp` -- preserva el comportamiento histórico para tests que no los tienen a mano. */
     public LoginCompletionResult complete(IdentityClient client, User user) {
-        return complete(client, user, null);
+        return complete(client, user, null, null);
     }
 
-    /** Ticket 062 -- {@code userAgent} (nullable) es el header `User-Agent` del request de login/social-exchange real; solo se usa en la rama sin 2FA (la rama pendiente todavía no emite tokens, ver {@code TwoFactorLoginController}, que captura el suyo propio al verificar). */
+    /** Ticket 062 -- {@code userAgent} (nullable) es el header `User-Agent` del request de login/social-exchange real. Sin `clientIp` -- preserva el comportamiento histórico para tests de antes del ticket 070. */
     public LoginCompletionResult complete(IdentityClient client, User user, String userAgent) {
+        return complete(client, user, userAgent, null);
+    }
+
+    /** Ticket 070 -- {@code clientIp} (nullable) es {@code request.getRemoteAddr()} del request de login/social-exchange real; solo se usa en la rama sin 2FA (la rama pendiente todavía no emite tokens, ver {@code TwoFactorLoginController}, que captura el suyo propio al verificar). */
+    public LoginCompletionResult complete(IdentityClient client, User user, String userAgent, String clientIp) {
         TwoFactorMethod method = user.getTwoFactorMethod();
         if (method == TwoFactorMethod.NONE) {
-            return LoginCompletionResult.completed(user, directTokenService.issueTokens(client, user, userAgent));
+            return LoginCompletionResult.completed(
+                    user, directTokenService.issueTokens(client, user, userAgent, clientIp));
         }
 
         if (method == TwoFactorMethod.OTP_EMAIL || method == TwoFactorMethod.OTP_SMS) {
