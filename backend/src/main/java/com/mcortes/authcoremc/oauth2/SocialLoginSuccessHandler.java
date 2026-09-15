@@ -84,6 +84,9 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
 
     private static final String LOGIN_PATH = "/ui/login";
 
+    /** Ticket 063 -- nombre del query param de error en el redirect de vuelta al perfil tras intentar vincular un proveedor. */
+    private static final String LINK_ERROR_PARAM = "link_error";
+
     private final IdentityClientRepository identityClientRepository;
     private final SocialLoginUserResolver socialLoginUserResolver;
     private final RedisTokenStore redisTokenStore;
@@ -143,7 +146,7 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
             // HU-1: Facebook without the email permission (or, defensively,
             // an unrecognized principal type) — never invent an identifier.
             if (linkIntentUserId.isPresent()) {
-                redirectLinkOutcome(response, identityClient, "link_error", "no_email");
+                redirectLinkOutcome(response, identityClient, LINK_ERROR_PARAM, "no_email");
                 return;
             }
             long elapsed = System.currentTimeMillis() - startedAt;
@@ -219,14 +222,14 @@ public class SocialLoginSuccessHandler implements AuthenticationSuccessHandler {
         Optional<User> user = userRepository.findById(userId);
         if (user.isEmpty()) {
             // Defensivo -- la sesión sobrevivió pero el usuario ya no existe (p. ej. cuenta eliminada, ticket 064).
-            redirectLinkOutcome(response, identityClient, "link_error", "user_not_found");
+            redirectLinkOutcome(response, identityClient, LINK_ERROR_PARAM, "user_not_found");
             return;
         }
         try {
             externalIdentityLinkService.link(tenant, user.get(), provider, profile);
             redirectLinkOutcome(response, identityClient, "linked", provider.name().toLowerCase(Locale.ROOT));
-        } catch (ProviderAlreadyLinkedException e) {
-            redirectLinkOutcome(response, identityClient, "link_error", "already_linked");
+        } catch (ProviderAlreadyLinkedException _) {
+            redirectLinkOutcome(response, identityClient, LINK_ERROR_PARAM, "already_linked");
         }
     }
 

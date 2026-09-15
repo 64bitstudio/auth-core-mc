@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * galgoth-studio, HU-7/HU-8) — mismo mecanismo de auth que
  * {@link AccountProfileController}. {@code client_id} se toma del claim
  * {@code aud} del propio JWT (el mismo valor que el header {@code
- * X-Client-Id} de todo el resto del proyecto) — no hace falta que el
+ * X-Client-Id} usa en el resto del proyecto) — no hace falta que el
  * caller lo repita, ya viaja firmado en el token.
  */
 @RestController
@@ -64,7 +64,8 @@ public class AccountLinkProviderController {
             @AuthenticationPrincipal Jwt jwt, @PathVariable String provider, HttpServletRequest request) {
         IdentityProviderType providerType = parseSupportedProvider(provider);
 
-        String clientId = jwt.getAudience().isEmpty() ? null : jwt.getAudience().get(0);
+        List<String> audience = jwt.getAudience();
+        String clientId = (audience == null || audience.isEmpty()) ? null : audience.get(0);
         IdentityClient client = clientContextResolver.resolveClient(clientId);
 
         LinkIntentSession.store(request, UUID.fromString(jwt.getSubject()));
