@@ -84,8 +84,15 @@ class AccountLinkProviderControllerTest {
                 .andExpect(jsonPath("$[?(@.provider == 'FACEBOOK')].linked", org.hamcrest.Matchers.contains(false)));
     }
 
+    /**
+     * Ticket 093 de galgoth-studio, hallazgo real: la URL debe ser absoluta
+     * (mismo origen que {@code app.base-url}) -- una ruta relativa se
+     * resuelve mal desde un caller cross-origin (`window.location.href`
+     * termina navegando al origen del CALLER, no al de auth-core-mc). Ver
+     * docstring de {@link AccountLinkProviderController#linkProvider}.
+     */
     @Test
-    void linkProviderReturnsARedirectUrlForTheRealRegistrationId() throws Exception {
+    void linkProviderReturnsAnAbsoluteRedirectUrlForTheRealRegistrationId() throws Exception {
         User user = userRepository.save(new User(
                 firstPartyClient.getTenant(), "ada@example.com", null, "Ada", "Lovelace", "hash"));
         String accessToken = mintTokenFor(user);
@@ -93,7 +100,7 @@ class AccountLinkProviderControllerTest {
         mvc.perform(post("/api/v1/account/link-provider/google").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.redirectUrl")
-                        .value("/oauth2/authorization/" + firstPartyClient.getId() + "::google"));
+                        .value("http://localhost:8080/oauth2/authorization/" + firstPartyClient.getId() + "::google"));
     }
 
     @Test

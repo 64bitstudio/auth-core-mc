@@ -35,6 +35,21 @@ import org.springframework.web.cors.CorsConfigurationSource;
  * preflight real lo confirmó: {@code Access-Control-Allow-Headers} solo
  * traía {@code authorization, content-type}, así que Chrome bloqueaba la
  * request real con "Failed to fetch" antes de que llegara al backend.
+ *
+ * <p>Segundo hallazgo real, mismo ticket 093: {@code allowCredentials} —
+ * {@code POST /api/v1/account/link-provider/{provider}} (ticket 063)
+ * necesita que el navegador guarde y reenvíe la cookie de sesión de
+ * Spring ({@code LinkIntentSession}) para correlacionar "qué usuario
+ * pidió vincular" al volver del consentimiento de Google/Facebook — sin
+ * {@code Access-Control-Allow-Credentials: true} aquí (y sin {@code
+ * credentials: 'include'} del lado de `accountApi.ts`), el navegador
+ * descarta cualquier {@code Set-Cookie} de una respuesta cross-origin,
+ * sin importar qué tan bien esté configurada la cookie en sí (ver
+ * {@code server.servlet.session.cookie.same-site} en
+ * {@code application-deploy.properties}). Alcance acotado a propósito:
+ * no es "abrir credenciales a cualquiera" — sigue siendo un allowlist
+ * exacto de orígenes (nunca wildcard), lo único que cambia es que ESOS
+ * orígenes ya confiables también pueden mandar/recibir cookies.
  */
 @Configuration
 public class CorsConfig {
@@ -56,6 +71,7 @@ public class CorsConfig {
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH"));
         configuration.setAllowedHeaders(List.of("Content-Type", "X-Client-Id", "Authorization", "X-Current-Refresh-Token"));
+        configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/v1/**", configuration);

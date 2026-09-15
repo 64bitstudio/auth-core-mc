@@ -66,6 +66,21 @@ class CorsConfigurationIntegrationTest {
     }
 
     /**
+     * Ticket 093 de galgoth-studio, segundo hallazgo real -- ver docstring
+     * de {@link CorsConfig} sobre por qué {@code link-provider} necesita
+     * que el navegador guarde/reenvíe la cookie de sesión cross-origin.
+     */
+    @Test
+    void aRealPreflightGetsCredentialsAllowed() throws Exception {
+        mvc.perform(options("/api/v1/account/link-provider/google")
+                        .header(HttpHeaders.ORIGIN, ALLOWED_ORIGIN)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, HttpMethod.POST.name())
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+    }
+
+    /**
      * Not "200 without the header" — Spring Security's CorsFilter rejects
      * outright any request (preflight or not) that carries an Origin header
      * not in the allowlist, once a CorsConfigurationSource is registered for
