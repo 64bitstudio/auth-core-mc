@@ -20,3 +20,8 @@ y el resto de endpoints de cuenta.
 - Suite completa en verde.
 
 ## Hecho
+`UserResponse.java`: nuevo campo `Instant createdAt`, poblado en `.from()` vía `user.getCreatedAt()` — ya existía en `User` (auditoría desde ticket 001), solo faltaba exponerlo.
+
+Tests: +1 en `AccountProfileControllerTest` (`GET /api/v1/account/profile` incluye `createdAt`). Docs: una línea en `docs/API.md`.
+
+CI de Jenkins verde (PR #122, mergeado). Suite completa en verde. Verificado en vivo contra dev como parte de la verificación de galgoth-studio#093: el campo llega poblado con la fecha real de creación del usuario, y "Miembro desde septiembre de 2026" se renderiza correctamente en la cabecera de la Pantalla "Usuario".
