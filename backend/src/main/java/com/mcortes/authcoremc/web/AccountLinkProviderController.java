@@ -7,11 +7,9 @@ import com.mcortes.authcoremc.oauth2.LinkIntentSession;
 import com.mcortes.authcoremc.oauth2.SocialRegistrationId;
 import com.mcortes.authcoremc.repository.UserRepository;
 import com.mcortes.authcoremc.service.ExternalIdentityLinkService;
-import com.mcortes.authcoremc.service.UnsupportedProviderException;
 import com.mcortes.authcoremc.service.UserNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -82,7 +80,7 @@ public class AccountLinkProviderController {
     @PostMapping("/link-provider/{provider}")
     public LinkProviderResponse linkProvider(
             @AuthenticationPrincipal Jwt jwt, @PathVariable String provider, HttpServletRequest request) {
-        IdentityProviderType providerType = parseSupportedProvider(provider);
+        IdentityProviderType providerType = SupportedProvider.parse(provider);
 
         IdentityClient client = clientContextResolver.resolveClient(JwtAudience.firstClientId(jwt));
 
@@ -101,22 +99,9 @@ public class AccountLinkProviderController {
      */
     @DeleteMapping("/connected-providers/{provider}")
     public ResponseEntity<Void> unlinkProvider(@AuthenticationPrincipal Jwt jwt, @PathVariable String provider) {
-        IdentityProviderType providerType = parseSupportedProvider(provider);
+        IdentityProviderType providerType = SupportedProvider.parse(provider);
         User user = userRepository.findById(UUID.fromString(jwt.getSubject())).orElseThrow(UserNotFoundException::new);
         externalIdentityLinkService.unlink(user, providerType);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
-    }
-
-    private static IdentityProviderType parseSupportedProvider(String raw) {
-        IdentityProviderType provider;
-        try {
-            provider = IdentityProviderType.valueOf(raw.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException _) {
-            throw new UnsupportedProviderException("Unknown provider: " + raw);
-        }
-        if (!ExternalIdentityLinkService.isSupported(provider)) {
-            throw new UnsupportedProviderException("Linking is not available yet for provider: " + provider);
-        }
-        return provider;
     }
 }
