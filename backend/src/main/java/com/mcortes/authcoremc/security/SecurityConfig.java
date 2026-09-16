@@ -139,6 +139,12 @@ public class SecurityConfig {
                                     // que la requiere). El código de un solo uso es la única credencial
                                     // válida aquí, ver SocialExchangeController.
                                     "/api/v1/oauth2/social-exchange",
+                                    // Ticket 072: resuelve la URL de redirect de arriba para un
+                                    // visitante SIN sesión (login social por primera vez) — público por
+                                    // la misma razón que ese propio path ya lo es, ver
+                                    // SocialLoginUrlController. No revela nada que X-Client-Id (que
+                                    // cualquier caller ya manda) no revele ya.
+                                    "/api/v1/oauth2/login-url/**",
                                     // Requested by every browser on every page load — never something
                                     // to gate behind authentication.
                                     "/favicon.ico",
