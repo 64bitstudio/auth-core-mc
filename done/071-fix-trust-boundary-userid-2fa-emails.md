@@ -98,3 +98,42 @@ sostenerse en la práctica para 2 de los 3:
 - `cuenta.html` sigue funcionando de punta a punta (verificado en vivo).
 
 ## Hecho
+Implementado y mergeado en PR #131 (`fix/071-trust-boundary-userid-2fa-emails`), verificado en vivo en DEV.
+
+- `EmailChangeController`/`TwoFactorController`: usuario exclusivamente
+  del JWT verificado (`@AuthenticationPrincipal Jwt`), sin `userId` en el
+  body. `TwoFactorController` ya no depende de
+  `ClientContextResolver`/`TenantScopedUserResolver`.
+- `JwtAudience` nuevo (helper compartido, evita triplicar el parseo del
+  claim `aud` que ya usaba `AccountLinkProviderController`).
+- `SecurityConfig`: `/api/v1/2fa/**` sale de `permitAll`; `/change-email`
+  se acota a solo `/confirm`. `/verify-email/**` se queda completo,
+  intacto -- decisión explícita (ver Objetivo).
+- `TenantScopedUserResolver` sobrevive con su único caller restante
+  (`EmailVerificationController`), Javadoc actualizado para reflejar que
+  ya no es "temporal".
+- `cuenta.html`: 6 llamadas (change-email + las 5 de 2FA) migran a
+  `AuthCoreUi.callAuthenticated`; el reenvío de verificación se queda
+  igual.
+- `docs/API.md`/`docs/ARQUITECTURA.md` actualizados con el hallazgo
+  completo y la razón de por qué `verify-email` se excluyó a propósito.
+- Tests: `EmailChangeControllerTest`/`TwoFactorControllerTest`
+  reescritos como end-to-end reales (Testcontainers, JWT real vía
+  `DirectTokenService`) en vez de `@WebMvcTest` con el servicio mockeado
+  -- ese patrón anterior era exactamente el que dejaba pasar el hallazgo
+  sin que ningún test lo notara. `EmailVerificationControllerTest`
+  conserva su suite original (comportamiento sin cambio).
+- 2 hallazgos reales de Sonar en el primer CI (S1128 import sin uso,
+  S8786 regex con backtracking súper-lineal en un test) -- ambos
+  resueltos antes de mergear.
+- Suite completa: 453 tests, 0 fallos, 0 errores.
+- **Lado galgoth-studio** (PR #146 de ese repo, mergeado): `accountApi.requestEmailChange`
+  se actualizó para el nuevo contrato (sin `userId`, Bearer real);
+  `requestEmailVerification` no cambió, por diseño.
+- Verificado en vivo: deploy a DEV de auth-core-mc exitoso tras el merge
+  (commit `1a98f92`).
+
+**Pendiente, fuera de alcance de este ticket**: el leak de UUID en
+`ProjectSummary.avatarUrl` de galgoth-studio que hacía explotable la
+cadena original sigue existiendo en ese repo (documentado, recomendado
+revisar por separado) -- este ticket cerró el lado de auth-core-mc.
