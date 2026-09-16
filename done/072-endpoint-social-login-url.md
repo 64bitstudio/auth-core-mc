@@ -49,7 +49,14 @@ Implementado, tests reales en verde.
   desconocido → 401.
 - Suite completa: 457 tests, 0 fallos, 0 errores.
 
-**Pendiente, en otro repo**: el lado galgoth-studio (botones de
-Login/Register habilitados + página `/auth/callback` que canjea el
-código vía `/api/v1/oauth2/social-exchange`) queda para un ticket propio
-de ese repo -- este ticket solo cierra el lado de auth-core-mc.
+**Lado galgoth-studio**: cerrado en el ticket 107 de ese repo (PR #152,
+mergeado) -- botones de Login/Register habilitados + `/auth/callback`.
+
+**Verificado en vivo end-to-end**: clic real en "Google" desde
+`https://studio-dev.galgoth.64bitstudio.com/login` navegó al selector
+de cuentas real de Google (`accounts.google.com`), con `client_id`,
+`redirect_uri` (`.../login/oauth2/code/{identityClientId}::google`) y
+PKCE correctos -- confirma que este endpoint resuelve el
+`registrationId` real y que las credenciales de Google para el tenant
+`galgoth-studio` funcionan. Detenido ahí a propósito (nunca se completó
+el consentimiento con una cuenta real).
